@@ -20,8 +20,9 @@ public interface IOutlookEmailTool
     /// <param name="body">The email body.</param>
     /// <param name="sender">The email sender.</param>
     /// <param name="recipients">The email recipients separated by a comma or semicolon.</param>
+    /// <param name="replyTo">The optional reply-to addresses separated by a comma or semicolon.</param>
     /// <returns>Returns <see cref="OutlookEmailResult"/> instance.</returns>
-    Task<OutlookEmailResult> SendEmailAsync(string title, string body, string sender, string recipients);
+    Task<OutlookEmailResult> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default);
 }
 
 /// <summary>
@@ -34,17 +35,18 @@ public class OutlookEmailTool(IOutlookEmailService service, ILogger<OutlookEmail
 {
     /// <inheritdoc />
     [McpServerTool(Name = "send_email", Title = "Send an Email")]
-    [Description("Sends an email to recipients.")]
+    [Description("Sends an email to recipients with optional reply-to addresses.")]
     public async Task<OutlookEmailResult> SendEmailAsync(
         [Description("The email title")] string title,
         [Description("The email body")] string body,
         [Description("The email sender")] string sender,
-        [Description("The email recipients separated by a comma or semicolon")] string recipients)
+        [Description("The email recipients separated by a comma or semicolon")] string recipients,
+        [Description("Optional reply-to addresses separated by a comma or semicolon")] string? replyTo = default)
     {
         var result = new OutlookEmailResult();
         try
         {
-            var requestBody = await service.SendEmailAsync(title, body, sender, recipients).ConfigureAwait(false);
+            var requestBody = await service.SendEmailAsync(title, body, sender, recipients, replyTo).ConfigureAwait(false);
 
             logger.LogInformation("Email sent successfully to {Recipients} with subject: {Subject} from {Sender}.", recipients, title, sender);
 

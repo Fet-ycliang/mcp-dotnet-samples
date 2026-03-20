@@ -25,7 +25,7 @@ This is an MCP server that sends an email through Outlook. It also covers **auth
 
   | Building Block | Name         | Description                  | Usage         |
   |----------------|--------------|------------------------------|---------------|
-  | Tools          | `send_email` | Send an Email to recipients. | `#send_email` |
+  | Tools          | `send_email` | Send an Email to recipients with optional reply-to addresses. | `#send_email` |
 
 ## Getting Started
 

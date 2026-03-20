@@ -16,8 +16,9 @@ public interface IOutlookEmailService
     /// <param name="body">The email body.</param>
     /// <param name="sender">The email sender.</param>
     /// <param name="recipients">The email recipients separated by a comma or semicolon.</param>
+    /// <param name="replyTo">The optional reply-to addresses separated by a comma or semicolon.</param>
     /// <returns>The result of the email sending operation.</returns>
-    Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients);
+    Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default);
 }
 
 /// <summary>
@@ -28,19 +29,16 @@ public interface IOutlookEmailService
 public class OutlookEmailService(GraphServiceClient graph, ILogger<OutlookEmailService> logger) : IOutlookEmailService
 {
     /// <inheritdoc />
-    public async Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients)
+    public async Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title, nameof(title));
         ArgumentException.ThrowIfNullOrWhiteSpace(body, nameof(body));
         ArgumentException.ThrowIfNullOrWhiteSpace(sender, nameof(sender));
         ArgumentException.ThrowIfNullOrWhiteSpace(recipients, nameof(recipients));
-        var recipientList = recipients.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (recipientList.Length == 0)
-        {
-            throw new ArgumentException("At least one recipient is required", nameof(recipients));
-        }
+        var recipientList = ParseAddresses(recipients, nameof(recipients), "At least one recipient is required");
+        var replyToList = ParseAddresses(replyTo, nameof(replyTo), "At least one reply-to address is required when replyTo is provided");
 
-        var req = BuildMailRequest(title, body, recipientList);
+        var req = BuildMailRequest(title, body, recipientList, replyToList);
 
         try
         {
@@ -58,8 +56,32 @@ public class OutlookEmailService(GraphServiceClient graph, ILogger<OutlookEmailS
         return req;
     }
 
-    private static SendMailPostRequestBody BuildMailRequest(string title, string body, IEnumerable<string> recipients)
+    private static string[] ParseAddresses(string? addresses, string parameterName, string validationMessage)
     {
+        if (string.IsNullOrWhiteSpace(addresses))
+        {
+            return [];
+        }
+
+        var addressList = addresses.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (addressList.Length == 0)
+        {
+            throw new ArgumentException(validationMessage, parameterName);
+        }
+
+        return addressList;
+    }
+
+    private static SendMailPostRequestBody BuildMailRequest(string title, string body, IEnumerable<string> recipients, IEnumerable<string> replyToRecipients)
+    {
+        var replyToList = replyToRecipients.Select(r => new Recipient
+        {
+            EmailAddress = new EmailAddress
+            {
+                Address = r
+            }
+        }).ToArray();
+
         var message = new Message
         {
             Subject = title,
@@ -74,7 +96,8 @@ public class OutlookEmailService(GraphServiceClient graph, ILogger<OutlookEmailS
                 {
                     Address = r
                 }
-            })]
+            })],
+            ReplyTo = replyToList.Length > 0 ? [.. replyToList] : null
         };
 
         var req = new SendMailPostRequestBody
