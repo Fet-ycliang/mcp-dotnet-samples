@@ -3,17 +3,17 @@ using Microsoft.Graph.Users.Item.SendMail;
 namespace McpSamples.OutlookEmail.HybridApp.Models;
 
 /// <summary>
-/// This represents the result of an Outlook email operation.
+/// 表示 Outlook 電子郵件作業的結果。
 /// </summary>
 public class OutlookEmailResult
 {
     /// <summary>
-    /// Gets or sets the request body for the email.
+    /// 取得或設定電子郵件的要求本文。
     /// </summary>
     public SendMailPostRequestBody? RequestBody { get; set; }
 
     /// <summary>
-    /// Gets or sets the error message if any error occurs.
+    /// 取得或設定發生錯誤時的錯誤訊息。
     /// </summary>
     public string? ErrorMessage { get; set; }
 }

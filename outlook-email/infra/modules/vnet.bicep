@@ -46,3 +46,4 @@ output peSubnetName string = peSubnetName
 output peSubnetID string = '${virtualNetwork.outputs.resourceId}/subnets/${peSubnetName}'
 output appSubnetName string = appSubnetName
 output appSubnetID string = '${virtualNetwork.outputs.resourceId}/subnets/${appSubnetName}'
+output vnetResourceId string = virtualNetwork.outputs.resourceId

@@ -5,27 +5,81 @@ param tags object = {}
 param applicationInsightsName string = ''
 param appServicePlanId string
 param appSettings object = {}
+param graphTenantId string = ''
+param graphClientId string = ''
+@secure()
+param graphClientSecret string = ''
 param runtimeName string 
 param runtimeVersion string 
 param serviceName string = 'mcp'
 param storageAccountName string
 param deploymentStorageContainerName string
 param virtualNetworkSubnetId string = ''
+param privateEndpointSubnetResourceId string = ''
+param privateDnsZoneResourceId string = ''
 param instanceMemoryMB int = 2048
 param maximumInstanceCount int = 100
 param identityId string = ''
 param identityClientId string = ''
+param graphUseManagedIdentity bool = true
 param enableBlob bool = true
 param enableQueue bool = false
 param enableTable bool = false
 param enableFile bool = false
 param azdServiceName string
+@allowed([
+  'Enabled'
+  'Disabled'
+])
+param publicNetworkAccess string = 'Enabled'
+param disableBasicPublishingCredentials bool = false
 
 @allowed(['SystemAssigned', 'UserAssigned'])
 param identityType string = 'UserAssigned'
 
 var applicationInsightsIdentity = 'ClientId=${identityClientId};Authorization=AAD'
 var kind = 'functionapp,linux'
+var privateEndpoints = !empty(privateEndpointSubnetResourceId) && !empty(privateDnsZoneResourceId) ? [
+  {
+    subnetResourceId: privateEndpointSubnetResourceId
+    privateDnsZoneGroup: {
+      privateDnsZoneGroupConfigs: [
+        {
+          privateDnsZoneResourceId: privateDnsZoneResourceId
+        }
+      ]
+    }
+  }
+] : []
+var basicPublishingCredentialsPolicies = disableBasicPublishingCredentials ? [
+  {
+    name: 'ftp'
+    allow: false
+  }
+  {
+    name: 'scm'
+    allow: false
+  }
+] : []
+var graphAuthAppSettings = union(
+  {
+    EntraId__UseManagedIdentity: '${graphUseManagedIdentity}'
+  },
+  graphUseManagedIdentity && !empty(identityClientId) ? {
+    AZURE_CLIENT_ID: identityClientId
+  } : {}
+)
+var graphCredentialAppSettings = !graphUseManagedIdentity ? union(
+  !empty(graphTenantId) ? {
+    EntraId__TenantId: graphTenantId
+  } : {},
+  !empty(graphClientId) ? {
+    EntraId__ClientId: graphClientId
+  } : {},
+  !empty(graphClientSecret) ? {
+    EntraId__ClientSecret: graphClientSecret
+  } : {}
+) : {}
 
 // Create base application settings
 var baseAppSettings = {
@@ -77,6 +131,7 @@ module mcp 'br/public:avm/res/web/site:0.15.1' = {
         '${identityId}'
       ]
     }
+    basicPublishingCredentialsPolicies: basicPublishingCredentialsPolicies
     functionAppConfig: {
       deployment: {
         storage: {
@@ -100,11 +155,12 @@ module mcp 'br/public:avm/res/web/site:0.15.1' = {
     siteConfig: {
       alwaysOn: false
     }
+    privateEndpoints: privateEndpoints
+    publicNetworkAccess: publicNetworkAccess
     virtualNetworkSubnetId: !empty(virtualNetworkSubnetId) ? virtualNetworkSubnetId : null
     appSettingsKeyValuePairs: union(allAppSettings, {
       UseHttp: true
-      AZURE_CLIENT_ID: identityClientId
-    })
+    }, graphAuthAppSettings, graphCredentialAppSettings)
   }
 }
 

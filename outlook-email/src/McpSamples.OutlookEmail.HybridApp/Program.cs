@@ -22,7 +22,7 @@ if (useStreamableHttp == true)
     var port = Environment.GetEnvironmentVariable(Constants.AzureFunctionsCustomHandlerPortEnvironmentKey) ?? $"{Constants.DefaultAppPort}";
     (builder as WebApplicationBuilder)!.WebHost.UseUrls(string.Format(Constants.DefaultAppUrl, port));
 
-    Console.WriteLine($"Listening on port {port}");
+    Console.WriteLine($"正在監聽連接埠 {port}");
 }
 
 builder.Services.AddAppSettings<OutlookEmailAppSettings>(builder.Configuration, args);
@@ -31,17 +31,31 @@ builder.Services.AddScoped<GraphServiceClient>(sp =>
 {
     var settings = sp.GetRequiredService<OutlookEmailAppSettings>();
     var entraId = settings.EntraId;
-
-    TokenCredential credential = entraId.UseManagedIdentity
-                                   ? new ManagedIdentityCredential(ManagedIdentityId.FromUserAssignedClientId(entraId.UserAssignedClientId))
-                                   : new ClientSecretCredential(entraId.TenantId, entraId.ClientId, entraId.ClientSecret);
-
+    var credential = CreateGraphCredential(entraId);
+ 
     string[] scopes = [ Constants.DefaultScope ];
     var client = new GraphServiceClient(credential, scopes);
-
+ 
     return client;
 });
 
+static TokenCredential CreateGraphCredential(EntraIdSettings entraId)
+{
+    if (entraId.ShouldUseManagedIdentity)
+    {
+        return string.IsNullOrWhiteSpace(entraId.UserAssignedClientId)
+                   ? new ManagedIdentityCredential(new ManagedIdentityCredentialOptions())
+                   : new ManagedIdentityCredential(ManagedIdentityId.FromUserAssignedClientId(entraId.UserAssignedClientId));
+    }
+ 
+    if (!entraId.HasCompleteServicePrincipalSettings)
+    {
+        throw new InvalidOperationException("Service principal Graph auth requires EntraId:TenantId, EntraId:ClientId, and EntraId:ClientSecret. Set EntraId:UseManagedIdentity=true to use managed identity instead.");
+    }
+ 
+    return new ClientSecretCredential(entraId.TenantId, entraId.ClientId, entraId.ClientSecret);
+}
+ 
 IHost app = builder.BuildApp(useStreamableHttp);
-
+ 
 await app.RunAsync();

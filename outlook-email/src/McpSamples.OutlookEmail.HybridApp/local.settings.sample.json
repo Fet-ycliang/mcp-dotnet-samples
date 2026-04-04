@@ -9,6 +9,10 @@
     "EntraId__TenantId": "{{TENANT_ID}}",
     "EntraId__ClientId": "{{CLIENT_ID}}",
     "EntraId__ClientSecret": "{{CLIENT_SECRET}}",
-    "EntraId__UseManagedIdentity": false
+    "EntraId__UseManagedIdentity": "false",
+    "AllowedSenders__0": "shared-mailbox@contoso.com",
+    "AllowedReplyTo__0": "owner@contoso.com",
+    "MaxAttachmentCount": "10",
+    "MaxAttachmentSizeBytes": "3145728"
   }
 }

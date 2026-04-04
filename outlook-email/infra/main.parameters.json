@@ -8,11 +8,83 @@
       "location": {
         "value": "${AZURE_LOCATION}"
       },
+      "existingResourceGroupName": {
+        "value": "${AZURE_RESOURCE_GROUP_NAME=}"
+      },
+      "resourceNameStem": {
+        "value": "${AZURE_RESOURCE_NAME_STEM=}"
+      },
+      "tagCostCenter": {
+        "value": "${AZURE_TAG_COST_CENTER=3901}"
+      },
+      "tagPurpose": {
+        "value": "${AZURE_TAG_PURPOSE=ai_lab}"
+      },
+      "tagEnvType": {
+        "value": "${AZURE_TAG_ENV_TYPE=Develop}"
+      },
+      "tagWorkload": {
+        "value": "${AZURE_TAG_WORKLOAD=outlook-email}"
+      },
+      "tagService": {
+        "value": "${AZURE_TAG_SERVICE=mcp}"
+      },
+      "tagManagedBy": {
+        "value": "${AZURE_TAG_MANAGED_BY=azd}"
+      },
       "mcpOutlookEmailExists": {
         "value": "${SERVICE_OUTLOOK_EMAIL_RESOURCE_EXISTS=false}"
       },
       "principalId": {
         "value": "${AZURE_PRINCIPAL_ID}"
+      },
+      "allowUserIdentityPrincipalRbac": {
+        "value": "${AZURE_ALLOW_USER_IDENTITY_RBAC=false}"
+      },
+      "allowedSendersCsv": {
+        "value": "${MCP_ALLOWED_SENDERS_CSV=}"
+      },
+      "allowedReplyToCsv": {
+        "value": "${MCP_ALLOWED_REPLY_TO_CSV=}"
+      },
+      "graphUseManagedIdentity": {
+        "value": "${MCP_ENTRA_USE_MANAGED_IDENTITY=true}"
+      },
+      "entraTenantId": {
+        "value": "${MCP_ENTRA_TENANT_ID=}"
+      },
+      "entraClientId": {
+        "value": "${MCP_ENTRA_CLIENT_ID=}"
+      },
+      "entraClientSecret": {
+        "value": "${MCP_ENTRA_CLIENT_SECRET=}"
+      },
+      "existingVirtualNetworkName": {
+        "value": "${AZURE_EXISTING_VNET_NAME=}"
+      },
+      "integrationSubnetName": {
+        "value": "${AZURE_INTEGRATION_SUBNET_NAME=}"
+      },
+      "integrationSubnetAddressPrefix": {
+        "value": "${AZURE_INTEGRATION_SUBNET_ADDRESS_PREFIX=}"
+      },
+      "privateEndpointSubnetName": {
+        "value": "${AZURE_PRIVATE_ENDPOINT_SUBNET_NAME=}"
+      },
+      "integrationSubnetRouteTableResourceId": {
+        "value": "${AZURE_INTEGRATION_SUBNET_ROUTE_TABLE_RESOURCE_ID=}"
+      },
+      "integrationSubnetNetworkSecurityGroupResourceId": {
+        "value": "${AZURE_INTEGRATION_SUBNET_NSG_RESOURCE_ID=}"
+      },
+      "privateDnsZoneResourceGroupName": {
+        "value": "${AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME=}"
+      },
+      "deployApim": {
+        "value": "${AZURE_DEPLOY_APIM=true}"
+      },
+      "deployFunctionAppPrivateEndpoint": {
+        "value": "${AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=false}"
       }
     }
-}
+  }

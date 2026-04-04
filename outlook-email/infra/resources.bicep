@@ -4,6 +4,9 @@ param location string = resourceGroup().location
 @description('Tags that will be applied to all resources')
 param tags object = {}
 
+@description('Deterministic resource naming stem, for example fet-outlook-email-bst.')
+param resourceNameStem string
+
 param mcpOutlookEmailExists bool
 
 param vnetEnabled bool = true // Enable VNet by default
@@ -11,56 +14,192 @@ param vnetEnabled bool = true // Enable VNet by default
 @description('Id of the user or app to assign application roles')
 param principalId string
 
+@description('Whether to temporarily grant deployment user RBAC for storage and monitoring troubleshooting. Keep false in production.')
+param allowUserIdentityPrincipalRbac bool = false
+
+@description('Semicolon-separated sender allowlist that will be projected to Function App settings as AllowedSenders__N.')
+param allowedSendersCsv string = ''
+
+@description('Semicolon-separated reply-to allowlist that will be projected to Function App settings as AllowedReplyTo__N.')
+param allowedReplyToCsv string = ''
+
+@description('Whether Graph auth should use managed identity. Set false to use EntraId__TenantId / EntraId__ClientId / EntraId__ClientSecret app settings.')
+param graphUseManagedIdentity bool = true
+
+@description('Optional. Graph tenant ID when using service principal credentials from Function App app settings.')
+param entraTenantId string = ''
+
+@description('Optional. Graph client ID when using service principal credentials from Function App app settings.')
+param entraClientId string = ''
+
+@secure()
+@description('Optional. Graph client secret or Key Vault reference string when using service principal credentials from Function App app settings.')
+param entraClientSecret string = ''
+
+@description('Optional. Existing VNet name to reuse when vnetEnabled is true. Leave empty to create a new VNet.')
+param existingVirtualNetworkName string = ''
+
+@description('Optional. Name of the Flex Consumption integration subnet. When reusing an existing VNet, this subnet must not contain underscores and must be delegated to Microsoft.App/environments.')
+param integrationSubnetName string = ''
+
+@description('Optional. Address prefix to create or update the integration subnet inside an existing VNet.')
+param integrationSubnetAddressPrefix string = ''
+
+@description('Optional. Existing subnet name to host private endpoints when reusing an existing VNet.')
+param privateEndpointSubnetName string = ''
+
+@description('Optional. Route table resource ID to attach when creating the integration subnet inside an existing VNet.')
+param integrationSubnetRouteTableResourceId string = ''
+
+@description('Optional. Network security group resource ID to attach when creating the integration subnet inside an existing VNet.')
+param integrationSubnetNetworkSecurityGroupResourceId string = ''
+
+@description('Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints.')
+param privateDnsZoneResourceGroupName string = ''
+
+@description('Whether to deploy API Management and the MCP API facade.')
+param deployApim bool = true
+
+@description('Whether to create a private endpoint for the Function App and disable public network access on the app.')
+param deployFunctionAppPrivateEndpoint bool = false
+
 param azdServiceName string
 
 var abbrs = loadJsonContent('./abbreviations.json')
-var resourceToken = uniqueString(subscription().id, resourceGroup().id, location)
-var functionAppName = '${abbrs.webSitesFunctions}${resourceToken}'
-var deploymentStorageContainerName = 'app-package-${take(functionAppName, 32)}-${take(toLower(uniqueString(functionAppName, resourceToken)), 7)}'
+var normalizedStem = toLower(resourceNameStem)
+var compactStem = take(replace(normalizedStem, '-', ''), 22)
+var functionAppName = '${abbrs.webSitesFunctions}${normalizedStem}'
+var deploymentStorageContainerName = 'app-package-${normalizedStem}'
+var allowedSenders = empty(allowedSendersCsv) ? [] : split(allowedSendersCsv, ';')
+var allowedReplyTo = empty(allowedReplyToCsv) ? [] : split(allowedReplyToCsv, ';')
+var useExistingVirtualNetwork = vnetEnabled && !empty(existingVirtualNetworkName)
+var virtualNetworkName = useExistingVirtualNetwork ? existingVirtualNetworkName : '${abbrs.networkVirtualNetworks}${normalizedStem}'
+var effectiveIntegrationSubnetName = !empty(integrationSubnetName) ? integrationSubnetName : 'app'
+var effectivePrivateEndpointSubnetName = !empty(privateEndpointSubnetName) ? privateEndpointSubnetName : 'private-endpoints-subnet'
+var canDeployPrivateEndpoints = vnetEnabled && (!useExistingVirtualNetwork || !empty(privateEndpointSubnetName))
+var functionAppPrivateDnsZoneName = 'privatelink.azurewebsites.net'
+var useSharedPrivateDnsZones = !empty(privateDnsZoneResourceGroupName)
+var managedFunctionAppPrivateDnsZoneResourceId = deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints && !useSharedPrivateDnsZones ? functionAppPrivateDnsZone!.outputs.resourceId : ''
+var logAnalyticsName = '${abbrs.operationalInsightsWorkspaces}${normalizedStem}'
+var applicationInsightsName = '${abbrs.insightsComponents}${normalizedStem}'
+var applicationInsightsDashboardName = '${abbrs.portalDashboards}${normalizedStem}'
+var userAssignedIdentityName = '${abbrs.managedIdentityUserAssignedIdentities}${normalizedStem}'
+var apiManagementName = '${abbrs.apiManagementService}${normalizedStem}'
+var appServicePlanName = '${abbrs.webServerFarms}${normalizedStem}'
+var storageAccountName = '${abbrs.storageStorageAccounts}${compactStem}'
+var mcpEntraAppUniqueName = 'mcp-${normalizedStem}'
+var mcpEntraAppDisplayName = 'MCP-${normalizedStem}'
+var functionAppDnsLinkName = '${functionAppName}-sites-link'
+var allowedSenderAppSettings = reduce(
+  allowedSenders,
+  {},
+  (cur, next, i) => union(cur, {
+    'AllowedSenders__${i}': next
+  })
+)
+var allowedReplyToAppSettings = reduce(
+  allowedReplyTo,
+  {},
+  (cur, next, i) => union(cur, {
+    'AllowedReplyTo__${i}': next
+  })
+)
 
 // Monitor application with Azure Monitor
 module monitoring 'br/public:avm/ptn/azd/monitoring:0.1.0' = {
   name: 'monitoring'
   params: {
-    logAnalyticsName: '${abbrs.operationalInsightsWorkspaces}${resourceToken}'
-    applicationInsightsName: '${abbrs.insightsComponents}${resourceToken}'
-    applicationInsightsDashboardName: '${abbrs.portalDashboards}${resourceToken}'
+    logAnalyticsName: logAnalyticsName
+    applicationInsightsName: applicationInsightsName
+    applicationInsightsDashboardName: applicationInsightsDashboardName
     location: location
     tags: tags
   }
+}
+
+resource monitoringDashboard 'Microsoft.Portal/dashboards@2022-12-01-preview' existing = {
+  name: applicationInsightsDashboardName
+}
+
+resource monitoringDashboardTags 'Microsoft.Resources/tags@2021-04-01' = {
+  name: 'default'
+  scope: monitoringDashboard
+  properties: {
+    tags: tags
+  }
+  dependsOn: [
+    monitoring
+  ]
 }
 
 // User assigned identity
 module mcpOutlookEmailIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.2.1' = {
   name: 'mcpOutlookEmailIdentity'
   params: {
-    name: '${abbrs.managedIdentityUserAssignedIdentities}mcpoutlookemail-${resourceToken}'
+    name: userAssignedIdentityName
     location: location
     tags: tags
   }
 }
 
-// API Management
-module apimService './modules/apim.bicep' = {
-  name: 'apimService'
-  params:{
-    apiManagementName: '${abbrs.apiManagementService}${resourceToken}'
+resource existingVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-05-01' existing = if (useExistingVirtualNetwork) {
+  name: virtualNetworkName
+}
+
+resource sharedFunctionAppPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = if (useSharedPrivateDnsZones && deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints) {
+  name: functionAppPrivateDnsZoneName
+  scope: resourceGroup(privateDnsZoneResourceGroupName)
+}
+
+resource existingVirtualNetworkIntegrationSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = if (useExistingVirtualNetwork && !empty(integrationSubnetAddressPrefix) && !empty(effectiveIntegrationSubnetName)) {
+  name: effectiveIntegrationSubnetName
+  parent: existingVirtualNetwork
+  properties: {
+    addressPrefix: integrationSubnetAddressPrefix
+    delegations: [
+      {
+        name: 'flexConsumptionDelegation'
+        properties: {
+          serviceName: 'Microsoft.App/environments'
+        }
+      }
+    ]
+    routeTable: !empty(integrationSubnetRouteTableResourceId) ? {
+      id: integrationSubnetRouteTableResourceId
+    } : null
+    networkSecurityGroup: !empty(integrationSubnetNetworkSecurityGroupResourceId) ? {
+      id: integrationSubnetNetworkSecurityGroupResourceId
+    } : null
   }
 }
 
-// MCP Entra App
-module mcpEntraApp './modules/mcp-entra-app.bicep' = {
+var existingIntegrationSubnetResourceId = !empty(effectiveIntegrationSubnetName) ? resourceId('Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, effectiveIntegrationSubnetName) : ''
+var existingPrivateEndpointSubnetResourceId = !empty(effectivePrivateEndpointSubnetName) ? resourceId('Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, effectivePrivateEndpointSubnetName) : ''
+var virtualNetworkResourceId = vnetEnabled ? (useExistingVirtualNetwork ? existingVirtualNetwork.id : serviceVirtualNetwork!.outputs.vnetResourceId) : ''
+var integrationSubnetResourceId = useExistingVirtualNetwork ? existingIntegrationSubnetResourceId : (vnetEnabled ? serviceVirtualNetwork!.outputs.appSubnetID : '')
+var privateEndpointSubnetResourceId = useExistingVirtualNetwork ? (canDeployPrivateEndpoints ? existingPrivateEndpointSubnetResourceId : '') : (canDeployPrivateEndpoints ? serviceVirtualNetwork!.outputs.peSubnetID : '')
+
+// API Management
+module apimService './modules/apim.bicep' = if (deployApim) {
+  name: 'apimService'
+  params:{
+    apiManagementName: apiManagementName
+  }
+}
+
+// MCP Entra App is only required for the APIM + OAuth path.
+module mcpEntraApp './modules/mcp-entra-app.bicep' = if (deployApim) {
   name: 'mcpEntraApp'
   params: {
-    mcpAppUniqueName: 'mcp-outlookemail-${resourceToken}'
-    mcpAppDisplayName: 'MCP-OutlookEmail-${resourceToken}'
+    mcpAppUniqueName: mcpEntraAppUniqueName
+    mcpAppDisplayName: mcpEntraAppDisplayName
     userAssignedIdentityPrincipleId: mcpOutlookEmailIdentity.outputs.principalId
     functionAppName: functionAppName
   }
 }
 
 // MCP server API endpoints
-module mcpApiModule './modules/mcp-api.bicep' = {
+module mcpApiModule './modules/mcp-api.bicep' = if (deployApim) {
   name: 'mcpApiModule'
   params: {
     apimServiceName: apimService.outputs.name
@@ -69,9 +208,7 @@ module mcpApiModule './modules/mcp-api.bicep' = {
     mcpAppTenantId: mcpEntraApp.outputs.mcpAppTenantId
   }
   dependsOn: [
-    appServicePlan
     fncapp
-    storagePrivateEndpoint
   ]
 }
 
@@ -79,7 +216,7 @@ module mcpApiModule './modules/mcp-api.bicep' = {
 module appServicePlan 'br/public:avm/res/web/serverfarm:0.1.1' = {
   name: 'appServicePlan'
   params: {
-    name: '${abbrs.webServerFarms}${resourceToken}'
+    name: appServicePlanName
     sku: {
       name: 'FC1'
       tier: 'FlexConsumption'
@@ -101,7 +238,7 @@ module fncapp './modules/functionapp.bicep' = {
     applicationInsightsName: monitoring.outputs.applicationInsightsName
     appServicePlanId: appServicePlan.outputs.resourceId
     runtimeName: 'dotnet-isolated'
-    runtimeVersion: '9.0'
+    runtimeVersion: '10.0'
     storageAccountName: storage.outputs.name
     enableBlob: storageEndpointConfig.enableBlob
     enableQueue: storageEndpointConfig.enableQueue
@@ -109,8 +246,16 @@ module fncapp './modules/functionapp.bicep' = {
     deploymentStorageContainerName: deploymentStorageContainerName
     identityId: mcpOutlookEmailIdentity.outputs.resourceId
     identityClientId: mcpOutlookEmailIdentity.outputs.clientId
-    appSettings: {}
-    virtualNetworkSubnetId: vnetEnabled ? serviceVirtualNetwork!.outputs.appSubnetID : ''
+    graphUseManagedIdentity: graphUseManagedIdentity
+    graphTenantId: entraTenantId
+    graphClientId: entraClientId
+    graphClientSecret: entraClientSecret
+    appSettings: union(allowedSenderAppSettings, allowedReplyToAppSettings)
+    virtualNetworkSubnetId: integrationSubnetResourceId
+    privateEndpointSubnetResourceId: privateEndpointSubnetResourceId
+    privateDnsZoneResourceId: deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints ? (useSharedPrivateDnsZones ? sharedFunctionAppPrivateDnsZone.id : managedFunctionAppPrivateDnsZoneResourceId) : ''
+    publicNetworkAccess: deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints ? 'Disabled' : 'Enabled'
+    disableBasicPublishingCredentials: deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints
   }
 }
 
@@ -118,12 +263,12 @@ module fncapp './modules/functionapp.bicep' = {
 module storage 'br/public:avm/res/storage/storage-account:0.8.3' = {
   name: 'storage'
   params: {
-    name: '${abbrs.storageStorageAccounts}${resourceToken}'
+    name: storageAccountName
     allowBlobPublicAccess: false
     allowSharedKeyAccess: false // Disable local authentication methods as per policy
     dnsEndpointType: 'Standard'
-    publicNetworkAccess: vnetEnabled ? 'Disabled' : 'Enabled'
-    networkAcls: vnetEnabled ? {
+    publicNetworkAccess: canDeployPrivateEndpoints ? 'Disabled' : 'Enabled'
+    networkAcls: canDeployPrivateEndpoints ? {
       defaultAction: 'Deny'
       bypass: 'None'
     } : {
@@ -145,16 +290,34 @@ var storageEndpointConfig = {
   enableQueue: false  // Required for Durable Functions and MCP trigger
   enableTable: false  // Required for Durable Functions and OpenAI triggers and bindings
   enableFiles: false   // Not required, used in legacy scenarios
-  allowUserIdentityPrincipal: true   // Allow interactive user identity to access for testing and debugging
+  allowUserIdentityPrincipal: allowUserIdentityPrincipalRbac   // Opt-in only for troubleshooting; keep disabled in production
 }
 
 // Virtual Network & private endpoint to blob storage
-module serviceVirtualNetwork './modules/vnet.bicep' =  if (vnetEnabled) {
+module serviceVirtualNetwork './modules/vnet.bicep' =  if (vnetEnabled && !useExistingVirtualNetwork) {
   name: 'serviceVirtualNetwork'
   params: {
     location: location
     tags: tags
-    vNetName: '${abbrs.networkVirtualNetworks}${resourceToken}'
+    vNetName: virtualNetworkName
+  }
+}
+
+module functionAppPrivateDnsZone 'br/public:avm/res/network/private-dns-zone:0.7.1' = if (deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints && !useSharedPrivateDnsZones) {
+  name: 'function-app-private-dns-zone-deployment'
+  params: {
+    name: functionAppPrivateDnsZoneName
+    location: 'global'
+    tags: tags
+    virtualNetworkLinks: [
+      {
+        name: functionAppDnsLinkName
+        virtualNetworkResourceId: virtualNetworkResourceId
+        registrationEnabled: false
+        location: 'global'
+        tags: tags
+      }
+    ]
   }
 }
 
@@ -173,17 +336,18 @@ module rbac './modules/rbac.bicep' = {
   }
 }
 
-module storagePrivateEndpoint './modules/storage-privateendpoint.bicep' = if (vnetEnabled) {
+module storagePrivateEndpoint './modules/storage-privateendpoint.bicep' = if (canDeployPrivateEndpoints) {
   name: 'servicePrivateEndpoint'
   params: {
     location: location
     tags: tags
-    virtualNetworkName: '${abbrs.networkVirtualNetworks}${resourceToken}'
-    subnetName: vnetEnabled ? serviceVirtualNetwork!.outputs.peSubnetName : '' // Keep conditional check for safety, though module won't run if !vnetEnabled
+    virtualNetworkName: virtualNetworkName
+    subnetName: effectivePrivateEndpointSubnetName
     resourceName: storage.outputs.name
     enableBlob: storageEndpointConfig.enableBlob
     enableQueue: storageEndpointConfig.enableQueue
     enableTable: storageEndpointConfig.enableTable
+    privateDnsZoneResourceGroupName: privateDnsZoneResourceGroupName
   }
 }
 
@@ -301,6 +465,6 @@ output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = fncapp.outputs.resourceId
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = fncapp.outputs.name
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = fncapp.outputs.fqdn
 
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = apimService.outputs.id
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = apimService.outputs.name
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN string = replace(apimService.outputs.gatewayUrl, 'https://', '')
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = deployApim ? apimService.outputs.id : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = deployApim ? apimService.outputs.name : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN string = deployApim ? replace(apimService.outputs.gatewayUrl, 'https://', '') : ''

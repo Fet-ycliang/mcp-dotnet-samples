@@ -1,32 +1,32 @@
 namespace McpSamples.OutlookEmail.HybridApp;
 
 /// <summary>
-/// This represents the entity containing all the magic numbers and strings.
+/// 集中管理共用常數值。
 /// </summary>
 public class Constants
 {
     /// <summary>
-    /// The default scope for Microsoft Graph API.
+    /// Microsoft Graph API 的預設 scope。
     /// </summary>
     public const string DefaultScope = "https://graph.microsoft.com/.default";
 
     /// <summary>
-    /// The environment variable key for Azure Client ID.
+    /// Azure Client ID 的環境變數鍵值。
     /// </summary>
     public const string AzureClientIdEnvironmentKey = "AZURE_CLIENT_ID";
 
     /// <summary>
-    /// The environment variable key for Azure Functions Custom Handler Port.
+    /// Azure Functions Custom Handler Port 的環境變數鍵值。
     /// </summary>
     public const string AzureFunctionsCustomHandlerPortEnvironmentKey = "FUNCTIONS_CUSTOMHANDLER_PORT";
 
     /// <summary>
-    /// The default port for the custom handler.
+    /// Custom Handler 的預設連接埠。
     /// </summary>
     public const int DefaultAppPort = 5260;
 
     /// <summary>
-    /// The default URL for the application.
+    /// 應用程式的預設 URL。
     /// </summary>
     public const string DefaultAppUrl = "http://0.0.0.0:{0}";
 }
