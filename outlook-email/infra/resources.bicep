@@ -36,6 +36,12 @@ param entraClientId string = ''
 @description('Optional. Graph client secret or Key Vault reference string when using service principal credentials from Function App app settings.')
 param entraClientSecret string = ''
 
+@description('Optional. Existing Entra tenant ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthClientId, deployment reuses that app instead of creating a new MCP app registration.')
+param existingMcpOauthTenantId string = ''
+
+@description('Optional. Existing Entra client/application ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthTenantId, deployment reuses that app instead of creating a new MCP app registration.')
+param existingMcpOauthClientId string = ''
+
 @description('Optional. Existing VNet name to reuse when vnetEnabled is true. Leave empty to create a new VNet.')
 param existingVirtualNetworkName string = ''
 
@@ -54,11 +60,35 @@ param integrationSubnetRouteTableResourceId string = ''
 @description('Optional. Network security group resource ID to attach when creating the integration subnet inside an existing VNet.')
 param integrationSubnetNetworkSecurityGroupResourceId string = ''
 
-@description('Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints.')
+@description('Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints and internal APIM hostnames.')
 param privateDnsZoneResourceGroupName string = ''
 
 @description('Whether to deploy API Management and the MCP API facade.')
 param deployApim bool = true
+
+@description('API Management SKU for the APIM + OAuth MCP gateway path. Use Developer for dev/test cost control, and reassess before production.')
+@allowed([
+  'Developer'
+  'Basic'
+  'Basicv2'
+  'Standard'
+  'Standardv2'
+  'Premium'
+])
+param apimSku string = 'Basicv2'
+
+@description('Whether to configure the MCP API facade and OAuth app objects inside APIM. Set false to deploy APIM networking/private DNS first and defer OAuth later.')
+param deployApimMcpApi bool = true
+
+@maxLength(50)
+@description('Optional explicit API Management service name. Must use a valid APIM service name and is ignored when deployApim is false. Leave empty to use the standard derived APIM naming pattern.')
+param apimNameOverride string = ''
+
+@description('Whether to deploy API Management in internal virtual network mode. Requires an existing VNet, an APIM subnet, and private DNS planning.')
+param apimInternalVirtualNetwork bool = false
+
+@description('Optional existing subnet name for APIM when apimInternalVirtualNetwork is true. The subnet must already exist, have no delegation, and include the required NSG rules.')
+param apimSubnetName string = ''
 
 @description('Whether to create a private endpoint for the Function App and disable public network access on the app.')
 param deployFunctionAppPrivateEndpoint bool = false
@@ -73,18 +103,21 @@ var deploymentStorageContainerName = 'app-package-${normalizedStem}'
 var allowedSenders = empty(allowedSendersCsv) ? [] : split(allowedSendersCsv, ';')
 var allowedReplyTo = empty(allowedReplyToCsv) ? [] : split(allowedReplyToCsv, ';')
 var useExistingVirtualNetwork = vnetEnabled && !empty(existingVirtualNetworkName)
+var deployApimFacade = deployApim && deployApimMcpApi
+var reuseExistingMcpOauthApp = deployApimFacade && !empty(existingMcpOauthTenantId) && !empty(existingMcpOauthClientId)
 var virtualNetworkName = useExistingVirtualNetwork ? existingVirtualNetworkName : '${abbrs.networkVirtualNetworks}${normalizedStem}'
 var effectiveIntegrationSubnetName = !empty(integrationSubnetName) ? integrationSubnetName : 'app'
 var effectivePrivateEndpointSubnetName = !empty(privateEndpointSubnetName) ? privateEndpointSubnetName : 'private-endpoints-subnet'
 var canDeployPrivateEndpoints = vnetEnabled && (!useExistingVirtualNetwork || !empty(privateEndpointSubnetName))
 var functionAppPrivateDnsZoneName = 'privatelink.azurewebsites.net'
 var useSharedPrivateDnsZones = !empty(privateDnsZoneResourceGroupName)
+var deployApimInternal = deployApim && apimInternalVirtualNetwork
 var managedFunctionAppPrivateDnsZoneResourceId = deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints && !useSharedPrivateDnsZones ? functionAppPrivateDnsZone!.outputs.resourceId : ''
 var logAnalyticsName = '${abbrs.operationalInsightsWorkspaces}${normalizedStem}'
 var applicationInsightsName = '${abbrs.insightsComponents}${normalizedStem}'
 var applicationInsightsDashboardName = '${abbrs.portalDashboards}${normalizedStem}'
 var userAssignedIdentityName = '${abbrs.managedIdentityUserAssignedIdentities}${normalizedStem}'
-var apiManagementName = '${abbrs.apiManagementService}${normalizedStem}'
+var apiManagementName = !empty(apimNameOverride) ? apimNameOverride : '${abbrs.apiManagementService}${normalizedStem}'
 var appServicePlanName = '${abbrs.webServerFarms}${normalizedStem}'
 var storageAccountName = '${abbrs.storageStorageAccounts}${compactStem}'
 var mcpEntraAppUniqueName = 'mcp-${normalizedStem}'
@@ -178,34 +211,60 @@ var existingPrivateEndpointSubnetResourceId = !empty(effectivePrivateEndpointSub
 var virtualNetworkResourceId = vnetEnabled ? (useExistingVirtualNetwork ? existingVirtualNetwork.id : serviceVirtualNetwork!.outputs.vnetResourceId) : ''
 var integrationSubnetResourceId = useExistingVirtualNetwork ? existingIntegrationSubnetResourceId : (vnetEnabled ? serviceVirtualNetwork!.outputs.appSubnetID : '')
 var privateEndpointSubnetResourceId = useExistingVirtualNetwork ? (canDeployPrivateEndpoints ? existingPrivateEndpointSubnetResourceId : '') : (canDeployPrivateEndpoints ? serviceVirtualNetwork!.outputs.peSubnetID : '')
+var apimSubnetResourceId = deployApimInternal ? resourceId('Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, apimSubnetName) : ''
 
 // API Management
 module apimService './modules/apim.bicep' = if (deployApim) {
   name: 'apimService'
   params:{
     apiManagementName: apiManagementName
+    apimSku: apimSku
+    apimVirtualNetworkType: deployApimInternal ? 'Internal' : 'None'
+    apimSubnetResourceId: apimSubnetResourceId
+  }
+}
+
+module apimPrivateDns './modules/apim-private-dns.bicep' = if (deployApimInternal && !useSharedPrivateDnsZones) {
+  name: 'apimPrivateDnsManaged'
+  params: {
+    apiManagementName: apiManagementName
+    privateIpAddress: apimService.outputs.privateIpAddress
+    virtualNetworkResourceId: virtualNetworkResourceId
+    tags: tags
+  }
+}
+
+module apimPrivateDnsShared './modules/apim-private-dns.bicep' = if (deployApimInternal && useSharedPrivateDnsZones) {
+  name: 'apimPrivateDnsShared'
+  scope: resourceGroup(privateDnsZoneResourceGroupName)
+  params: {
+    apiManagementName: apiManagementName
+    privateIpAddress: apimService.outputs.privateIpAddress
+    virtualNetworkResourceId: virtualNetworkResourceId
+    tags: tags
   }
 }
 
 // MCP Entra App is only required for the APIM + OAuth path.
-module mcpEntraApp './modules/mcp-entra-app.bicep' = if (deployApim) {
+module mcpEntraApp './modules/mcp-entra-app.bicep' = if (deployApimFacade && !reuseExistingMcpOauthApp) {
   name: 'mcpEntraApp'
   params: {
     mcpAppUniqueName: mcpEntraAppUniqueName
     mcpAppDisplayName: mcpEntraAppDisplayName
     userAssignedIdentityPrincipleId: mcpOutlookEmailIdentity.outputs.principalId
     functionAppName: functionAppName
+    grantMailSendToManagedIdentity: graphUseManagedIdentity
   }
 }
 
 // MCP server API endpoints
-module mcpApiModule './modules/mcp-api.bicep' = if (deployApim) {
+module mcpApiModule './modules/mcp-api.bicep' = if (deployApimFacade) {
   name: 'mcpApiModule'
   params: {
     apimServiceName: apimService.outputs.name
     functionAppName: functionAppName
-    mcpAppId: mcpEntraApp.outputs.mcpAppId
-    mcpAppTenantId: mcpEntraApp.outputs.mcpAppTenantId
+    mcpAppId: reuseExistingMcpOauthApp ? existingMcpOauthClientId : mcpEntraApp.outputs.mcpAppId
+    mcpAppTenantId: reuseExistingMcpOauthApp ? existingMcpOauthTenantId : mcpEntraApp.outputs.mcpAppTenantId
   }
   dependsOn: [
     fncapp
@@ -217,6 +276,7 @@ module appServicePlan 'br/public:avm/res/web/serverfarm:0.1.1' = {
   name: 'appServicePlan'
   params: {
     name: appServicePlanName
+    kind: 'FunctionApp'
     sku: {
       name: 'FC1'
       tier: 'FlexConsumption'

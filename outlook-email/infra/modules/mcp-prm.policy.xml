@@ -25,7 +25,7 @@
                         "header"
                     },
                     scopes_supported = new[] {
-                        "{{McpClientId}}/user_impersonation"
+                        $"api://{{McpClientId}}/user_impersonation"
                     }
                 });
             }</set-body>

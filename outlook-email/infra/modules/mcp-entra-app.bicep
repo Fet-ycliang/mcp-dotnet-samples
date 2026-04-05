@@ -15,11 +15,14 @@ param userAssignedIdentityPrincipleId string
 @description('The web app name for callback URL configuration')
 param functionAppName string
 
+@description('Whether to grant Microsoft Graph Mail.Send application role to the user-assigned managed identity. Set false when the Function App uses service principal credentials instead.')
+param grantMailSendToManagedIdentity bool = true
+
 @description('Provide an array of Microsoft Graph scopes like "User.Read"')
-param appScopes array = ['User.Read']
+param graphAppScopes array = ['User.Read']
 
 @description('Provide an array of Microsoft Graph roles like "Mail.Send"')
-param appRoles array = ['Mail.Send']
+param graphAppRoles array = ['Mail.Send']
 
 var loginEndpoint = environment().authentication.loginEndpoint
 var issuer = '${loginEndpoint}${tenantId}/v2.0'
@@ -32,7 +35,6 @@ var msGraphAppId = graphAppId
 var vscodeAppId = 'aebc6443-996d-45c2-90f0-388ff96faa56'
 
 // Permission ID
-var delegatedUserReadPermissionId = 'e1fe6dd8-ba31-4d61-89e7-88639da4683d'
 var applicationMailSendPermissionId = 'b633e1c5-b582-4048-a93e-9f11b44c7e96'
 
 // Get the Microsoft Graph service principal so that the scope names
@@ -44,23 +46,24 @@ resource msGraphSP 'Microsoft.Graph/servicePrincipals@v1.0' existing = {
 var graphScopes = msGraphSP.oauth2PermissionScopes
 var graphRoles = msGraphSP.appRoles
 
-var scopes = map(filter(graphScopes, scope => contains(appScopes, scope.value)), scope => {
+var scopes = map(filter(graphScopes, scope => contains(graphAppScopes, scope.value)), scope => {
   id: scope.id
   type: 'Scope'
 })
-var roles = map(filter(graphRoles, role => contains(appRoles, role.value)), role => {
+var roles = map(filter(graphRoles, role => contains(graphAppRoles, role.value)), role => {
   id: role.id
   type: 'Role'
 })
 
-var permissionId = guid(mcpAppUniqueName, 'user_impersonation')
+var delegatedPermissionId = guid(mcpAppUniqueName, 'user_impersonation')
+var applicationRoleId = guid(mcpAppUniqueName, 'access_as_application')
 resource mcpEntraApp 'Microsoft.Graph/applications@v1.0' = {
   displayName: mcpAppDisplayName
   uniqueName: mcpAppUniqueName
   api: {
     oauth2PermissionScopes: [
       {
-        id: permissionId
+        id: delegatedPermissionId
         adminConsentDescription: 'Allows the application to access MCP resources on behalf of the signed-in user'
         adminConsentDisplayName: 'Access MCP resources'
         isEnabled: true
@@ -72,14 +75,26 @@ resource mcpEntraApp 'Microsoft.Graph/applications@v1.0' = {
     ]
     requestedAccessTokenVersion: 2
     preAuthorizedApplications: [
-      {
-        appId: vscodeAppId
-        delegatedPermissionIds: [
-          guid(mcpAppUniqueName, 'user_impersonation')
-        ]
-      }
-    ]
+        {
+          appId: vscodeAppId
+          delegatedPermissionIds: [
+            delegatedPermissionId
+          ]
+        }
+      ]
   }
+  appRoles: [
+    {
+      id: applicationRoleId
+      allowedMemberTypes: [
+        'Application'
+      ]
+      description: 'Allows the application to access MCP resources as itself'
+      displayName: 'Access MCP resources as the application'
+      isEnabled: true
+      value: 'access_as_application'
+    }
+  ]
   // Parameterized Microsoft Graph delegated scopes based on appScopes
   requiredResourceAccess: [
     {
@@ -114,7 +129,7 @@ resource applicationPermissionGrantForApp 'Microsoft.Graph/appRoleAssignedTo@v1.
   principalId: applicationRegistrationServicePrincipal.id
 }
 
-resource applicationPermissionGrantForUserAssignedIdentity 'Microsoft.Graph/appRoleAssignedTo@v1.0' = {
+resource applicationPermissionGrantForUserAssignedIdentity 'Microsoft.Graph/appRoleAssignedTo@v1.0' = if (grantMailSendToManagedIdentity) {
   resourceId: msGraphSP.id
   appRoleId: applicationMailSendPermissionId
   principalId: userAssignedIdentityPrincipleId
@@ -123,3 +138,4 @@ resource applicationPermissionGrantForUserAssignedIdentity 'Microsoft.Graph/appR
 // Outputs
 output mcpAppId string = mcpEntraApp.appId
 output mcpAppTenantId string = tenantId
+output mcpAppApplicationRoleValue string = 'access_as_application'

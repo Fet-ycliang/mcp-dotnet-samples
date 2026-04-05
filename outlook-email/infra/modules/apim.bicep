@@ -46,6 +46,17 @@ param appInsightsInstrumentationKey string = ''
 @description('The resource ID for Application Insights')
 param appInsightsId string = ''
 
+@description('The APIM virtual network deployment mode.')
+@allowed([
+  'None'
+  'External'
+  'Internal'
+])
+param apimVirtualNetworkType string = 'None'
+
+@description('Optional subnet resource ID used when APIM is deployed in a virtual network.')
+param apimSubnetResourceId string = ''
+
 // ------------------
 //    VARIABLES
 // ------------------
@@ -53,6 +64,15 @@ param appInsightsId string = ''
 // ------------------
 //    RESOURCES
 // ------------------
+
+var apimNetworkProperties = apimVirtualNetworkType != 'None' ? {
+  virtualNetworkType: apimVirtualNetworkType
+  virtualNetworkConfiguration: {
+    subnetResourceId: apimSubnetResourceId
+  }
+} : {
+  virtualNetworkType: 'None'
+}
 
 // https://learn.microsoft.com/azure/templates/microsoft.apimanagement/service
 resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' = {
@@ -62,10 +82,10 @@ resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' = {
     name: apimSku
     capacity: 1
   }
-  properties: {
+  properties: union({
     publisherEmail: publisherEmail
     publisherName: publisherName
-  }
+  }, apimNetworkProperties)
 }
 
 // Create a logger only if we have an App Insights ID and instrumentation key.
@@ -90,3 +110,4 @@ resource apimLogger 'Microsoft.ApiManagement/service/loggers@2021-12-01-preview'
 output id string = apimService.id
 output name string = apimService.name
 output gatewayUrl string = apimService.properties.gatewayUrl
+output privateIpAddress string = empty(apimService.properties.privateIPAddresses) ? '' : apimService.properties.privateIPAddresses[0]

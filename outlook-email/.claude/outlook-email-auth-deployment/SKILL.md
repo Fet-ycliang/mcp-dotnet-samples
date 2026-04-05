@@ -83,12 +83,76 @@ azd up
 - `MCP_ENTRA_CLIENT_ID`
 - `MCP_ENTRA_CLIENT_SECRET`
 
+若要保留 APIM + OAuth，但不讓部署流程自動建立新的 MCP app registration，可改為提供既有 app：
+
+- `MCP_OAUTH_TENANT_ID`
+- `MCP_OAUTH_CLIENT_ID`
+
+> 這組值是給 APIM inbound token 驗證用的，和上面的 `MCP_ENTRA_*`（Function App 出站呼叫 Graph）不是同一組 credential。
+>
+> 只要 `MCP_OAUTH_TENANT_ID` 與 `MCP_OAUTH_CLIENT_ID` 同時存在，部署就會重用既有 app，而不再建立 `mcpEntraApp`。
+
+若要請 administrator 補齊權限，請分開看：
+
+- **APIM inbound OAuth**
+  - 若要讓部署流程自動建立 `mcpEntraApp`，執行 `azd provision` 的身分至少要有 Microsoft Entra `Application Administrator` 或 `Cloud Application Administrator`
+  - 若不讓部署自動建立 app，則 administrator 要先提供一顆已完成 **Expose an API** 的既有 app registration，至少要同時具備：
+    - delegated scope：`user_impersonation`
+    - application role：`access_as_application`
+- **Function App 出站 sendMail**
+  - 若用 service principal：`MCP_ENTRA_CLIENT_ID` 對應的 app 需要 Microsoft Graph **Application** permission `Mail.Send`，並完成 **admin consent**
+  - 若改用 managed identity：Function App 的 user-assigned managed identity service principal 一樣需要 Microsoft Graph **Application** permission `Mail.Send`，並完成 **admin consent**
+  - 若 Exchange Online 有 **Application Access Policy / Application RBAC**，還要把寄件者 mailbox 或 mail-enabled security group 納入允許範圍
+
+> 這些是 Entra / Microsoft Graph / Exchange Online 權限，不是 Azure subscription RBAC。
+
 若 Azure 要走 managed identity：
 
 - 不要同時保留 `MCP_ENTRA_TENANT_ID` / `MCP_ENTRA_CLIENT_ID` / `MCP_ENTRA_CLIENT_SECRET`
 - 若先前曾用過 service principal，切回 managed identity 時要一併清掉這些值
 
 若 Azure 走 service principal，**優先建議把 `MCP_ENTRA_CLIENT_SECRET` 改成 Key Vault reference**；raw env var 只適合短期 bootstrap。
+
+若你要走 **APIM + OAuth** 的遠端 MCP 路徑：
+
+- 保持 `AZURE_DEPLOY_APIM=true`
+- 開發 / 測試若想先控制固定成本，可設 `AZURE_APIM_SKU=Developer`
+- 若要精準固定 APIM 名稱，可設 `AZURE_APIM_NAME=fet-mcp-apim-bst`
+- 若要把 APIM 放進 internal/private VNet mode，可再設 `AZURE_APIM_INTERNAL_VNET=true` 與 `AZURE_APIM_SUBNET_NAME=apim-subnet`
+- 若只要先落地 APIM internal/private 基礎設施，可加 `AZURE_DEPLOY_APIM_MCP_API=false`，先跳過 MCP API facade 與 OAuth app
+- 若未設定 `AZURE_APIM_SKU`，目前預設仍是 `Basicv2`
+- 若這次部署採 `AZURE_DEPLOY_APIM=false`，`AZURE_APIM_SKU` 會被忽略
+- 若這次部署採 `AZURE_DEPLOY_APIM=false`，`AZURE_APIM_NAME` 也會被忽略
+- 若未設定 `AZURE_APIM_NAME`，APIM 仍會沿用標準衍生命名
+- internal/private APIM 目前假設重用既有 VNet / subnet，且會在 `AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME` 建立 / 更新 APIM 預設 hostname 的 private DNS zone 與 A records
+- APIM subnet 的 NSG 至少要先有：
+  - Inbound `ApiManagement` -> `VirtualNetwork` TCP `3443`
+  - Inbound `AzureLoadBalancer` -> `VirtualNetwork` TCP `6390`
+- 若缺這些規則，internal APIM 常見症狀是 provisioning 長時間停在 `Activating`
+- 正式環境再回頭評估 `Basicv2` / `Standardv2` / `Premium`
+
+### APIM internal / private 快速記憶點（2026-04）
+
+- `MCP_OAUTH_*` 是 **APIM inbound OAuth**；`MCP_ENTRA_*` 或 managed identity 是 **Function App outbound Graph auth**
+- 若呼叫端是 **Copilot CLI / Claude Code**，通常走 delegated `user_impersonation`
+- 若呼叫端是 **Databricks / job / daemon / 外部平台**，應走 **OAuth Machine to Machine**，並以 `api://<MCP_OAUTH_CLIENT_ID>/.default` 取得 app-only token
+- 外部平台 UI 若出現 **Host / Port / Client ID / Client secret / OAuth scope**：
+  - Host = APIM gateway base URL（例如 `https://fet-mcp-apim-bst.azure-api.net`），不是 Entra token endpoint
+  - Port = `443`
+  - Client ID / secret = **caller client app**，不是 resource app
+  - OAuth scope = resource app 的 `.default`，不是 delegated `user_impersonation`
+- 若下一步 UI 出現 **Token endpoint / Is mcp connection / Base path**：
+  - Token endpoint = `https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/token`
+  - Is mcp connection = **checked**
+  - Base path = `/mcp`（若 Host 已經誤帶 `/mcp`，則 Base path 改成 `/`）
+- 建議為外部平台建立 **dedicated caller client app**，只指派 `access_as_application`；不要直接重用 Function App 出站打 Graph 的 app
+- 若 Databricks external MCP 的 connection overview 已經顯示 token expiration，但 `Failed to list tools` 仍發生，不要先一直改 Host / Base path；先用**同一組 caller app** 從 CLI 直接打 APIM `/mcp initialize` / `/mcp tools/list`
+- 若 CLI 直打成功、Databricks 仍失敗，而 APIM host 又解析到 private / intranet IP（這輪環境是 `172.18.78.4`），優先判定為 **Databricks managed proxy 無法 reach private APIM / private DNS**
+- 這種情況要改的是**網路可達性方案**（public/restricted facade、Databricks 可達 proxy、或 private DNS / VNet 路徑），不是反覆重填 M2M 表單
+- `AZURE_DEPLOY_APIM_MCP_API=false` 只會先落地 APIM service / private DNS 骨架，不會建立 `mcp` API facade
+- internal APIM 驗證順序建議固定為：**control plane** -> **private DNS / TCP 443** -> **`/.well-known/oauth-protected-resource`** -> **`initialize` / `tools/list`** -> **`send_email`**
+- 若 `apim-subnet` 要走 UDR，不要直接重用共用 `DG-Route-CP`；改用 APIM 專用 route table，至少保留 `ApiManagement -> Internet`
+- 這次實際落地的 APIM 架構圖、資料流與 lessons learned 以 `README.md` 的 **「本輪踩雷與避坑紀錄（2026-04）」** 為主
 
 部署後可用下列指令查詢資源 FQDN：
 

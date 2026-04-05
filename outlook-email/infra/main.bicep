@@ -77,6 +77,12 @@ param entraClientId string = ''
 @description('Optional. Graph client secret or Key Vault reference string when using service principal credentials from Function App app settings.')
 param entraClientSecret string = ''
 
+@description('Optional. Existing Entra tenant ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthClientId, deployment reuses that app instead of creating a new MCP app registration.')
+param existingMcpOauthTenantId string = ''
+
+@description('Optional. Existing Entra client/application ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthTenantId, deployment reuses that app instead of creating a new MCP app registration.')
+param existingMcpOauthClientId string = ''
+
 @description('Optional. Existing VNet name to reuse when vnetEnabled is true. Leave empty to create a new VNet.')
 param existingVirtualNetworkName string = ''
 
@@ -95,11 +101,35 @@ param integrationSubnetRouteTableResourceId string = ''
 @description('Optional. Network security group resource ID to attach when creating the integration subnet inside an existing VNet.')
 param integrationSubnetNetworkSecurityGroupResourceId string = ''
 
-@description('Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints.')
+@description('Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints and internal APIM hostnames.')
 param privateDnsZoneResourceGroupName string = ''
 
 @description('Whether to deploy API Management and the MCP API facade.')
 param deployApim bool = true
+
+@description('API Management SKU for the APIM + OAuth MCP gateway path. Use Developer for dev/test cost control, and reassess before production.')
+@allowed([
+  'Developer'
+  'Basic'
+  'Basicv2'
+  'Standard'
+  'Standardv2'
+  'Premium'
+])
+param apimSku string = 'Basicv2'
+
+@description('Whether to configure the MCP API facade and OAuth app objects inside APIM. Set false to deploy APIM networking/private DNS first and defer OAuth later.')
+param deployApimMcpApi bool = true
+
+@maxLength(50)
+@description('Optional explicit API Management service name. Must use a valid APIM service name and is ignored when deployApim is false. Leave empty to use the standard derived APIM naming pattern.')
+param apimNameOverride string = ''
+
+@description('Whether to deploy API Management in internal virtual network mode. Requires an existing VNet, an APIM subnet, and private DNS planning.')
+param apimInternalVirtualNetwork bool = false
+
+@description('Optional existing subnet name for APIM when apimInternalVirtualNetwork is true. The subnet must already exist, have no delegation, and include the required NSG rules.')
+param apimSubnetName string = ''
 
 @description('Whether to create a private endpoint for the Function App and disable public network access on the app.')
 param deployFunctionAppPrivateEndpoint bool = false
@@ -149,6 +179,8 @@ module resources 'resources.bicep' = {
     entraTenantId: entraTenantId
     entraClientId: entraClientId
     entraClientSecret: entraClientSecret
+    existingMcpOauthTenantId: existingMcpOauthTenantId
+    existingMcpOauthClientId: existingMcpOauthClientId
     existingVirtualNetworkName: existingVirtualNetworkName
     integrationSubnetName: integrationSubnetName
     integrationSubnetAddressPrefix: integrationSubnetAddressPrefix
@@ -157,6 +189,11 @@ module resources 'resources.bicep' = {
     integrationSubnetNetworkSecurityGroupResourceId: integrationSubnetNetworkSecurityGroupResourceId
     privateDnsZoneResourceGroupName: privateDnsZoneResourceGroupName
     deployApim: deployApim
+    apimSku: apimSku
+    deployApimMcpApi: deployApimMcpApi
+    apimNameOverride: apimNameOverride
+    apimInternalVirtualNetwork: apimInternalVirtualNetwork
+    apimSubnetName: apimSubnetName
     deployFunctionAppPrivateEndpoint: deployFunctionAppPrivateEndpoint
   }
   dependsOn: [

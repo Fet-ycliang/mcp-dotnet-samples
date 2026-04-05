@@ -59,6 +59,12 @@
       "entraClientSecret": {
         "value": "${MCP_ENTRA_CLIENT_SECRET=}"
       },
+      "existingMcpOauthTenantId": {
+        "value": "${MCP_OAUTH_TENANT_ID=}"
+      },
+      "existingMcpOauthClientId": {
+        "value": "${MCP_OAUTH_CLIENT_ID=}"
+      },
       "existingVirtualNetworkName": {
         "value": "${AZURE_EXISTING_VNET_NAME=}"
       },
@@ -82,6 +88,21 @@
       },
       "deployApim": {
         "value": "${AZURE_DEPLOY_APIM=true}"
+      },
+      "apimSku": {
+        "value": "${AZURE_APIM_SKU=Basicv2}"
+      },
+      "deployApimMcpApi": {
+        "value": "${AZURE_DEPLOY_APIM_MCP_API=true}"
+      },
+      "apimNameOverride": {
+        "value": "${AZURE_APIM_NAME=}"
+      },
+      "apimInternalVirtualNetwork": {
+        "value": "${AZURE_APIM_INTERNAL_VNET=false}"
+      },
+      "apimSubnetName": {
+        "value": "${AZURE_APIM_SUBNET_NAME=}"
       },
       "deployFunctionAppPrivateEndpoint": {
         "value": "${AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=false}"

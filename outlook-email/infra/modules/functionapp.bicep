@@ -155,6 +155,7 @@ module mcp 'br/public:avm/res/web/site:0.15.1' = {
     siteConfig: {
       alwaysOn: false
     }
+    clientAffinityEnabled: false
     privateEndpoints: privateEndpoints
     publicNetworkAccess: publicNetworkAccess
     virtualNetworkSubnetId: !empty(virtualNetworkSubnetId) ? virtualNetworkSubnetId : null

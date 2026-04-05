@@ -4,12 +4,21 @@
       "type": "promptString",
       "id": "apim-fqdn",
       "description": "Azure API Management FQDN"
+    },
+    {
+      "type": "promptString",
+      "id": "apim-access-token",
+      "description": "APIM OAuth access token",
+      "password": true
     }
   ],
   "servers": {
     "outlook-email": {
       "type": "http",
-      "url": "https://${input:apim-fqdn}/mcp"
+      "url": "https://${input:apim-fqdn}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:apim-access-token}"
+      }
     }
   }
 }

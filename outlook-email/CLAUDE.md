@@ -1,8 +1,8 @@
 # outlook-email
 
 ## 範圍
-- 目前工作預設只針對 `outlook-email` 這個 sample。
-- 不要主動規劃或修改其他 sample。
+- 目前工作預設只針對 `outlook-email` 這個 專案。
+- 不要主動規劃或修改其他 專案。
 - 只有在 `outlook-email` 的需求直接碰到共用 transport / host runtime 時，才檢查 `..\shared\McpSamples.Shared\`。
 
 ## 文件分工
@@ -56,7 +56,7 @@
 - `.vscode\mcp.http.container.json` / `mcp.stdio.container.json`：本機容器
 - `.vscode\mcp.http.remote-func.json`：遠端 Functions
 - `.vscode\mcp.http.remote-apim.json`：遠端 APIM
-- `.claude\mcp.json`：Claude Code 使用的 remote MCP 設定
+- `.claude\mcp.json`：Claude Code 使用的正式 APIM remote MCP 設定（內含 `outlook-email-stdio-ut-reference`）
 - `~\.copilot\mcp-config.json`：Copilot CLI 使用的 MCP 設定（不在 repo 內）
 
 ## 修改時的工作原則
@@ -93,7 +93,8 @@
 - 目前這個 sample 沒有專屬測試專案；預設驗證基線是 `dotnet build .\McpOutlookEmail.sln`，必要時再補跑 `dotnet run` 或 `func start`。
 - 如果只改程式碼卻沒同步 README、設定範本或腳本，後續本機啟動與部署文件很容易失真。
 - private Function App / SCM 在有公司 proxy 的環境下，通常要補 `NO_PROXY`；否則看起來像是 server 壞了，其實是流量被送去公網。
-- Copilot CLI 若用 `${OUTLOOK_EMAIL_FUNCTION_KEY}` 這種 header 參照，請把值放在**真正的 OS 環境變數**，不要只放在 `mcp-config.json` 的 `env` 區塊。
+- APIM remote MCP 目前使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`；啟動 Claude Code / Copilot CLI 前，先在同一個 shell 刷新 access token。
+- Databricks external MCP 若要打 internal/private APIM，M2M 欄位就算填對，仍可能因 private DNS / reachability 卡在 `tools/list`；若同一組 caller app 直打 APIM `/mcp initialize` / `/mcp tools/list` 成功，先把問題歸在 Databricks 到 private APIM 的可達性，而不是 tool 定義本身。
 - 遠端 `/mcp` 目前是 SSE 回應；若用 `curl` / PowerShell 除錯，記得解析 `data:` 行。
 - 若 Azure 走 managed identity，就不要同時把 `MCP_ENTRA_*` service principal 值留在 app settings；走 service principal 時則優先使用 Key Vault reference。
 

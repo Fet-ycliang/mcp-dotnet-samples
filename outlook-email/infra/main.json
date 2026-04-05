@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "578613702741303318"
+      "templateHash": "14840054405760363651"
     }
   },
   "parameters": {
@@ -155,6 +155,20 @@
         "description": "Optional. Graph client secret or Key Vault reference string when using service principal credentials from Function App app settings."
       }
     },
+    "existingMcpOauthTenantId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional. Existing Entra tenant ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthClientId, deployment reuses that app instead of creating a new MCP app registration."
+      }
+    },
+    "existingMcpOauthClientId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional. Existing Entra client/application ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthTenantId, deployment reuses that app instead of creating a new MCP app registration."
+      }
+    },
     "existingVirtualNetworkName": {
       "type": "string",
       "defaultValue": "",
@@ -201,7 +215,7 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints."
+        "description": "Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints and internal APIM hostnames."
       }
     },
     "deployApim": {
@@ -209,6 +223,50 @@
       "defaultValue": true,
       "metadata": {
         "description": "Whether to deploy API Management and the MCP API facade."
+      }
+    },
+    "apimSku": {
+      "type": "string",
+      "defaultValue": "Basicv2",
+      "allowedValues": [
+        "Developer",
+        "Basic",
+        "Basicv2",
+        "Standard",
+        "Standardv2",
+        "Premium"
+      ],
+      "metadata": {
+        "description": "API Management SKU for the APIM + OAuth MCP gateway path. Use Developer for dev/test cost control, and reassess before production."
+      }
+    },
+    "deployApimMcpApi": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Whether to configure the MCP API facade and OAuth app objects inside APIM. Set false to deploy APIM networking/private DNS first and defer OAuth later."
+      }
+    },
+    "apimNameOverride": {
+      "type": "string",
+      "defaultValue": "",
+      "maxLength": 50,
+      "metadata": {
+        "description": "Optional explicit API Management service name. Must use a valid APIM service name and is ignored when deployApim is false. Leave empty to use the standard derived APIM naming pattern."
+      }
+    },
+    "apimInternalVirtualNetwork": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether to deploy API Management in internal virtual network mode. Requires an existing VNet, an APIM subnet, and private DNS planning."
+      }
+    },
+    "apimSubnetName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional existing subnet name for APIM when apimInternalVirtualNetwork is true. The subnet must already exist, have no delegation, and include the required NSG rules."
       }
     },
     "deployFunctionAppPrivateEndpoint": {
@@ -296,6 +354,12 @@
           "entraClientSecret": {
             "value": "[parameters('entraClientSecret')]"
           },
+          "existingMcpOauthTenantId": {
+            "value": "[parameters('existingMcpOauthTenantId')]"
+          },
+          "existingMcpOauthClientId": {
+            "value": "[parameters('existingMcpOauthClientId')]"
+          },
           "existingVirtualNetworkName": {
             "value": "[parameters('existingVirtualNetworkName')]"
           },
@@ -320,6 +384,21 @@
           "deployApim": {
             "value": "[parameters('deployApim')]"
           },
+          "apimSku": {
+            "value": "[parameters('apimSku')]"
+          },
+          "deployApimMcpApi": {
+            "value": "[parameters('deployApimMcpApi')]"
+          },
+          "apimNameOverride": {
+            "value": "[parameters('apimNameOverride')]"
+          },
+          "apimInternalVirtualNetwork": {
+            "value": "[parameters('apimInternalVirtualNetwork')]"
+          },
+          "apimSubnetName": {
+            "value": "[parameters('apimSubnetName')]"
+          },
           "deployFunctionAppPrivateEndpoint": {
             "value": "[parameters('deployFunctionAppPrivateEndpoint')]"
           }
@@ -331,7 +410,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "14427135474454393250"
+              "templateHash": "3112584716719208538"
             }
           },
           "parameters": {
@@ -417,6 +496,20 @@
                 "description": "Optional. Graph client secret or Key Vault reference string when using service principal credentials from Function App app settings."
               }
             },
+            "existingMcpOauthTenantId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional. Existing Entra tenant ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthClientId, deployment reuses that app instead of creating a new MCP app registration."
+              }
+            },
+            "existingMcpOauthClientId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional. Existing Entra client/application ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthTenantId, deployment reuses that app instead of creating a new MCP app registration."
+              }
+            },
             "existingVirtualNetworkName": {
               "type": "string",
               "defaultValue": "",
@@ -463,7 +556,7 @@
               "type": "string",
               "defaultValue": "",
               "metadata": {
-                "description": "Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints."
+                "description": "Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints and internal APIM hostnames."
               }
             },
             "deployApim": {
@@ -471,6 +564,50 @@
               "defaultValue": true,
               "metadata": {
                 "description": "Whether to deploy API Management and the MCP API facade."
+              }
+            },
+            "apimSku": {
+              "type": "string",
+              "defaultValue": "Basicv2",
+              "allowedValues": [
+                "Developer",
+                "Basic",
+                "Basicv2",
+                "Standard",
+                "Standardv2",
+                "Premium"
+              ],
+              "metadata": {
+                "description": "API Management SKU for the APIM + OAuth MCP gateway path. Use Developer for dev/test cost control, and reassess before production."
+              }
+            },
+            "deployApimMcpApi": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "Whether to configure the MCP API facade and OAuth app objects inside APIM. Set false to deploy APIM networking/private DNS first and defer OAuth later."
+              }
+            },
+            "apimNameOverride": {
+              "type": "string",
+              "defaultValue": "",
+              "maxLength": 50,
+              "metadata": {
+                "description": "Optional explicit API Management service name. Must use a valid APIM service name and is ignored when deployApim is false. Leave empty to use the standard derived APIM naming pattern."
+              }
+            },
+            "apimInternalVirtualNetwork": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Whether to deploy API Management in internal virtual network mode. Requires an existing VNet, an APIM subnet, and private DNS planning."
+              }
+            },
+            "apimSubnetName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional existing subnet name for APIM when apimInternalVirtualNetwork is true. The subnet must already exist, have no delegation, and include the required NSG rules."
               }
             },
             "deployFunctionAppPrivateEndpoint": {
@@ -629,17 +766,20 @@
             "allowedSenders": "[if(empty(parameters('allowedSendersCsv')), createArray(), split(parameters('allowedSendersCsv'), ';'))]",
             "allowedReplyTo": "[if(empty(parameters('allowedReplyToCsv')), createArray(), split(parameters('allowedReplyToCsv'), ';'))]",
             "useExistingVirtualNetwork": "[and(parameters('vnetEnabled'), not(empty(parameters('existingVirtualNetworkName'))))]",
+            "deployApimFacade": "[and(parameters('deployApim'), parameters('deployApimMcpApi'))]",
+            "reuseExistingMcpOauthApp": "[and(and(variables('deployApimFacade'), not(empty(parameters('existingMcpOauthTenantId')))), not(empty(parameters('existingMcpOauthClientId'))))]",
             "virtualNetworkName": "[if(variables('useExistingVirtualNetwork'), parameters('existingVirtualNetworkName'), format('{0}{1}', variables('abbrs').networkVirtualNetworks, variables('normalizedStem')))]",
             "effectiveIntegrationSubnetName": "[if(not(empty(parameters('integrationSubnetName'))), parameters('integrationSubnetName'), 'app')]",
             "effectivePrivateEndpointSubnetName": "[if(not(empty(parameters('privateEndpointSubnetName'))), parameters('privateEndpointSubnetName'), 'private-endpoints-subnet')]",
             "canDeployPrivateEndpoints": "[and(parameters('vnetEnabled'), or(not(variables('useExistingVirtualNetwork')), not(empty(parameters('privateEndpointSubnetName')))))]",
             "functionAppPrivateDnsZoneName": "privatelink.azurewebsites.net",
             "useSharedPrivateDnsZones": "[not(empty(parameters('privateDnsZoneResourceGroupName')))]",
+            "deployApimInternal": "[and(parameters('deployApim'), parameters('apimInternalVirtualNetwork'))]",
             "logAnalyticsName": "[format('{0}{1}', variables('abbrs').operationalInsightsWorkspaces, variables('normalizedStem'))]",
             "applicationInsightsName": "[format('{0}{1}', variables('abbrs').insightsComponents, variables('normalizedStem'))]",
             "applicationInsightsDashboardName": "[format('{0}{1}', variables('abbrs').portalDashboards, variables('normalizedStem'))]",
             "userAssignedIdentityName": "[format('{0}{1}', variables('abbrs').managedIdentityUserAssignedIdentities, variables('normalizedStem'))]",
-            "apiManagementName": "[format('{0}{1}', variables('abbrs').apiManagementService, variables('normalizedStem'))]",
+            "apiManagementName": "[if(not(empty(parameters('apimNameOverride'))), parameters('apimNameOverride'), format('{0}{1}', variables('abbrs').apiManagementService, variables('normalizedStem')))]",
             "appServicePlanName": "[format('{0}{1}', variables('abbrs').webServerFarms, variables('normalizedStem'))]",
             "storageAccountName": "[format('{0}{1}', variables('abbrs').storageStorageAccounts, variables('compactStem'))]",
             "mcpEntraAppUniqueName": "[format('mcp-{0}', variables('normalizedStem'))]",
@@ -649,6 +789,7 @@
             "allowedReplyToAppSettings": "[reduce(variables('allowedReplyTo'), createObject(), lambda('cur', 'next', 'i', union(lambdaVariables('cur'), createObject(format('AllowedReplyTo__{0}', lambdaVariables('i')), lambdaVariables('next')))))]",
             "existingIntegrationSubnetResourceId": "[if(not(empty(variables('effectiveIntegrationSubnetName'))), resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('effectiveIntegrationSubnetName')), '')]",
             "existingPrivateEndpointSubnetResourceId": "[if(not(empty(variables('effectivePrivateEndpointSubnetName'))), resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('effectivePrivateEndpointSubnetName')), '')]",
+            "apimSubnetResourceId": "[if(variables('deployApimInternal'), resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), parameters('apimSubnetName')), '')]",
             "storageEndpointConfig": {
               "enableBlob": true,
               "enableQueue": false,
@@ -5785,6 +5926,13 @@
                 "parameters": {
                   "apiManagementName": {
                     "value": "[variables('apiManagementName')]"
+                  },
+                  "apimSku": {
+                    "value": "[parameters('apimSku')]"
+                  },
+                  "apimVirtualNetworkType": "[if(variables('deployApimInternal'), createObject('value', 'Internal'), createObject('value', 'None'))]",
+                  "apimSubnetResourceId": {
+                    "value": "[variables('apimSubnetResourceId')]"
                   }
                 },
                 "template": {
@@ -5794,7 +5942,7 @@
                     "_generator": {
                       "name": "bicep",
                       "version": "0.39.26.7824",
-                      "templateHash": "3163787024956065007"
+                      "templateHash": "17454069195279703043"
                     }
                   },
                   "parameters": {
@@ -5868,7 +6016,29 @@
                       "metadata": {
                         "description": "The resource ID for Application Insights"
                       }
+                    },
+                    "apimVirtualNetworkType": {
+                      "type": "string",
+                      "defaultValue": "None",
+                      "allowedValues": [
+                        "None",
+                        "External",
+                        "Internal"
+                      ],
+                      "metadata": {
+                        "description": "The APIM virtual network deployment mode."
+                      }
+                    },
+                    "apimSubnetResourceId": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Optional subnet resource ID used when APIM is deployed in a virtual network."
+                      }
                     }
+                  },
+                  "variables": {
+                    "apimNetworkProperties": "[if(not(equals(parameters('apimVirtualNetworkType'), 'None')), createObject('virtualNetworkType', parameters('apimVirtualNetworkType'), 'virtualNetworkConfiguration', createObject('subnetResourceId', parameters('apimSubnetResourceId'))), createObject('virtualNetworkType', 'None'))]"
                   },
                   "resources": [
                     {
@@ -5880,10 +6050,7 @@
                         "name": "[parameters('apimSku')]",
                         "capacity": 1
                       },
-                      "properties": {
-                        "publisherEmail": "[parameters('publisherEmail')]",
-                        "publisherName": "[parameters('publisherName')]"
-                      }
+                      "properties": "[union(createObject('publisherEmail', parameters('publisherEmail'), 'publisherName', parameters('publisherName')), variables('apimNetworkProperties'))]"
                     },
                     {
                       "condition": "[and(not(empty(parameters('appInsightsId'))), not(empty(parameters('appInsightsInstrumentationKey'))))]",
@@ -5916,13 +6083,276 @@
                     "gatewayUrl": {
                       "type": "string",
                       "value": "[reference(resourceId('Microsoft.ApiManagement/service', parameters('apiManagementName')), '2024-06-01-preview').gatewayUrl]"
+                    },
+                    "privateIpAddress": {
+                      "type": "string",
+                      "value": "[if(empty(reference(resourceId('Microsoft.ApiManagement/service', parameters('apiManagementName')), '2024-06-01-preview').privateIPAddresses), '', reference(resourceId('Microsoft.ApiManagement/service', parameters('apiManagementName')), '2024-06-01-preview').privateIPAddresses[0])]"
                     }
                   }
                 }
               }
             },
             {
-              "condition": "[parameters('deployApim')]",
+              "condition": "[and(variables('deployApimInternal'), not(variables('useSharedPrivateDnsZones')))]",
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "apimPrivateDnsManaged",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "apiManagementName": {
+                    "value": "[variables('apiManagementName')]"
+                  },
+                  "privateIpAddress": {
+                    "value": "[reference(resourceId('Microsoft.Resources/deployments', 'apimService'), '2025-04-01').outputs.privateIpAddress.value]"
+                  },
+                  "virtualNetworkResourceId": "[if(parameters('vnetEnabled'), if(variables('useExistingVirtualNetwork'), createObject('value', resourceId('Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'serviceVirtualNetwork'), '2025-04-01').outputs.vnetResourceId.value)), createObject('value', ''))]",
+                  "tags": {
+                    "value": "[parameters('tags')]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.39.26.7824",
+                      "templateHash": "16013770666648689498"
+                    }
+                  },
+                  "parameters": {
+                    "apiManagementName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "The API Management service name used in the default internal hostnames."
+                      }
+                    },
+                    "privateIpAddress": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "The internal private IP address of the APIM instance."
+                      }
+                    },
+                    "virtualNetworkResourceId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "The virtual network resource ID that should resolve the APIM private hostnames."
+                      }
+                    },
+                    "tags": {
+                      "type": "object",
+                      "defaultValue": {},
+                      "metadata": {
+                        "description": "Tags applied to the private DNS resources."
+                      }
+                    }
+                  },
+                  "variables": {
+                    "zoneNames": [
+                      "azure-api.net",
+                      "portal.azure-api.net",
+                      "developer.azure-api.net",
+                      "management.azure-api.net",
+                      "scm.azure-api.net"
+                    ],
+                    "linkName": "[format('link-{0}', take(uniqueString(parameters('apiManagementName'), parameters('virtualNetworkResourceId')), 16))]"
+                  },
+                  "resources": [
+                    {
+                      "copy": {
+                        "name": "privateDnsZones",
+                        "count": "[length(variables('zoneNames'))]"
+                      },
+                      "type": "Microsoft.Network/privateDnsZones",
+                      "apiVersion": "2020-06-01",
+                      "name": "[variables('zoneNames')[copyIndex()]]",
+                      "location": "global",
+                      "tags": "[parameters('tags')]"
+                    },
+                    {
+                      "copy": {
+                        "name": "privateDnsZoneLinks",
+                        "count": "[length(variables('zoneNames'))]"
+                      },
+                      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+                      "apiVersion": "2020-06-01",
+                      "name": "[format('{0}/{1}', variables('zoneNames')[copyIndex()], variables('linkName'))]",
+                      "location": "global",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "registrationEnabled": false,
+                        "virtualNetwork": {
+                          "id": "[parameters('virtualNetworkResourceId')]"
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/privateDnsZones', variables('zoneNames')[copyIndex()])]"
+                      ]
+                    },
+                    {
+                      "copy": {
+                        "name": "apimHostRecords",
+                        "count": "[length(variables('zoneNames'))]"
+                      },
+                      "type": "Microsoft.Network/privateDnsZones/A",
+                      "apiVersion": "2020-06-01",
+                      "name": "[format('{0}/{1}', variables('zoneNames')[copyIndex()], parameters('apiManagementName'))]",
+                      "properties": {
+                        "ttl": 3600,
+                        "aRecords": [
+                          {
+                            "ipv4Address": "[parameters('privateIpAddress')]"
+                          }
+                        ]
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/privateDnsZones', variables('zoneNames')[copyIndex()])]"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Resources/deployments', 'apimService')]",
+                "[resourceId('Microsoft.Resources/deployments', 'serviceVirtualNetwork')]"
+              ]
+            },
+            {
+              "condition": "[and(variables('deployApimInternal'), variables('useSharedPrivateDnsZones'))]",
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "apimPrivateDnsShared",
+              "resourceGroup": "[parameters('privateDnsZoneResourceGroupName')]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "apiManagementName": {
+                    "value": "[variables('apiManagementName')]"
+                  },
+                  "privateIpAddress": {
+                    "value": "[reference(resourceId('Microsoft.Resources/deployments', 'apimService'), '2025-04-01').outputs.privateIpAddress.value]"
+                  },
+                  "virtualNetworkResourceId": "[if(parameters('vnetEnabled'), if(variables('useExistingVirtualNetwork'), createObject('value', resourceId('Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'serviceVirtualNetwork'), '2025-04-01').outputs.vnetResourceId.value)), createObject('value', ''))]",
+                  "tags": {
+                    "value": "[parameters('tags')]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.39.26.7824",
+                      "templateHash": "16013770666648689498"
+                    }
+                  },
+                  "parameters": {
+                    "apiManagementName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "The API Management service name used in the default internal hostnames."
+                      }
+                    },
+                    "privateIpAddress": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "The internal private IP address of the APIM instance."
+                      }
+                    },
+                    "virtualNetworkResourceId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "The virtual network resource ID that should resolve the APIM private hostnames."
+                      }
+                    },
+                    "tags": {
+                      "type": "object",
+                      "defaultValue": {},
+                      "metadata": {
+                        "description": "Tags applied to the private DNS resources."
+                      }
+                    }
+                  },
+                  "variables": {
+                    "zoneNames": [
+                      "azure-api.net",
+                      "portal.azure-api.net",
+                      "developer.azure-api.net",
+                      "management.azure-api.net",
+                      "scm.azure-api.net"
+                    ],
+                    "linkName": "[format('link-{0}', take(uniqueString(parameters('apiManagementName'), parameters('virtualNetworkResourceId')), 16))]"
+                  },
+                  "resources": [
+                    {
+                      "copy": {
+                        "name": "privateDnsZones",
+                        "count": "[length(variables('zoneNames'))]"
+                      },
+                      "type": "Microsoft.Network/privateDnsZones",
+                      "apiVersion": "2020-06-01",
+                      "name": "[variables('zoneNames')[copyIndex()]]",
+                      "location": "global",
+                      "tags": "[parameters('tags')]"
+                    },
+                    {
+                      "copy": {
+                        "name": "privateDnsZoneLinks",
+                        "count": "[length(variables('zoneNames'))]"
+                      },
+                      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+                      "apiVersion": "2020-06-01",
+                      "name": "[format('{0}/{1}', variables('zoneNames')[copyIndex()], variables('linkName'))]",
+                      "location": "global",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "registrationEnabled": false,
+                        "virtualNetwork": {
+                          "id": "[parameters('virtualNetworkResourceId')]"
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/privateDnsZones', variables('zoneNames')[copyIndex()])]"
+                      ]
+                    },
+                    {
+                      "copy": {
+                        "name": "apimHostRecords",
+                        "count": "[length(variables('zoneNames'))]"
+                      },
+                      "type": "Microsoft.Network/privateDnsZones/A",
+                      "apiVersion": "2020-06-01",
+                      "name": "[format('{0}/{1}', variables('zoneNames')[copyIndex()], parameters('apiManagementName'))]",
+                      "properties": {
+                        "ttl": 3600,
+                        "aRecords": [
+                          {
+                            "ipv4Address": "[parameters('privateIpAddress')]"
+                          }
+                        ]
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/privateDnsZones', variables('zoneNames')[copyIndex()])]"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Resources/deployments', 'apimService')]",
+                "[resourceId('Microsoft.Resources/deployments', 'serviceVirtualNetwork')]"
+              ]
+            },
+            {
+              "condition": "[and(variables('deployApimFacade'), not(variables('reuseExistingMcpOauthApp')))]",
               "type": "Microsoft.Resources/deployments",
               "apiVersion": "2025-04-01",
               "name": "mcpEntraApp",
@@ -5943,6 +6373,9 @@
                   },
                   "functionAppName": {
                     "value": "[variables('functionAppName')]"
+                  },
+                  "grantMailSendToManagedIdentity": {
+                    "value": "[parameters('graphUseManagedIdentity')]"
                   }
                 },
                 "template": {
@@ -5953,7 +6386,7 @@
                     "_generator": {
                       "name": "bicep",
                       "version": "0.39.26.7824",
-                      "templateHash": "5758526444416024783"
+                      "templateHash": "11931038821970693210"
                     }
                   },
                   "parameters": {
@@ -5988,7 +6421,14 @@
                         "description": "The web app name for callback URL configuration"
                       }
                     },
-                    "appScopes": {
+                    "grantMailSendToManagedIdentity": {
+                      "type": "bool",
+                      "defaultValue": true,
+                      "metadata": {
+                        "description": "Whether to grant Microsoft Graph Mail.Send application role to the user-assigned managed identity. Set false when the Function App uses service principal credentials instead."
+                      }
+                    },
+                    "graphAppScopes": {
                       "type": "array",
                       "defaultValue": [
                         "User.Read"
@@ -5997,7 +6437,7 @@
                         "description": "Provide an array of Microsoft Graph scopes like \"User.Read\""
                       }
                     },
-                    "appRoles": {
+                    "graphAppRoles": {
                       "type": "array",
                       "defaultValue": [
                         "Mail.Send"
@@ -6013,9 +6453,9 @@
                     "graphAppId": "00000003-0000-0000-c000-000000000000",
                     "msGraphAppId": "[variables('graphAppId')]",
                     "vscodeAppId": "aebc6443-996d-45c2-90f0-388ff96faa56",
-                    "delegatedUserReadPermissionId": "e1fe6dd8-ba31-4d61-89e7-88639da4683d",
                     "applicationMailSendPermissionId": "b633e1c5-b582-4048-a93e-9f11b44c7e96",
-                    "permissionId": "[guid(parameters('mcpAppUniqueName'), 'user_impersonation')]"
+                    "delegatedPermissionId": "[guid(parameters('mcpAppUniqueName'), 'user_impersonation')]",
+                    "applicationRoleId": "[guid(parameters('mcpAppUniqueName'), 'access_as_application')]"
                   },
                   "imports": {
                     "microsoftGraphV1": {
@@ -6057,7 +6497,7 @@
                         "api": {
                           "oauth2PermissionScopes": [
                             {
-                              "id": "[variables('permissionId')]",
+                              "id": "[variables('delegatedPermissionId')]",
                               "adminConsentDescription": "Allows the application to access MCP resources on behalf of the signed-in user",
                               "adminConsentDisplayName": "Access MCP resources",
                               "isEnabled": true,
@@ -6072,15 +6512,27 @@
                             {
                               "appId": "[variables('vscodeAppId')]",
                               "delegatedPermissionIds": [
-                                "[guid(parameters('mcpAppUniqueName'), 'user_impersonation')]"
+                                "[variables('delegatedPermissionId')]"
                               ]
                             }
                           ]
                         },
+                        "appRoles": [
+                          {
+                            "id": "[variables('applicationRoleId')]",
+                            "allowedMemberTypes": [
+                              "Application"
+                            ],
+                            "description": "Allows the application to access MCP resources as itself",
+                            "displayName": "Access MCP resources as the application",
+                            "isEnabled": true,
+                            "value": "access_as_application"
+                          }
+                        ],
                         "requiredResourceAccess": [
                           {
                             "resourceAppId": "[variables('msGraphAppId')]",
-                            "resourceAccess": "[concat(map(filter(reference('msGraphSP').oauth2PermissionScopes, lambda('scope', contains(parameters('appScopes'), lambdaVariables('scope').value))), lambda('scope', createObject('id', lambdaVariables('scope').id, 'type', 'Scope'))), map(filter(reference('msGraphSP').appRoles, lambda('role', contains(parameters('appRoles'), lambdaVariables('role').value))), lambda('role', createObject('id', lambdaVariables('role').id, 'type', 'Role'))))]"
+                            "resourceAccess": "[concat(map(filter(reference('msGraphSP').oauth2PermissionScopes, lambda('scope', contains(parameters('graphAppScopes'), lambdaVariables('scope').value))), lambda('scope', createObject('id', lambdaVariables('scope').id, 'type', 'Scope'))), map(filter(reference('msGraphSP').appRoles, lambda('role', contains(parameters('graphAppRoles'), lambdaVariables('role').value))), lambda('role', createObject('id', lambdaVariables('role').id, 'type', 'Role'))))]"
                           }
                         ],
                         "spa": {
@@ -6117,6 +6569,7 @@
                       ]
                     },
                     "applicationPermissionGrantForUserAssignedIdentity": {
+                      "condition": "[parameters('grantMailSendToManagedIdentity')]",
                       "import": "microsoftGraphV1",
                       "type": "Microsoft.Graph/appRoleAssignedTo@v1.0",
                       "properties": {
@@ -6137,6 +6590,10 @@
                     "mcpAppTenantId": {
                       "type": "string",
                       "value": "[parameters('tenantId')]"
+                    },
+                    "mcpAppApplicationRoleValue": {
+                      "type": "string",
+                      "value": "access_as_application"
                     }
                   }
                 }
@@ -6146,7 +6603,7 @@
               ]
             },
             {
-              "condition": "[parameters('deployApim')]",
+              "condition": "[variables('deployApimFacade')]",
               "type": "Microsoft.Resources/deployments",
               "apiVersion": "2025-04-01",
               "name": "mcpApiModule",
@@ -6162,12 +6619,8 @@
                   "functionAppName": {
                     "value": "[variables('functionAppName')]"
                   },
-                  "mcpAppId": {
-                    "value": "[reference(resourceId('Microsoft.Resources/deployments', 'mcpEntraApp'), '2025-04-01').outputs.mcpAppId.value]"
-                  },
-                  "mcpAppTenantId": {
-                    "value": "[reference(resourceId('Microsoft.Resources/deployments', 'mcpEntraApp'), '2025-04-01').outputs.mcpAppTenantId.value]"
-                  }
+                  "mcpAppId": "[if(variables('reuseExistingMcpOauthApp'), createObject('value', parameters('existingMcpOauthClientId')), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'mcpEntraApp'), '2025-04-01').outputs.mcpAppId.value))]",
+                  "mcpAppTenantId": "[if(variables('reuseExistingMcpOauthApp'), createObject('value', parameters('existingMcpOauthTenantId')), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'mcpEntraApp'), '2025-04-01').outputs.mcpAppTenantId.value))]"
                 },
                 "template": {
                   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
@@ -6176,7 +6629,7 @@
                     "_generator": {
                       "name": "bicep",
                       "version": "0.39.26.7824",
-                      "templateHash": "8997350470282944026"
+                      "templateHash": "12163511064242095996"
                     }
                   },
                   "parameters": {
@@ -6206,8 +6659,8 @@
                     }
                   },
                   "variables": {
-                    "$fxv#0": "<!--\r\n    Azure API Management Policy for AAD Token Validation\r\n    This policy validates Azure Active Directory (AAD) access tokens from incoming requests.\r\n    If validation fails, it returns HTTP 401 with proper WWW-Authenticate header.\r\n-->\r\n<policies>\r\n    <inbound>\r\n        <base />\r\n        <!-- Validate Azure AD JWT Token -->\r\n        <validate-azure-ad-token tenant-id=\"{{McpTenantId}}\" failed-validation-httpcode=\"401\" failed-validation-error-message=\"Unauthorized\">\r\n            <audiences>\r\n                <audience>{{McpClientId}}</audience>\r\n            </audiences>\r\n        </validate-azure-ad-token>\r\n\r\n        <set-header name=\"x-functions-key\" exists-action=\"override\">\r\n            <value>{{function-host-key}}</value>\r\n        </set-header>\r\n    </inbound>\r\n    <backend>\r\n        <base />\r\n    </backend>\r\n    <outbound>\r\n        <base />\r\n    </outbound>\r\n    <on-error>\r\n        <base />\r\n        <choose>\r\n            <when condition=\"@(context.Response.StatusCode == 401)\">\r\n                <return-response>\r\n                    <set-status code=\"401\" reason=\"Unauthorized\" />\r\n                    <set-header name=\"WWW-Authenticate\" exists-action=\"override\">\r\n                        <value>Bearer error=\"invalid_token\", resource_metadata=\"{{APIMGatewayURL}}/.well-known/oauth-protected-resource\"</value>\r\n                    </set-header>\r\n                </return-response>\r\n            </when>\r\n        </choose>\r\n        <!-- Handle authentication/authorization errors -->\r\n    </on-error>\r\n</policies>",
-                    "$fxv#1": "<!--\r\n    Azure API Management Policy for Protected Resource Metadata (RFC 9728)\r\n    This policy returns Protected Resource Metadata information for OAuth 2.0 protected resources.\r\n    It provides clients with information about the authorization servers, supported methods, and scopes.\r\n    Note: Authentication is disabled for this endpoint to allow anonymous access.\r\n-->\r\n<policies>\r\n    <inbound>\r\n        <!-- Return Protected Resource Metadata according to RFC 9728 -->\r\n        <return-response>\r\n            <set-status code=\"200\" reason=\"OK\" />\r\n            <set-header name=\"Content-Type\" exists-action=\"override\">\r\n                <value>application/json</value>\r\n            </set-header>\r\n            <set-header name=\"Cache-Control\" exists-action=\"override\">\r\n                <value>public, max-age=3600</value>\r\n            </set-header>\r\n            <set-body>@{\r\n                return JsonConvert.SerializeObject(new {\r\n                    resource = \"{{APIMGatewayURL}}/mcp\",\r\n                    authorization_servers = new[] {\r\n                        $\"https://login.microsoftonline.com/{{McpTenantId}}/v2.0\"\r\n                    },\r\n                    bearer_methods_supported = new[] {\r\n                        \"header\"\r\n                    },\r\n                    scopes_supported = new[] {\r\n                        \"{{McpClientId}}/user_impersonation\"\r\n                    }\r\n                });\r\n            }</set-body>\r\n        </return-response>\r\n    </inbound>\r\n    <backend>\r\n        <base />\r\n    </backend>\r\n    <outbound>\r\n        <base />\r\n    </outbound>\r\n    <on-error>\r\n        <base />\r\n    </on-error>\r\n</policies>"
+                    "$fxv#0": "<!--\r\n    Azure API Management Policy for AAD Token Validation\r\n    This policy validates Azure Active Directory (AAD) access tokens from incoming requests.\r\n    If validation fails, it returns HTTP 401 with proper WWW-Authenticate header.\r\n-->\r\n<policies>\r\n    <inbound>\r\n        <base />\r\n        <!-- Validate Azure AD JWT Token -->\r\n        <validate-azure-ad-token tenant-id=\"{{McpTenantId}}\" failed-validation-httpcode=\"401\" failed-validation-error-message=\"Unauthorized\">\r\n            <audiences>\r\n                <audience>{{McpClientId}}</audience>\r\n                <audience>api://{{McpClientId}}</audience>\r\n            </audiences>\r\n        </validate-azure-ad-token>\r\n\r\n        <set-variable name=\"mcpTokenAccessType\" value=\"@{\r\n            var authHeader = context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;, string.Empty);\r\n            if (string.IsNullOrEmpty(authHeader))\r\n            {\r\n                return &quot;missing&quot;;\r\n            }\r\n\r\n            var token = authHeader.StartsWith(&quot;Bearer &quot;, StringComparison.OrdinalIgnoreCase)\r\n                ? authHeader.Substring(7)\r\n                : authHeader;\r\n            var segments = token.Split('.');\r\n            if (segments.Length < 2)\r\n            {\r\n                return &quot;invalid&quot;;\r\n            }\r\n\r\n            var payload = segments[1].Replace('-', '+').Replace('_', '/');\r\n            switch (payload.Length % 4)\r\n            {\r\n                case 2:\r\n                    payload += &quot;==&quot;;\r\n                    break;\r\n                case 3:\r\n                    payload += &quot;=&quot;;\r\n                    break;\r\n            }\r\n\r\n            var claimsJson = Encoding.UTF8.GetString(Convert.FromBase64String(payload));\r\n            var claims = JObject.Parse(claimsJson);\r\n\r\n            var delegatedScopes = ((string)claims[&quot;scp&quot;] ?? string.Empty)\r\n                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);\r\n            if (delegatedScopes.Any(scope =&gt; string.Equals(scope, &quot;user_impersonation&quot;, StringComparison.Ordinal)))\r\n            {\r\n                return &quot;delegated&quot;;\r\n            }\r\n\r\n            var rolesClaim = claims[&quot;roles&quot;];\r\n            if (rolesClaim != null)\r\n            {\r\n                if (rolesClaim.Type == JTokenType.Array &amp;&amp; rolesClaim.Any(role =&gt; string.Equals((string)role, &quot;access_as_application&quot;, StringComparison.Ordinal)))\r\n                {\r\n                    return &quot;application&quot;;\r\n                }\r\n\r\n                if (rolesClaim.Type != JTokenType.Array &amp;&amp; string.Equals((string)rolesClaim, &quot;access_as_application&quot;, StringComparison.Ordinal))\r\n                {\r\n                    return &quot;application&quot;;\r\n                }\r\n            }\r\n\r\n            return &quot;insufficient&quot;;\r\n        }\" />\r\n\r\n        <choose>\r\n            <when condition=\"@((string)context.Variables[&quot;mcpTokenAccessType&quot;] == &quot;insufficient&quot;)\">\r\n                <return-response>\r\n                    <set-status code=\"403\" reason=\"Forbidden\" />\r\n                    <set-header name=\"WWW-Authenticate\" exists-action=\"override\">\r\n                        <value>Bearer error=\"insufficient_scope\", resource_metadata=\"{{APIMGatewayURL}}/.well-known/oauth-protected-resource\"</value>\r\n                    </set-header>\r\n                    <set-body>Access token must contain delegated scope 'user_impersonation' or application role 'access_as_application'.</set-body>\r\n                </return-response>\r\n            </when>\r\n        </choose>\r\n\r\n        <set-header name=\"x-functions-key\" exists-action=\"override\">\r\n            <value>{{function-host-key}}</value>\r\n        </set-header>\r\n    </inbound>\r\n    <backend>\r\n        <base />\r\n    </backend>\r\n    <outbound>\r\n        <base />\r\n    </outbound>\r\n    <on-error>\r\n        <base />\r\n        <choose>\r\n            <when condition=\"@(context.Response.StatusCode == 401)\">\r\n                <return-response>\r\n                    <set-status code=\"401\" reason=\"Unauthorized\" />\r\n                    <set-header name=\"WWW-Authenticate\" exists-action=\"override\">\r\n                        <value>Bearer error=\"invalid_token\", resource_metadata=\"{{APIMGatewayURL}}/.well-known/oauth-protected-resource\"</value>\r\n                    </set-header>\r\n                </return-response>\r\n            </when>\r\n        </choose>\r\n        <!-- Handle authentication/authorization errors -->\r\n    </on-error>\r\n</policies>\r\n",
+                    "$fxv#1": "<!--\r\n    Azure API Management Policy for Protected Resource Metadata (RFC 9728)\r\n    This policy returns Protected Resource Metadata information for OAuth 2.0 protected resources.\r\n    It provides clients with information about the authorization servers, supported methods, and scopes.\r\n    Note: Authentication is disabled for this endpoint to allow anonymous access.\r\n-->\r\n<policies>\r\n    <inbound>\r\n        <!-- Return Protected Resource Metadata according to RFC 9728 -->\r\n        <return-response>\r\n            <set-status code=\"200\" reason=\"OK\" />\r\n            <set-header name=\"Content-Type\" exists-action=\"override\">\r\n                <value>application/json</value>\r\n            </set-header>\r\n            <set-header name=\"Cache-Control\" exists-action=\"override\">\r\n                <value>public, max-age=3600</value>\r\n            </set-header>\r\n            <set-body>@{\r\n                return JsonConvert.SerializeObject(new {\r\n                    resource = \"{{APIMGatewayURL}}/mcp\",\r\n                    authorization_servers = new[] {\r\n                        $\"https://login.microsoftonline.com/{{McpTenantId}}/v2.0\"\r\n                    },\r\n                    bearer_methods_supported = new[] {\r\n                        \"header\"\r\n                    },\r\n                    scopes_supported = new[] {\r\n                        $\"api://{{McpClientId}}/user_impersonation\"\r\n                    }\r\n                });\r\n            }</set-body>\r\n        </return-response>\r\n    </inbound>\r\n    <backend>\r\n        <base />\r\n    </backend>\r\n    <outbound>\r\n        <base />\r\n    </outbound>\r\n    <on-error>\r\n        <base />\r\n    </on-error>\r\n</policies>\r\n"
                   },
                   "resources": [
                     {
@@ -6375,6 +6828,9 @@
                 "parameters": {
                   "name": {
                     "value": "[variables('appServicePlanName')]"
+                  },
+                  "kind": {
+                    "value": "FunctionApp"
                   },
                   "sku": {
                     "value": {
@@ -6955,7 +7411,7 @@
                     "_generator": {
                       "name": "bicep",
                       "version": "0.39.26.7824",
-                      "templateHash": "361159785625737994"
+                      "templateHash": "5886999323899664295"
                     }
                   },
                   "parameters": {
@@ -7155,6 +7611,9 @@
                             "value": {
                               "alwaysOn": false
                             }
+                          },
+                          "clientAffinityEnabled": {
+                            "value": false
                           },
                           "privateEndpoints": {
                             "value": "[variables('privateEndpoints')]"
