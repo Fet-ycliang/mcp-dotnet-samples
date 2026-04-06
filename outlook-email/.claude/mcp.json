@@ -6,10 +6,6 @@
       "headers": {
         "Authorization": "Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}"
       }
-    },
-    "outlook-email-stdio-ut-reference": {
-      "type": "http",
-      "url": "http://localhost:7071/mcp"
     }
   }
 }

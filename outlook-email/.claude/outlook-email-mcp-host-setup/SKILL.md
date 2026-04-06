@@ -15,7 +15,7 @@ description: |
 | --- | --- |
 | `README.md` | 人類操作主文件，包含 MCP host/client 的入口說明與踩雷紀錄 |
 | `.vscode\mcp*.json` | VS Code / Agent Mode 連線模板 |
-| `.claude\mcp.json` | Claude Code 使用的正式 APIM remote MCP 設定，並保留 `outlook-email-stdio-ut-reference` 做本機參考 |
+| `.claude\mcp.json` | Claude Code 使用的正式 APIM remote MCP 設定（手動 Bearer header） |
 | `~\.copilot\mcp-config.json` | Copilot CLI 使用的 MCP 設定（不在 repo 內） |
 
 ## 設定原則
@@ -23,13 +23,15 @@ description: |
 1. **VS Code**：APIM 路徑優先使用 `.vscode\mcp.http.remote-apim.json`
 2. **Claude Code**：正式使用 `outlook-email\.claude\mcp.json` 內的 `outlook-email`
 3. **Copilot CLI**：正式使用 `~/.copilot/mcp-config.json` 內的 `outlook-email`
-4. `outlook-email-stdio-ut-reference` 只保留做 UT / localhost 開發參考，不是預設遠端路徑
+4. localhost / UT 參考改看 `.vscode\mcp.http.local-func.json`、`.vscode\mcp.stdio.local.json`，不是 `.claude\mcp.json` 的預設遠端路徑
 
 ## APIM remote MCP 連線必要條件
 
 ### 1. `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN`
 
 若設定檔使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`，請在**啟動 Claude Code / Copilot CLI 的同一個 shell** 先刷新 token。
+
+目前 repo 內的 `.claude\mcp.json` 維持手動 Bearer header，因此 Claude Code 啟動前也需要先刷新這個 token。
 
 ```powershell
 $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `

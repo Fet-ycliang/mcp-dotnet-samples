@@ -766,9 +766,9 @@
 
 - **Claude Code**：正式使用 `outlook-email\.claude\mcp.json` 內的 `outlook-email`
 - **Copilot CLI**：正式使用 `~/.copilot/mcp-config.json` 內的 `outlook-email`
-- `outlook-email-stdio-ut-reference` 已保留在設定檔中，供 localhost / UT 開發參考
+- Claude Code 目前維持 **手動 Bearer header** 模式；localhost / UT 參考請改看 `.vscode\mcp.http.local-func.json`、`.vscode\mcp.stdio.local.json`
 
-APIM 這條遠端 MCP 路徑目前使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`。啟動 Claude Code / Copilot CLI 前，先在**同一個 shell** 刷新 token：
+若設定檔使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`（例如目前的 Claude Code 設定），啟動前請先在**同一個 shell** 刷新 token：
 
 ```powershell
 $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
@@ -786,6 +786,7 @@ $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
   - app-only：`roles=access_as_application`
 
 > `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN` 只適合 CLI / 手動測試；它是短效 access token，不是給外部平台長期保存的固定憑證。
+
 
 #### 外部平台 OAuth Machine to Machine 表單欄位對照
 

@@ -56,7 +56,7 @@
 - `.vscode\mcp.http.container.json` / `mcp.stdio.container.json`：本機容器
 - `.vscode\mcp.http.remote-func.json`：遠端 Functions
 - `.vscode\mcp.http.remote-apim.json`：遠端 APIM
-- `.claude\mcp.json`：Claude Code 使用的正式 APIM remote MCP 設定（內含 `outlook-email-stdio-ut-reference`）
+- `.claude\mcp.json`：Claude Code 使用的正式 APIM remote MCP 設定（手動 Bearer header）
 - `~\.copilot\mcp-config.json`：Copilot CLI 使用的 MCP 設定（不在 repo 內）
 
 ## 修改時的工作原則
