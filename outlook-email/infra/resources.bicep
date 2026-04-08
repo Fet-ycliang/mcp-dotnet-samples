@@ -45,6 +45,9 @@ param existingMcpOauthClientId string = ''
 @description('Optional. Existing VNet name to reuse when vnetEnabled is true. Leave empty to create a new VNet.')
 param existingVirtualNetworkName string = ''
 
+@description('Optional. Resource group that hosts the existing VNet when reusing across resource groups. Leave empty to assume the same resource group as the deployment.')
+param existingVirtualNetworkResourceGroupName string = ''
+
 @description('Optional. Name of the Flex Consumption integration subnet. When reusing an existing VNet, this subnet must not contain underscores and must be delegated to Microsoft.App/environments.')
 param integrationSubnetName string = ''
 
@@ -93,17 +96,25 @@ param apimSubnetName string = ''
 @description('Whether to create a private endpoint for the Function App and disable public network access on the app.')
 param deployFunctionAppPrivateEndpoint bool = false
 
+@description('Whether to deploy Azure Container Apps instead of Azure Functions as the MCP server host. When true, deploys ACR + Container Apps Environment + Container App. When false (default), deploys Flex Consumption Function App.')
+param deployAca bool = false
+
 param azdServiceName string
 
 var abbrs = loadJsonContent('./abbreviations.json')
 var normalizedStem = toLower(resourceNameStem)
 var compactStem = take(replace(normalizedStem, '-', ''), 22)
 var functionAppName = '${abbrs.webSitesFunctions}${normalizedStem}'
+var containerAppName = '${abbrs.appContainerApps}${normalizedStem}'
+var containerRegistryName = '${abbrs.containerRegistryRegistries}${compactStem}'
+var containerAppsEnvironmentName = '${abbrs.appManagedEnvironments}${normalizedStem}'
 var deploymentStorageContainerName = 'app-package-${normalizedStem}'
 var allowedSenders = empty(allowedSendersCsv) ? [] : split(allowedSendersCsv, ';')
 var allowedReplyTo = empty(allowedReplyToCsv) ? [] : split(allowedReplyToCsv, ';')
 var useExistingVirtualNetwork = vnetEnabled && !empty(existingVirtualNetworkName)
-var deployApimFacade = deployApim && deployApimMcpApi
+var effectiveVnetResourceGroupName = !empty(existingVirtualNetworkResourceGroupName) ? existingVirtualNetworkResourceGroupName : resourceGroup().name
+// APIM MCP API facade is only available on the Functions path; ACA path skips the function-specific facade wiring
+var deployApimFacade = !deployAca && deployApim && deployApimMcpApi
 var reuseExistingMcpOauthApp = deployApimFacade && !empty(existingMcpOauthTenantId) && !empty(existingMcpOauthClientId)
 var virtualNetworkName = useExistingVirtualNetwork ? existingVirtualNetworkName : '${abbrs.networkVirtualNetworks}${normalizedStem}'
 var effectiveIntegrationSubnetName = !empty(integrationSubnetName) ? integrationSubnetName : 'app'
@@ -177,6 +188,7 @@ module mcpOutlookEmailIdentity 'br/public:avm/res/managed-identity/user-assigned
 
 resource existingVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-05-01' existing = if (useExistingVirtualNetwork) {
   name: virtualNetworkName
+  scope: resourceGroup(effectiveVnetResourceGroupName)
 }
 
 resource sharedFunctionAppPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = if (useSharedPrivateDnsZones && deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints) {
@@ -184,34 +196,25 @@ resource sharedFunctionAppPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020
   scope: resourceGroup(privateDnsZoneResourceGroupName)
 }
 
-resource existingVirtualNetworkIntegrationSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = if (useExistingVirtualNetwork && !empty(integrationSubnetAddressPrefix) && !empty(effectiveIntegrationSubnetName)) {
-  name: effectiveIntegrationSubnetName
-  parent: existingVirtualNetwork
-  properties: {
+// Integration subnet creation/update: always use a scoped module to handle both same-RG and cross-RG VNet scenarios
+module existingVnetIntegrationSubnet './modules/integration-subnet.bicep' = if (useExistingVirtualNetwork && !empty(integrationSubnetAddressPrefix) && !empty(effectiveIntegrationSubnetName)) {
+  name: 'integrationSubnet'
+  scope: resourceGroup(effectiveVnetResourceGroupName)
+  params: {
+    vnetName: virtualNetworkName
+    subnetName: effectiveIntegrationSubnetName
     addressPrefix: integrationSubnetAddressPrefix
-    delegations: [
-      {
-        name: 'flexConsumptionDelegation'
-        properties: {
-          serviceName: 'Microsoft.App/environments'
-        }
-      }
-    ]
-    routeTable: !empty(integrationSubnetRouteTableResourceId) ? {
-      id: integrationSubnetRouteTableResourceId
-    } : null
-    networkSecurityGroup: !empty(integrationSubnetNetworkSecurityGroupResourceId) ? {
-      id: integrationSubnetNetworkSecurityGroupResourceId
-    } : null
+    routeTableId: integrationSubnetRouteTableResourceId
+    nsgId: integrationSubnetNetworkSecurityGroupResourceId
   }
 }
 
-var existingIntegrationSubnetResourceId = !empty(effectiveIntegrationSubnetName) ? resourceId('Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, effectiveIntegrationSubnetName) : ''
-var existingPrivateEndpointSubnetResourceId = !empty(effectivePrivateEndpointSubnetName) ? resourceId('Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, effectivePrivateEndpointSubnetName) : ''
+var existingIntegrationSubnetResourceId = !empty(effectiveIntegrationSubnetName) ? resourceId(effectiveVnetResourceGroupName, 'Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, effectiveIntegrationSubnetName) : ''
+var existingPrivateEndpointSubnetResourceId = !empty(effectivePrivateEndpointSubnetName) ? resourceId(effectiveVnetResourceGroupName, 'Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, effectivePrivateEndpointSubnetName) : ''
 var virtualNetworkResourceId = vnetEnabled ? (useExistingVirtualNetwork ? existingVirtualNetwork.id : serviceVirtualNetwork!.outputs.vnetResourceId) : ''
 var integrationSubnetResourceId = useExistingVirtualNetwork ? existingIntegrationSubnetResourceId : (vnetEnabled ? serviceVirtualNetwork!.outputs.appSubnetID : '')
 var privateEndpointSubnetResourceId = useExistingVirtualNetwork ? (canDeployPrivateEndpoints ? existingPrivateEndpointSubnetResourceId : '') : (canDeployPrivateEndpoints ? serviceVirtualNetwork!.outputs.peSubnetID : '')
-var apimSubnetResourceId = deployApimInternal ? resourceId('Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, apimSubnetName) : ''
+var apimSubnetResourceId = deployApimInternal ? resourceId(effectiveVnetResourceGroupName, 'Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, apimSubnetName) : ''
 
 // API Management
 module apimService './modules/apim.bicep' = if (deployApim) {
@@ -272,7 +275,7 @@ module mcpApiModule './modules/mcp-api.bicep' = if (deployApimFacade) {
 }
 
 // Create an App Service Plan to group applications under the same payment plan and SKU
-module appServicePlan 'br/public:avm/res/web/serverfarm:0.1.1' = {
+module appServicePlan 'br/public:avm/res/web/serverfarm:0.1.1' = if (!deployAca) {
   name: 'appServicePlan'
   params: {
     name: appServicePlanName
@@ -287,8 +290,8 @@ module appServicePlan 'br/public:avm/res/web/serverfarm:0.1.1' = {
   }
 }
 
-// Function app
-module fncapp './modules/functionapp.bicep' = {
+// Function app (Functions path only)
+module fncapp './modules/functionapp.bicep' = if (!deployAca) {
   name: 'functionapp'
   params: {
     name: functionAppName
@@ -296,7 +299,7 @@ module fncapp './modules/functionapp.bicep' = {
     tags: tags
     azdServiceName: azdServiceName
     applicationInsightsName: monitoring.outputs.applicationInsightsName
-    appServicePlanId: appServicePlan.outputs.resourceId
+    appServicePlanId: appServicePlan!.outputs.resourceId
     runtimeName: 'dotnet-isolated'
     runtimeVersion: '10.0'
     storageAccountName: storage.outputs.name
@@ -402,6 +405,7 @@ module storagePrivateEndpoint './modules/storage-privateendpoint.bicep' = if (ca
     location: location
     tags: tags
     virtualNetworkName: virtualNetworkName
+    vnetResourceGroupName: effectiveVnetResourceGroupName
     subnetName: effectivePrivateEndpointSubnetName
     resourceName: storage.outputs.name
     enableBlob: storageEndpointConfig.enableBlob
@@ -411,120 +415,113 @@ module storagePrivateEndpoint './modules/storage-privateendpoint.bicep' = if (ca
   }
 }
 
-// // Container registry
-// module containerRegistry 'br/public:avm/res/container-registry/registry:0.1.1' = {
-//   name: 'registry'
-//   params: {
-//     name: '${abbrs.containerRegistryRegistries}${resourceToken}'
-//     location: location
-//     tags: tags
-//     publicNetworkAccess: 'Enabled'
-//     roleAssignments: [
-//       {
-//         principalId: mcpOutlookEmailIdentity.outputs.principalId
-//         principalType: 'ServicePrincipal'
-//         // ACR pull role
-//         roleDefinitionIdOrName: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-//       }
-//     ]
-//   }
-// }
+// Container registry (ACA path)
+module containerRegistry 'br/public:avm/res/container-registry/registry:0.1.1' = if (deployAca) {
+  name: 'registry'
+  params: {
+    name: containerRegistryName
+    location: location
+    tags: tags
+    publicNetworkAccess: 'Enabled'
+    roleAssignments: [
+      {
+        principalId: mcpOutlookEmailIdentity.outputs.principalId
+        principalType: 'ServicePrincipal'
+        // ACR pull role (7f951dda-4ed3-4680-a7ca-43fe172d538d)
+        roleDefinitionIdOrName: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+      }
+    ]
+  }
+}
 
-// // Container apps environment
-// module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.4.5' = {
-//   name: 'container-apps-environment'
-//   params: {
-//     logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
-//     name: '${abbrs.appManagedEnvironments}${resourceToken}'
-//     location: location
-//     zoneRedundant: false
-//   }
-// }
+// Container apps environment (ACA path)
+module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.4.5' = if (deployAca) {
+  name: 'container-apps-environment'
+  params: {
+    logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
+    name: containerAppsEnvironmentName
+    location: location
+    tags: tags
+    zoneRedundant: false
+  }
+}
 
-// // Azure Container Apps
-// module mcpOutlookEmailFetchLatestImage './modules/fetch-container-image.bicep' = {
-//   name: 'mcpOutlookEmail-fetch-image'
-//   params: {
-//     exists: mcpOutlookEmailExists
-//     name: 'outlook-email'
-//   }
-// }
+// Fetch existing container image on re-deploy so azd preserves the current image (ACA path)
+module mcpOutlookEmailFetchLatestImage './modules/fetch-container-image.bicep' = if (deployAca) {
+  name: 'mcpOutlookEmail-fetch-image'
+  params: {
+    exists: mcpOutlookEmailExists
+    name: containerAppName
+  }
+}
 
-// module mcpOutlookEmail 'br/public:avm/res/app/container-app:0.8.0' = {
-//   name: 'mcpOutlookEmail'
-//   params: {
-//     name: 'outlook-email'
-//     ingressTargetPort: 8080
-//     scaleMinReplicas: 1
-//     scaleMaxReplicas: 10
-//     secrets: {
-//       secureList: [
-//       ]
-//     }
-//     containers: [
-//       {
-//         image: mcpOutlookEmailFetchLatestImage.outputs.?containers[?0].?image ?? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
-//         name: 'main'
-//         resources: {
-//           cpu: json('0.5')
-//           memory: '1.0Gi'
-//         }
-//         env: [
-//           {
-//             name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-//             value: monitoring.outputs.applicationInsightsConnectionString
-//           }
-//           {
-//             name: 'AZURE_CLIENT_ID'
-//             value: mcpOutlookEmailIdentity.outputs.clientId
-//           }
-//           {
-//             name: 'PORT'
-//             value: '8080'
-//           }
-//         ]
-//         args: [
-//           '--http'
-//         ]
-//       }
-//     ]
-//     managedIdentities: {
-//       systemAssigned: false
-//       userAssignedResourceIds: [
-//         mcpOutlookEmailIdentity.outputs.resourceId
-//       ]
-//     }
-//     registries: [
-//       {
-//         server: containerRegistry.outputs.loginServer
-//         identity: mcpOutlookEmailIdentity.outputs.resourceId
-//       }
-//     ]
-//     environmentResourceId: containerAppsEnvironment.outputs.resourceId
-//     corsPolicy: {
-//       allowedOrigins: [
-//         'https://make.preview.powerapps.com'
-//         'https://make.powerapps.com'
-//         'https://make.preview.powerautomate.com'
-//         'https://make.powerautomate.com'
-//         'https://copilotstudio.preview.microsoft.com'
-//         'https://copilotstudio.microsoft.com'
-//       ]
-//     }
-//     location: location
-//     tags: union(tags, { 'azd-service-name': 'outlook-email' })
-//   }
-// }
+// Azure Container App (ACA path)
+module mcpOutlookEmail 'br/public:avm/res/app/container-app:0.8.0' = if (deployAca) {
+  name: 'mcpOutlookEmail'
+  params: {
+    name: containerAppName
+    ingressTargetPort: 8080
+    scaleMinReplicas: 0
+    scaleMaxReplicas: 10
+    secrets: {
+      secureList: []
+    }
+    containers: [
+      {
+        image: mcpOutlookEmailFetchLatestImage!.outputs.?containers[?0].?image ?? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+        name: 'main'
+        resources: {
+          cpu: json('0.5')
+          memory: '1.0Gi'
+        }
+        env: [
+          {
+            name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+            value: monitoring.outputs.applicationInsightsConnectionString
+          }
+          {
+            name: 'AZURE_CLIENT_ID'
+            value: mcpOutlookEmailIdentity.outputs.clientId
+          }
+          // FUNCTIONS_CUSTOMHANDLER_PORT controls the HTTP port the app listens on
+          {
+            name: 'FUNCTIONS_CUSTOMHANDLER_PORT'
+            value: '8080'
+          }
+          {
+            name: 'EntraId__UseManagedIdentity'
+            value: '${graphUseManagedIdentity}'
+          }
+        ]
+        args: [
+          '--http'
+        ]
+      }
+    ]
+    managedIdentities: {
+      systemAssigned: false
+      userAssignedResourceIds: [
+        mcpOutlookEmailIdentity.outputs.resourceId
+      ]
+    }
+    registries: [
+      {
+        server: containerRegistry!.outputs.loginServer
+        identity: mcpOutlookEmailIdentity.outputs.resourceId
+      }
+    ]
+    environmentResourceId: containerAppsEnvironment!.outputs.resourceId
+    location: location
+    tags: union(tags, { 'azd-service-name': azdServiceName })
+  }
+}
 
-// output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerRegistry.outputs.loginServer
-// output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = mcpOutlookEmail.outputs.resourceId
-// output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = mcpOutlookEmail.outputs.name
-// output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = mcpOutlookEmail.outputs.fqdn
+output AZURE_CONTAINER_REGISTRY_ENDPOINT string = deployAca ? containerRegistry!.outputs.loginServer : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = deployAca ? mcpOutlookEmail!.outputs.resourceId : fncapp!.outputs.resourceId
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = deployAca ? mcpOutlookEmail!.outputs.name : fncapp!.outputs.name
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = deployAca ? mcpOutlookEmail!.outputs.fqdn : fncapp!.outputs.fqdn
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ACA_FQDN string = deployAca ? mcpOutlookEmail!.outputs.fqdn : ''
 
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = fncapp.outputs.resourceId
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = fncapp.outputs.name
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = fncapp.outputs.fqdn
-
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = deployApim ? apimService.outputs.id : ''
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = deployApim ? apimService.outputs.name : ''
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN string = deployApim ? replace(apimService.outputs.gatewayUrl, 'https://', '') : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = deployApim ? apimService!.outputs.id : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = deployApim ? apimService!.outputs.name : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN string = deployApim ? replace(apimService!.outputs.gatewayUrl, 'https://', '') : ''

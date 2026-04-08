@@ -86,6 +86,9 @@ param existingMcpOauthClientId string = ''
 @description('Optional. Existing VNet name to reuse when vnetEnabled is true. Leave empty to create a new VNet.')
 param existingVirtualNetworkName string = ''
 
+@description('Optional. Resource group that hosts the existing VNet when reusing across resource groups. Leave empty to assume the same resource group as the deployment.')
+param existingVirtualNetworkResourceGroupName string = ''
+
 @description('Optional. Name of the Flex Consumption integration subnet. When reusing an existing VNet, this subnet must not contain underscores and must be delegated to Microsoft.App/environments.')
 param integrationSubnetName string = ''
 
@@ -133,6 +136,9 @@ param apimSubnetName string = ''
 
 @description('Whether to create a private endpoint for the Function App and disable public network access on the app.')
 param deployFunctionAppPrivateEndpoint bool = false
+
+@description('Whether to deploy Azure Container Apps instead of Azure Functions as the MCP server host.')
+param deployAca bool = false
 
 // Tags that should be applied to all resources.
 // 
@@ -182,6 +188,7 @@ module resources 'resources.bicep' = {
     existingMcpOauthTenantId: existingMcpOauthTenantId
     existingMcpOauthClientId: existingMcpOauthClientId
     existingVirtualNetworkName: existingVirtualNetworkName
+    existingVirtualNetworkResourceGroupName: existingVirtualNetworkResourceGroupName
     integrationSubnetName: integrationSubnetName
     integrationSubnetAddressPrefix: integrationSubnetAddressPrefix
     privateEndpointSubnetName: privateEndpointSubnetName
@@ -195,16 +202,18 @@ module resources 'resources.bicep' = {
     apimInternalVirtualNetwork: apimInternalVirtualNetwork
     apimSubnetName: apimSubnetName
     deployFunctionAppPrivateEndpoint: deployFunctionAppPrivateEndpoint
+    deployAca: deployAca
   }
   dependsOn: [
     rg
   ]
 }
 
-// output AZURE_CONTAINER_REGISTRY_ENDPOINT string = resources.outputs.AZURE_CONTAINER_REGISTRY_ENDPOINT
+output AZURE_CONTAINER_REGISTRY_ENDPOINT string = resources.outputs.AZURE_CONTAINER_REGISTRY_ENDPOINT
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ACA_FQDN string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ACA_FQDN
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN

@@ -6,6 +6,11 @@ metadata:
   template: azd-init@1.14.0
 
 services:
+  # -----------------------------------------------------------------------
+  # ACA path (AZURE_DEPLOY_ACA=true):
+  # Uncomment this block and comment out the Functions block below.
+  # Also run: azd env set AZURE_DEPLOY_ACA true
+  # -----------------------------------------------------------------------
   # outlook-email:
   #   project: src/McpSamples.OutlookEmail.HybridApp
   #   host: containerapp
@@ -14,6 +19,10 @@ services:
   #     path: ../../../Dockerfile.outlook-email-azure
   #     context: ../../../
   #     remoteBuild: true
+
+  # -----------------------------------------------------------------------
+  # Functions path (default, AZURE_DEPLOY_ACA=false or unset):
+  # -----------------------------------------------------------------------
   outlook-email:
     project: src/McpSamples.OutlookEmail.HybridApp
     host: function
