@@ -93,6 +93,9 @@ param apimSubnetName string = ''
 @description('Whether to create a private endpoint for the Function App and disable public network access on the app.')
 param deployFunctionAppPrivateEndpoint bool = false
 
+@description('Whether to deploy the MCP server on Azure Container Apps (ACA) instead of Azure Functions. When true, a Container Registry and Container Apps Environment are provisioned and the APIM API backend points to the ACA container app.')
+param deployAca bool = false
+
 param azdServiceName string
 
 var abbrs = loadJsonContent('./abbreviations.json')
@@ -123,6 +126,9 @@ var storageAccountName = '${abbrs.storageStorageAccounts}${compactStem}'
 var mcpEntraAppUniqueName = 'mcp-${normalizedStem}'
 var mcpEntraAppDisplayName = 'MCP-${normalizedStem}'
 var functionAppDnsLinkName = '${functionAppName}-sites-link'
+var containerRegistryName = '${abbrs.containerRegistryRegistries}${compactStem}'
+var containerAppsEnvironmentName = '${abbrs.appManagedEnvironments}${normalizedStem}'
+var containerAppName = 'ca-${normalizedStem}'
 var allowedSenderAppSettings = reduce(
   allowedSenders,
   {},
@@ -252,13 +258,13 @@ module mcpEntraApp './modules/mcp-entra-app.bicep' = if (deployApimFacade && !re
     mcpAppUniqueName: mcpEntraAppUniqueName
     mcpAppDisplayName: mcpEntraAppDisplayName
     userAssignedIdentityPrincipleId: mcpOutlookEmailIdentity.outputs.principalId
-    functionAppName: functionAppName
+    functionAppName: deployAca ? '' : functionAppName
     grantMailSendToManagedIdentity: graphUseManagedIdentity
   }
 }
 
-// MCP server API endpoints
-module mcpApiModule './modules/mcp-api.bicep' = if (deployApimFacade) {
+// MCP server API endpoints via APIM – Function App backend variant (only when not using ACA)
+module mcpApiModule './modules/mcp-api.bicep' = if (deployApimFacade && !deployAca) {
   name: 'mcpApiModule'
   params: {
     apimServiceName: apimService.outputs.name
@@ -411,119 +417,134 @@ module storagePrivateEndpoint './modules/storage-privateendpoint.bicep' = if (ca
   }
 }
 
-// // Container registry
-// module containerRegistry 'br/public:avm/res/container-registry/registry:0.1.1' = {
-//   name: 'registry'
-//   params: {
-//     name: '${abbrs.containerRegistryRegistries}${resourceToken}'
-//     location: location
-//     tags: tags
-//     publicNetworkAccess: 'Enabled'
-//     roleAssignments: [
-//       {
-//         principalId: mcpOutlookEmailIdentity.outputs.principalId
-//         principalType: 'ServicePrincipal'
-//         // ACR pull role
-//         roleDefinitionIdOrName: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-//       }
-//     ]
-//   }
-// }
+// Container registry (ACA path only)
+module containerRegistry 'br/public:avm/res/container-registry/registry:0.1.1' = if (deployAca) {
+  name: 'registry'
+  params: {
+    name: containerRegistryName
+    location: location
+    tags: tags
+    publicNetworkAccess: 'Enabled'
+    roleAssignments: [
+      {
+        principalId: mcpOutlookEmailIdentity.outputs.principalId
+        principalType: 'ServicePrincipal'
+        // ACR pull role
+        roleDefinitionIdOrName: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+      }
+    ]
+  }
+}
 
-// // Container apps environment
-// module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.4.5' = {
-//   name: 'container-apps-environment'
-//   params: {
-//     logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
-//     name: '${abbrs.appManagedEnvironments}${resourceToken}'
-//     location: location
-//     zoneRedundant: false
-//   }
-// }
+// Container Apps Environment (ACA path only)
+module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.4.5' = if (deployAca) {
+  name: 'container-apps-environment'
+  params: {
+    logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
+    name: containerAppsEnvironmentName
+    location: location
+    tags: tags
+    zoneRedundant: false
+  }
+}
 
-// // Azure Container Apps
-// module mcpOutlookEmailFetchLatestImage './modules/fetch-container-image.bicep' = {
-//   name: 'mcpOutlookEmail-fetch-image'
-//   params: {
-//     exists: mcpOutlookEmailExists
-//     name: 'outlook-email'
-//   }
-// }
+// Fetch latest image tag for the container app (ACA path only)
+module mcpOutlookEmailFetchLatestImage './modules/fetch-container-image.bicep' = if (deployAca) {
+  name: 'mcpOutlookEmail-fetch-image'
+  params: {
+    exists: mcpOutlookEmailExists
+    name: containerAppName
+  }
+}
 
-// module mcpOutlookEmail 'br/public:avm/res/app/container-app:0.8.0' = {
-//   name: 'mcpOutlookEmail'
-//   params: {
-//     name: 'outlook-email'
-//     ingressTargetPort: 8080
-//     scaleMinReplicas: 1
-//     scaleMaxReplicas: 10
-//     secrets: {
-//       secureList: [
-//       ]
-//     }
-//     containers: [
-//       {
-//         image: mcpOutlookEmailFetchLatestImage.outputs.?containers[?0].?image ?? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
-//         name: 'main'
-//         resources: {
-//           cpu: json('0.5')
-//           memory: '1.0Gi'
-//         }
-//         env: [
-//           {
-//             name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-//             value: monitoring.outputs.applicationInsightsConnectionString
-//           }
-//           {
-//             name: 'AZURE_CLIENT_ID'
-//             value: mcpOutlookEmailIdentity.outputs.clientId
-//           }
-//           {
-//             name: 'PORT'
-//             value: '8080'
-//           }
-//         ]
-//         args: [
-//           '--http'
-//         ]
-//       }
-//     ]
-//     managedIdentities: {
-//       systemAssigned: false
-//       userAssignedResourceIds: [
-//         mcpOutlookEmailIdentity.outputs.resourceId
-//       ]
-//     }
-//     registries: [
-//       {
-//         server: containerRegistry.outputs.loginServer
-//         identity: mcpOutlookEmailIdentity.outputs.resourceId
-//       }
-//     ]
-//     environmentResourceId: containerAppsEnvironment.outputs.resourceId
-//     corsPolicy: {
-//       allowedOrigins: [
-//         'https://make.preview.powerapps.com'
-//         'https://make.powerapps.com'
-//         'https://make.preview.powerautomate.com'
-//         'https://make.powerautomate.com'
-//         'https://copilotstudio.preview.microsoft.com'
-//         'https://copilotstudio.microsoft.com'
-//       ]
-//     }
-//     location: location
-//     tags: union(tags, { 'azd-service-name': 'outlook-email' })
-//   }
-// }
+// Azure Container Apps (ACA path only)
+module mcpOutlookEmailAca 'br/public:avm/res/app/container-app:0.8.0' = if (deployAca) {
+  name: 'mcpOutlookEmail-aca'
+  params: {
+    name: containerAppName
+    ingressTargetPort: 8080
+    scaleMinReplicas: 1
+    scaleMaxReplicas: 10
+    secrets: {
+      secureList: []
+    }
+    containers: [
+      {
+        image: mcpOutlookEmailFetchLatestImage!.outputs.?containers[?0].?image ?? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+        name: 'main'
+        resources: {
+          cpu: json('0.5')
+          memory: '1.0Gi'
+        }
+        env: union(
+          [
+            {
+              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+              value: monitoring.outputs.applicationInsightsConnectionString
+            }
+            {
+              name: 'AZURE_CLIENT_ID'
+              value: mcpOutlookEmailIdentity.outputs.clientId
+            }
+            {
+              name: 'PORT'
+              value: '8080'
+            }
+            {
+              name: 'UseHttp'
+              value: 'true'
+            }
+            {
+              name: 'EntraId__UseManagedIdentity'
+              value: '${graphUseManagedIdentity}'
+            }
+          ],
+          map(items(allowedSenderAppSettings), item => { name: item.key, value: item.value }),
+          map(items(allowedReplyToAppSettings), item => { name: item.key, value: item.value }),
+          !graphUseManagedIdentity && !empty(entraTenantId) ? [{ name: 'EntraId__TenantId', value: entraTenantId }] : [],
+          !graphUseManagedIdentity && !empty(entraClientId) ? [{ name: 'EntraId__ClientId', value: entraClientId }] : []
+        )
+        args: [
+          '--http'
+        ]
+      }
+    ]
+    managedIdentities: {
+      systemAssigned: false
+      userAssignedResourceIds: [
+        mcpOutlookEmailIdentity.outputs.resourceId
+      ]
+    }
+    registries: [
+      {
+        server: containerRegistry!.outputs.loginServer
+        identity: mcpOutlookEmailIdentity.outputs.resourceId
+      }
+    ]
+    environmentResourceId: containerAppsEnvironment!.outputs.resourceId
+    location: location
+    tags: union(tags, { 'azd-service-name': azdServiceName })
+  }
+}
 
-// output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerRegistry.outputs.loginServer
-// output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = mcpOutlookEmail.outputs.resourceId
-// output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = mcpOutlookEmail.outputs.name
-// output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = mcpOutlookEmail.outputs.fqdn
+// MCP server API endpoints via APIM – ACA backend variant
+module mcpApiAcaModule './modules/mcp-api-aca.bicep' = if (deployAca && deployApimFacade) {
+  name: 'mcpApiAcaModule'
+  params: {
+    apimServiceName: apimService.outputs.name
+    acaServiceUrl: 'https://${mcpOutlookEmailAca!.outputs.fqdn}'
+    mcpAppId: reuseExistingMcpOauthApp ? existingMcpOauthClientId : mcpEntraApp.outputs.mcpAppId
+    mcpAppTenantId: reuseExistingMcpOauthApp ? existingMcpOauthTenantId : mcpEntraApp.outputs.mcpAppTenantId
+  }
+  dependsOn: [
+    mcpOutlookEmailAca
+  ]
+}
 
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = fncapp.outputs.resourceId
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = fncapp.outputs.name
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = fncapp.outputs.fqdn
+output AZURE_CONTAINER_REGISTRY_ENDPOINT string = deployAca ? containerRegistry!.outputs.loginServer : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = deployAca ? mcpOutlookEmailAca!.outputs.resourceId : fncapp.outputs.resourceId
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = deployAca ? mcpOutlookEmailAca!.outputs.name : fncapp.outputs.name
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = deployAca ? mcpOutlookEmailAca!.outputs.fqdn : fncapp.outputs.fqdn
 
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = deployApim ? apimService.outputs.id : ''
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = deployApim ? apimService.outputs.name : ''

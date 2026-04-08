@@ -110,6 +110,7 @@
 - [將 MCP 伺服器連線到 MCP 主機／客戶端](#connect-mcp-server-to-an-mcp-hostclient)
   - [VS Code + Agent Mode + 本機 MCP 伺服器](#vs-code--agent-mode--local-mcp-server)
 - [常見陷阱與排錯入口](#common-troubleshooting)
+- [ACA 架構規劃：APIM + Function App 緩解與長期遷移](#aca-architecture)
 
 <a id="getting-repository-root"></a>
 ### 取得儲存庫根目錄
@@ -611,11 +612,11 @@
       azd env get-value AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN
       ```
 
-   <!-- - Azure Container Apps FQDN：
+   - Azure Container Apps FQDN（`AZURE_DEPLOY_ACA=true` 時）：
 
       ```bash
-      azd env get-value AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ACA_FQDN
-      ``` -->
+      azd env get-value AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN
+      ```
 
    - Azure API Management FQDN：
 
@@ -717,7 +718,7 @@
               -Destination $REPOSITORY_ROOT/.vscode/mcp.json -Force
     ```
 
-   <!-- **用於遠端執行的 MCP 伺服器（container app / HTTP）：**
+   **用於遠端執行的 MCP 伺服器（container app / HTTP，直接連 ACA）：**
 
     ```bash
     mkdir -p $REPOSITORY_ROOT/.vscode
@@ -729,7 +730,7 @@
     New-Item -Type Directory -Path $REPOSITORY_ROOT/.vscode -Force
     Copy-Item -Path $REPOSITORY_ROOT/outlook-email/.vscode/mcp.http.remote.json `
               -Destination $REPOSITORY_ROOT/.vscode/mcp.json -Force
-    ``` -->
+    ```
 
    **用於透過 API Management 存取的遠端 MCP 伺服器（HTTP）：**
 
@@ -943,4 +944,132 @@ sequenceDiagram
    - 或真的補齊 Databricks 到該 private DNS / VNet 的網路路徑
 
 > 短句版結論：**Databricks 這段目前比較像是 private APIM 可達性問題，不是 OAuth scope / app role / tool 定義問題。**
+
+<a id="aca-architecture"></a>
+## ACA 架構規劃：APIM + Function App 緩解與長期遷移
+
+本節說明兩種解決 APIM 與 Function App 在 MCP SSE 串流上的已知限制的方案。
+
+### 問題根源
+
+MCP 的 Streamable HTTP transport 依賴 **SSE (Server-Sent Events)** 長連線。當架構是 **Client → APIM → Function App** 時，會遇到以下瓶頸：
+
+| 問題 | 影響 |
+| --- | --- |
+| APIM 預設緩衝 (Response Buffering) | APIM 把後端回應完全收齊再一次送給 client，破壞 SSE 即時串流，造成 Timeout 或 chunk 無法解析 |
+| Function App 230 秒 HTTP timeout | Azure Functions Consumption / Flex plan 對 HTTP request 有 230 秒上限，長跑的 MCP 連線容易被截斷 |
+| Function App 冷啟動 | Serverless 冷啟動會讓 MCP handshake 失敗，Consumption plan 尤其明顯 |
+
+<a id="solution-a-apim-fix"></a>
+### 方案 A：調整 APIM Policy（緩解，保留 Function App 架構）
+
+若暫時不換底層基礎設施，**必須** 在 APIM Policy 的 `<backend>` 區塊強制關閉緩衝並延長逾時：
+
+```xml
+<backend>
+    <!-- 關閉緩衝以支援 MCP Streamable HTTP / SSE 長連線 -->
+    <forward-request timeout="300" buffer-response="false" />
+</backend>
+```
+
+這正是 `infra/modules/mcp-api.policy.xml` 目前所採用的設定：`buffer-response="false"` 讓 APIM 停止緩衝、直接把 SSE chunk 轉發給 client；`timeout="300"` 把 forward timeout 延長至 300 秒，避免 APIM 先行截斷連線。
+
+> **注意**：即使加了這兩個設定，Function App Flex Consumption 的 230 秒 HTTP timeout 仍然存在。長時間維持的 MCP 連線仍可能被截斷。若需要更穩定的長連線，請評估方案 B。
+
+若需要升級 Function App 計畫以降低冷啟動機率：
+
+```bash
+# 目前 sample 使用 Flex Consumption（FC1）；若需要常駐 instance 可評估改成 Premium
+azd env set AZURE_FUNCTIONS_SKU "EP1"  # 僅供參考，目前 Bicep 尚未支援此參數
+```
+
+<a id="solution-b-aca-migration"></a>
+### 方案 B：遷移至 Azure Container Apps（長期最佳實踐）
+
+**ACA (Azure Container Apps)** 執行標準 Docker 容器，原生支援長連線，沒有 Function App 的 230 秒 HTTP timeout 限制，並可透過 KEDA 根據 HTTP 請求數量自動擴縮。
+
+#### ACA 與 Function App 架構對比
+
+| 面向 | Function App (Flex Consumption) | Azure Container Apps |
+| --- | --- | --- |
+| SSE / 長連線 | 受 230 秒 HTTP timeout 限制 | 無 HTTP 硬限制，原生支援長連線 |
+| 冷啟動 | Serverless 冷啟動，always-ready=0 時明顯 | Scale-to-zero 可選，cold start 較短 |
+| APIM 緩衝問題 | 需要 `buffer-response=false` 緩解 | 需要 `buffer-response=false`（同樣適用） |
+| 部署方式 | zip deploy / Flex package | Docker image + ACR |
+| 成本模型 | 按執行量計費（適合低頻） | 按 vCPU / memory 秒計費，scale-to-zero 可省成本 |
+| Managed identity | 支援 user-assigned MI | 支援 user-assigned MI（相同 MI 直接沿用） |
+
+#### 部署 ACA 架構
+
+1. 啟用 ACA 部署開關：
+
+    ```bash
+    azd env set AZURE_DEPLOY_ACA true
+    ```
+
+1. 更新 `azure.yaml`，切換為 ACA service host（**手動修改**）：
+
+    ```yaml
+    services:
+      # 將 Function App service 註解掉
+      # outlook-email:
+      #   project: src/McpSamples.OutlookEmail.HybridApp
+      #   host: function
+      #   language: csharp
+
+      # 啟用 ACA service
+      outlook-email-aca:
+        project: src/McpSamples.OutlookEmail.HybridApp
+        host: containerapp
+        language: dotnet
+        docker:
+          path: ../../../Dockerfile.outlook-email-azure
+          context: ../../../
+          remoteBuild: true
+    ```
+
+1. 部署至 Azure：
+
+    ```bash
+    azd up
+    ```
+
+    `AZURE_DEPLOY_ACA=true` 時，Bicep 會額外佈建：
+    - **Azure Container Registry**：用於存放 Docker image
+    - **Container Apps Environment**：ACA 的執行環境（搭配 Log Analytics）
+    - **Container App**：承載 MCP 伺服器的容器，scale min=1，max=10
+    - **APIM MCP API**：改用 `mcp-api-aca.bicep` 與 `mcp-api-aca.policy.xml`，不注入 `x-functions-key`，backend 指向 ACA FQDN
+
+1. 取得 ACA FQDN：
+
+    ```bash
+    azd env get-value AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN
+    ```
+
+1. 連線設定：
+
+    - **直接連 ACA**（無 APIM）：使用 `.vscode/mcp.http.remote.json`
+    - **透過 APIM + OAuth**（建議生產環境）：使用 `.vscode/mcp.http.remote-apim.json`
+
+#### ACA 資源命名規則
+
+以 `AZURE_RESOURCE_NAME_STEM=fet-outlook-email-bst` 為例，ACA 路徑會新增：
+
+| 資源 | 名稱格式 | 範例 |
+| --- | --- | --- |
+| Container Registry | `cr<compactStem>` | `crfetoutlookemailbst` |
+| Container Apps Environment | `cae-<stem>` | `cae-fet-outlook-email-bst` |
+| Container App | `ca-<stem>` | `ca-fet-outlook-email-bst` |
+
+#### ACA APIM Policy 差異
+
+ACA 架構使用獨立的 `mcp-api-aca.policy.xml`，與 Function App 路徑的主要差異：
+
+| 設定項 | Function App 路徑 | ACA 路徑 |
+| --- | --- | --- |
+| `x-functions-key` header | 注入（用於 Function App host key 驗證） | **不注入**（ACA 不需要 host key） |
+| `buffer-response` | `false`（關閉緩衝） | `false`（關閉緩衝） |
+| `timeout` | `300` 秒 | `300` 秒 |
+
+兩者都正確設定了 `buffer-response="false"` 以支援 MCP SSE 長連線。
 

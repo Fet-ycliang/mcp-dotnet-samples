@@ -1,0 +1,174 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.42.1.51946",
+      "templateHash": "7076477543281904485"
+    }
+  },
+  "parameters": {
+    "apimServiceName": {
+      "type": "string",
+      "metadata": {
+        "description": "The name of the API Management service"
+      }
+    },
+    "acaServiceUrl": {
+      "type": "string",
+      "metadata": {
+        "description": "The HTTPS URL of the ACA container app hosting the MCP endpoints, e.g. https://<fqdn>"
+      }
+    },
+    "mcpAppId": {
+      "type": "string",
+      "metadata": {
+        "description": "The ID of the MCP Entra application"
+      }
+    },
+    "mcpAppTenantId": {
+      "type": "string",
+      "metadata": {
+        "description": "The tenant ID of the MCP Entra application"
+      }
+    }
+  },
+  "variables": {
+    "$fxv#0": "<!--\n    Azure API Management Policy for ACA backend – AAD Token Validation\n    This policy validates Azure Active Directory (AAD) access tokens from incoming requests.\n    Unlike the Function App variant, there is no x-functions-key header injection because the\n    ACA (Azure Container Apps) backend is reachable only from within APIM and does not require\n    a host-key secret.  The backend section disables response buffering so that MCP Streamable\n    HTTP / SSE long-lived connections are forwarded to the ACA container without interruption.\n-->\n<policies>\n    <inbound>\n        <base />\n        <!-- Validate Azure AD JWT Token -->\n        <validate-azure-ad-token tenant-id=\"{{McpTenantId}}\" failed-validation-httpcode=\"401\" failed-validation-error-message=\"Unauthorized\">\n            <audiences>\n                <audience>{{McpClientId}}</audience>\n                <audience>api://{{McpClientId}}</audience>\n            </audiences>\n        </validate-azure-ad-token>\n\n        <set-variable name=\"mcpTokenAccessType\" value=\"@{\n            var authHeader = context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;, string.Empty);\n            if (string.IsNullOrEmpty(authHeader))\n            {\n                return &quot;missing&quot;;\n            }\n\n            var token = authHeader.StartsWith(&quot;Bearer &quot;, StringComparison.OrdinalIgnoreCase)\n                ? authHeader.Substring(7)\n                : authHeader;\n            var segments = token.Split('.');\n            if (segments.Length < 2)\n            {\n                return &quot;invalid&quot;;\n            }\n\n            var payload = segments[1].Replace('-', '+').Replace('_', '/');\n            switch (payload.Length % 4)\n            {\n                case 2:\n                    payload += &quot;==&quot;;\n                    break;\n                case 3:\n                    payload += &quot;=&quot;;\n                    break;\n            }\n\n            var claimsJson = Encoding.UTF8.GetString(Convert.FromBase64String(payload));\n            var claims = JObject.Parse(claimsJson);\n\n            var delegatedScopes = ((string)claims[&quot;scp&quot;] ?? string.Empty)\n                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);\n            if (delegatedScopes.Any(scope =&gt; string.Equals(scope, &quot;user_impersonation&quot;, StringComparison.Ordinal)))\n            {\n                return &quot;delegated&quot;;\n            }\n\n            var rolesClaim = claims[&quot;roles&quot;];\n            if (rolesClaim != null)\n            {\n                if (rolesClaim.Type == JTokenType.Array &amp;&amp; rolesClaim.Any(role =&gt; string.Equals((string)role, &quot;access_as_application&quot;, StringComparison.Ordinal)))\n                {\n                    return &quot;application&quot;;\n                }\n\n                if (rolesClaim.Type != JTokenType.Array &amp;&amp; string.Equals((string)rolesClaim, &quot;access_as_application&quot;, StringComparison.Ordinal))\n                {\n                    return &quot;application&quot;;\n                }\n            }\n\n            return &quot;insufficient&quot;;\n        }\" />\n\n        <choose>\n            <when condition=\"@((string)context.Variables[&quot;mcpTokenAccessType&quot;] == &quot;insufficient&quot;)\">\n                <return-response>\n                    <set-status code=\"403\" reason=\"Forbidden\" />\n                    <set-header name=\"WWW-Authenticate\" exists-action=\"override\">\n                        <value>Bearer error=\"insufficient_scope\", resource_metadata=\"{{APIMGatewayURL}}/.well-known/oauth-protected-resource\"</value>\n                    </set-header>\n                    <set-body>Access token must contain delegated scope 'user_impersonation' or application role 'access_as_application'.</set-body>\n                </return-response>\n            </when>\n        </choose>\n        <!-- No x-functions-key header: ACA backend is not protected by a Function host key -->\n    </inbound>\n    <backend>\n        <!-- Disable response buffering and extend timeout to support MCP Streamable HTTP / SSE long-lived connections -->\n        <forward-request timeout=\"300\" buffer-response=\"false\" />\n    </backend>\n    <outbound>\n        <base />\n    </outbound>\n    <on-error>\n        <base />\n        <choose>\n            <when condition=\"@(context.Response.StatusCode == 401)\">\n                <return-response>\n                    <set-status code=\"401\" reason=\"Unauthorized\" />\n                    <set-header name=\"WWW-Authenticate\" exists-action=\"override\">\n                        <value>Bearer error=\"invalid_token\", resource_metadata=\"{{APIMGatewayURL}}/.well-known/oauth-protected-resource\"</value>\n                    </set-header>\n                </return-response>\n            </when>\n        </choose>\n        <!-- Handle authentication/authorization errors -->\n    </on-error>\n</policies>\n",
+    "$fxv#1": "<!--\n    Azure API Management Policy for Protected Resource Metadata (RFC 9728)\n    This policy returns Protected Resource Metadata information for OAuth 2.0 protected resources.\n    It provides clients with information about the authorization servers, supported methods, and scopes.\n    Note: Authentication is disabled for this endpoint to allow anonymous access.\n-->\n<policies>\n    <inbound>\n        <!-- Return Protected Resource Metadata according to RFC 9728 -->\n        <return-response>\n            <set-status code=\"200\" reason=\"OK\" />\n            <set-header name=\"Content-Type\" exists-action=\"override\">\n                <value>application/json</value>\n            </set-header>\n            <set-header name=\"Cache-Control\" exists-action=\"override\">\n                <value>public, max-age=3600</value>\n            </set-header>\n            <set-body>@{\n                return JsonConvert.SerializeObject(new {\n                    resource = \"{{APIMGatewayURL}}/mcp\",\n                    authorization_servers = new[] {\n                        $\"https://login.microsoftonline.com/{{McpTenantId}}/v2.0\"\n                    },\n                    bearer_methods_supported = new[] {\n                        \"header\"\n                    },\n                    scopes_supported = new[] {\n                        $\"api://{{McpClientId}}/user_impersonation\"\n                    }\n                });\n            }</set-body>\n        </return-response>\n    </inbound>\n    <backend>\n        <base />\n    </backend>\n    <outbound>\n        <base />\n    </outbound>\n    <on-error>\n        <base />\n    </on-error>\n</policies>\n"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.ApiManagement/service/namedValues",
+      "apiVersion": "2021-08-01",
+      "name": "[format('{0}/{1}', parameters('apimServiceName'), 'McpTenantId')]",
+      "properties": {
+        "displayName": "McpTenantId",
+        "value": "[parameters('mcpAppTenantId')]",
+        "secret": false
+      }
+    },
+    {
+      "type": "Microsoft.ApiManagement/service/namedValues",
+      "apiVersion": "2021-08-01",
+      "name": "[format('{0}/{1}', parameters('apimServiceName'), 'McpClientId')]",
+      "properties": {
+        "displayName": "McpClientId",
+        "value": "[parameters('mcpAppId')]",
+        "secret": false
+      }
+    },
+    {
+      "type": "Microsoft.ApiManagement/service/namedValues",
+      "apiVersion": "2021-08-01",
+      "name": "[format('{0}/{1}', parameters('apimServiceName'), 'APIMGatewayURL')]",
+      "properties": {
+        "displayName": "APIMGatewayURL",
+        "value": "[reference(resourceId('Microsoft.ApiManagement/service', parameters('apimServiceName')), '2023-05-01-preview').gatewayUrl]",
+        "secret": false
+      }
+    },
+    {
+      "type": "Microsoft.ApiManagement/service/apis",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[format('{0}/{1}', parameters('apimServiceName'), 'mcp')]",
+      "properties": {
+        "displayName": "MCP API",
+        "description": "Model Context Protocol API endpoints (ACA backend)",
+        "subscriptionRequired": false,
+        "path": "/",
+        "protocols": [
+          "https"
+        ],
+        "serviceUrl": "[format('{0}/', parameters('acaServiceUrl'))]"
+      }
+    },
+    {
+      "type": "Microsoft.ApiManagement/service/apis/policies",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[format('{0}/{1}/{2}', parameters('apimServiceName'), 'mcp', 'policy')]",
+      "properties": {
+        "format": "rawxml",
+        "value": "[variables('$fxv#0')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/service/namedValues', parameters('apimServiceName'), 'APIMGatewayURL')]",
+        "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimServiceName'), 'mcp')]",
+        "[resourceId('Microsoft.ApiManagement/service/namedValues', parameters('apimServiceName'), 'McpClientId')]",
+        "[resourceId('Microsoft.ApiManagement/service/namedValues', parameters('apimServiceName'), 'McpTenantId')]"
+      ]
+    },
+    {
+      "type": "Microsoft.ApiManagement/service/apis/operations",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[format('{0}/{1}/{2}', parameters('apimServiceName'), 'mcp', 'mcp-streamable-get')]",
+      "properties": {
+        "displayName": "MCP Streamable GET Endpoint",
+        "method": "GET",
+        "urlTemplate": "/mcp",
+        "description": "Streamable GET endpoint for MCP Server"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimServiceName'), 'mcp')]"
+      ]
+    },
+    {
+      "type": "Microsoft.ApiManagement/service/apis/operations",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[format('{0}/{1}/{2}', parameters('apimServiceName'), 'mcp', 'mcp-streamable-post')]",
+      "properties": {
+        "displayName": "MCP Streamable POST Endpoint",
+        "method": "POST",
+        "urlTemplate": "/mcp",
+        "description": "Streamable POST endpoint for MCP Server"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimServiceName'), 'mcp')]"
+      ]
+    },
+    {
+      "type": "Microsoft.ApiManagement/service/apis/operations",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[format('{0}/{1}/{2}', parameters('apimServiceName'), 'mcp', 'mcp-prm')]",
+      "properties": {
+        "displayName": "Protected Resource Metadata",
+        "method": "GET",
+        "urlTemplate": "/.well-known/oauth-protected-resource",
+        "description": "Protected Resource Metadata endpoint (RFC 9728)"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimServiceName'), 'mcp')]"
+      ]
+    },
+    {
+      "type": "Microsoft.ApiManagement/service/apis/operations/policies",
+      "apiVersion": "2023-05-01-preview",
+      "name": "[format('{0}/{1}/{2}/{3}', parameters('apimServiceName'), 'mcp', 'mcp-prm', 'policy')]",
+      "properties": {
+        "format": "rawxml",
+        "value": "[variables('$fxv#1')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.ApiManagement/service/namedValues', parameters('apimServiceName'), 'APIMGatewayURL')]",
+        "[resourceId('Microsoft.ApiManagement/service/namedValues', parameters('apimServiceName'), 'McpClientId')]",
+        "[resourceId('Microsoft.ApiManagement/service/apis/operations', parameters('apimServiceName'), 'mcp', 'mcp-prm')]",
+        "[resourceId('Microsoft.ApiManagement/service/namedValues', parameters('apimServiceName'), 'McpTenantId')]"
+      ]
+    }
+  ],
+  "outputs": {
+    "apiId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ApiManagement/service/apis', parameters('apimServiceName'), 'mcp')]"
+    },
+    "mcpAppId": {
+      "type": "string",
+      "value": "[parameters('mcpAppId')]"
+    },
+    "mcpAppTenantId": {
+      "type": "string",
+      "value": "[parameters('mcpAppTenantId')]"
+    }
+  }
+}

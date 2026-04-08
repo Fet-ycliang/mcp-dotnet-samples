@@ -1,7 +1,10 @@
 <!--
-    Azure API Management Policy for AAD Token Validation
+    Azure API Management Policy for ACA backend – AAD Token Validation
     This policy validates Azure Active Directory (AAD) access tokens from incoming requests.
-    If validation fails, it returns HTTP 401 with proper WWW-Authenticate header.
+    Unlike the Function App variant, there is no x-functions-key header injection because the
+    ACA (Azure Container Apps) backend is reachable only from within APIM and does not require
+    a host-key secret.  The backend section disables response buffering so that MCP Streamable
+    HTTP / SSE long-lived connections are forwarded to the ACA container without interruption.
 -->
 <policies>
     <inbound>
@@ -79,10 +82,7 @@
                 </return-response>
             </when>
         </choose>
-
-        <set-header name="x-functions-key" exists-action="override">
-            <value>{{function-host-key}}</value>
-        </set-header>
+        <!-- No x-functions-key header: ACA backend is not protected by a Function host key -->
     </inbound>
     <backend>
         <!-- Disable response buffering and extend timeout to support MCP Streamable HTTP / SSE long-lived connections -->

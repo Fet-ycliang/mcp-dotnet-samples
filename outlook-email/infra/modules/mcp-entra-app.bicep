@@ -12,8 +12,8 @@ param tenantId string = tenant().tenantId
 @description('The principle id of the user-assigned managed identity')
 param userAssignedIdentityPrincipleId string
 
-@description('The web app name for callback URL configuration')
-param functionAppName string
+@description('The web app name for callback URL configuration. When empty, no Function App redirect URI is registered.')
+param functionAppName string = ''
 
 @description('Whether to grant Microsoft Graph Mail.Send application role to the user-assigned managed identity. Set false when the Function App uses service principal credentials instead.')
 param grantMailSendToManagedIdentity bool = true
@@ -103,9 +103,9 @@ resource mcpEntraApp 'Microsoft.Graph/applications@v1.0' = {
     }
   ]
   spa: {
-    redirectUris: [
+    redirectUris: !empty(functionAppName) ? [
       'https://${functionAppName}.azurewebsites.net/auth/callback'
-    ]
+    ] : []
   }
 
   resource fic 'federatedIdentityCredentials@v1.0' = {
