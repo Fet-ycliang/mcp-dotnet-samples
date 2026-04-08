@@ -8,9 +8,12 @@ param enableBlob bool = true
 param enableQueue bool = false
 param enableTable bool = false
 param privateDnsZoneResourceGroupName string = ''
+@description('Resource group that hosts the VNet. Defaults to current deployment resource group when same-RG; pass the VNet resource group name for cross-RG scenarios.')
+param vnetResourceGroupName string = resourceGroup().name
 
 resource vnet 'Microsoft.Network/virtualNetworks@2021-08-01' existing = {
   name: virtualNetworkName
+  scope: resourceGroup(vnetResourceGroupName)
 }
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2021-09-01' existing = {
