@@ -90,6 +90,15 @@ param apimInternalVirtualNetwork bool = false
 @description('Optional existing subnet name for APIM when apimInternalVirtualNetwork is true. The subnet must already exist, have no delegation, and include the required NSG rules.')
 param apimSubnetName string = ''
 
+@description('Optional. Address prefix to update the existing APIM subnet inside an existing VNet when deploying APIM in internal mode.')
+param apimSubnetAddressPrefix string = ''
+
+@description('Optional. Route table resource ID to attach when updating the APIM subnet inside an existing VNet.')
+param apimSubnetRouteTableResourceId string = ''
+
+@description('Optional. Network security group resource ID to attach when updating the APIM subnet inside an existing VNet.')
+param apimSubnetNetworkSecurityGroupResourceId string = ''
+
 @description('Whether to create a private endpoint for the Function App and disable public network access on the app.')
 param deployFunctionAppPrivateEndpoint bool = false
 
@@ -112,6 +121,7 @@ var canDeployPrivateEndpoints = vnetEnabled && (!useExistingVirtualNetwork || !e
 var functionAppPrivateDnsZoneName = 'privatelink.azurewebsites.net'
 var useSharedPrivateDnsZones = !empty(privateDnsZoneResourceGroupName)
 var deployApimInternal = deployApim && apimInternalVirtualNetwork
+var manageExistingApimSubnet = useExistingVirtualNetwork && deployApimInternal && !empty(apimSubnetName) && !empty(apimSubnetAddressPrefix)
 var managedFunctionAppPrivateDnsZoneResourceId = deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints && !useSharedPrivateDnsZones ? functionAppPrivateDnsZone!.outputs.resourceId : ''
 var logAnalyticsName = '${abbrs.operationalInsightsWorkspaces}${normalizedStem}'
 var applicationInsightsName = '${abbrs.insightsComponents}${normalizedStem}'
@@ -206,6 +216,23 @@ resource existingVirtualNetworkIntegrationSubnet 'Microsoft.Network/virtualNetwo
   }
 }
 
+resource existingVirtualNetworkApimSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = if (manageExistingApimSubnet) {
+  name: apimSubnetName
+  parent: existingVirtualNetwork
+  properties: {
+    addressPrefix: apimSubnetAddressPrefix
+    delegations: []
+    privateEndpointNetworkPolicies: 'Disabled'
+    privateLinkServiceNetworkPolicies: 'Enabled'
+    routeTable: !empty(apimSubnetRouteTableResourceId) ? {
+      id: apimSubnetRouteTableResourceId
+    } : null
+    networkSecurityGroup: !empty(apimSubnetNetworkSecurityGroupResourceId) ? {
+      id: apimSubnetNetworkSecurityGroupResourceId
+    } : null
+  }
+}
+
 var existingIntegrationSubnetResourceId = !empty(effectiveIntegrationSubnetName) ? resourceId('Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, effectiveIntegrationSubnetName) : ''
 var existingPrivateEndpointSubnetResourceId = !empty(effectivePrivateEndpointSubnetName) ? resourceId('Microsoft.Network/virtualNetworks/subnets', virtualNetworkName, effectivePrivateEndpointSubnetName) : ''
 var virtualNetworkResourceId = vnetEnabled ? (useExistingVirtualNetwork ? existingVirtualNetwork.id : serviceVirtualNetwork!.outputs.vnetResourceId) : ''
@@ -222,6 +249,9 @@ module apimService './modules/apim.bicep' = if (deployApim) {
     apimVirtualNetworkType: deployApimInternal ? 'Internal' : 'None'
     apimSubnetResourceId: apimSubnetResourceId
   }
+  dependsOn: [
+    existingVirtualNetworkApimSubnet
+  ]
 }
 
 module apimPrivateDns './modules/apim-private-dns.bicep' = if (deployApimInternal && !useSharedPrivateDnsZones) {

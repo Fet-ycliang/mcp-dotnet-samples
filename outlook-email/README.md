@@ -398,16 +398,47 @@
      azd env set AZURE_DEPLOY_APIM true
      azd env set AZURE_APIM_SKU "Developer"
      azd env set AZURE_APIM_INTERNAL_VNET true
-    azd env set AZURE_EXISTING_VNET_NAME "apim-bst-vnet"
-    azd env set AZURE_APIM_SUBNET_NAME "apim-subnet"
-    azd env set AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME "aibde-common-rg"
-    ```
+     azd env set AZURE_EXISTING_VNET_NAME "apim-bst-vnet"
+     azd env set AZURE_APIM_SUBNET_NAME "apim-subnet"
+     azd env set AZURE_APIM_SUBNET_ADDRESS_PREFIX "172.18.78.0/25"
+     azd env set AZURE_APIM_SUBNET_ROUTE_TABLE_RESOURCE_ID "/subscriptions/<subscription-id>/resourceGroups/NetworkWatcherRG/providers/Microsoft.Network/routeTables/DG-Route-APIM"
+     azd env set AZURE_APIM_SUBNET_NSG_RESOURCE_ID "/subscriptions/<subscription-id>/resourceGroups/<network-rg>/providers/Microsoft.Network/networkSecurityGroups/<apim-subnet-nsg>"
+     azd env set AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME "aibde-common-rg"
+     ```
 
-     > 這條 internal APIM 路徑目前假設你是**重用既有 VNet / subnet**；`AZURE_APIM_SUBNET_NAME` 對應的 subnet 需要預先存在、**不能有 delegation**，而且要先套好 APIM 所需的 NSG 規則。
-     >
-     > 目前實際踩到的最小必要規則至少包含：
-     > - **Inbound** `ApiManagement` -> `VirtualNetwork` TCP `3443`
-     > - **Inbound** `AzureLoadBalancer` -> `VirtualNetwork` TCP `6390`
+      > 這條 internal APIM 路徑目前仍假設你是**重用既有 VNet / subnet**。若只提供 `AZURE_APIM_SUBNET_NAME`，Bicep 只會直接參考既有 subnet；若 `AZURE_APIM_SUBNET_ADDRESS_PREFIX` 也有值，Bicep 會在該既有 VNet 內**更新 APIM subnet 的 address prefix**，適合像 `172.18.78.0/25` 這種調整。
+      >
+      > 這條更新路徑仍要求 `AZURE_APIM_SUBNET_NAME` 對應的 subnet **不能有 delegation**。template 會把 delegation 明確設為空陣列；若 Azure 不接受該 subnet 原地縮編 / 調整，部署就會失敗，這時應改走**新 subnet 遷移**而不是只改參數。
+      >
+      > `AZURE_APIM_SUBNET_ROUTE_TABLE_RESOURCE_ID` 與 `AZURE_APIM_SUBNET_NSG_RESOURCE_ID` 在這條更新路徑上**建議視為必填**；template 目前不會自動回讀既有 subnet 再幫你保留 route table / NSG，以避免對同一條 subnet 形成 self-reference/circular dependency。
+      >
+      > 若這條 APIM subnet 還依賴額外的 service endpoints 或其他 subnet 細節，請先盤點並在變更前明確處理；不要假設 template 會自動保留所有既有屬性。
+      >
+      > **這次實測結果（`apim-app-bst-rg / apim-bst-vnet / apim-subnet`）**：目前 live `apim-subnet` 是 **`172.18.78.0/24`**，且已有 APIM 產生的 active allocations。嘗試直接改成 **`172.18.78.0/25`** 時，不論是 `az network vnet subnet update` 還是 `azd provision`，Azure 都回：
+      >
+      > `InUsePrefixCannotBeDeleted: IpPrefix 172.18.78.0/24 on Subnet apim-subnet has active allocations and cannot be deleted.`
+      >
+      > 這代表目前這條 subnet **不能原地縮編**；若目標真的要 `/25`，應改走 **新 subnet 建立 + APIM 遷移**，不要再預期只靠改 env / Bicep 參數就能直接收斂。
+      >
+      > **IP sizing 參考（給後面的人快速估算）**：
+      >
+      > - Azure 會先保留每個 subnet 的 **5 個 IP**
+      > - 目前這個 sample 實際使用的是 **classic APIM Developer + Internal VNet injection**
+      > - 這條路徑至少還要再吃掉：
+      >   - **1 個 IP**：APIM Developer instance
+      >   - **1 個 IP**：internal load balancer
+      >
+      > 所以可先用下面這組心智模型判斷：
+      >
+      > - **`/29`**：8 個總 IP，扣掉 Azure 保留 5 個後，剩 **3 個可用 IP**，可視為這條 internal Developer 路徑的理論最小值
+      > - **`/25`**：128 個總 IP，扣掉 Azure 保留 5 個後，剩 **123 個可用 IP**
+      > - **`/24`**：256 個總 IP，扣掉 Azure 保留 5 個後，剩 **251 個可用 IP**
+      >
+      > 換句話說，這次卡住的原因**不是 `/25` 容量不夠**；真正的問題是目前 live `apim-subnet` 的 **`/24` prefix 已有 active allocations**，Azure 不允許直接刪掉舊 prefix 後原地縮成 `/25`。
+      >
+      > 目前實際踩到的最小必要規則至少包含：
+      > - **Inbound** `ApiManagement` -> `VirtualNetwork` TCP `3443`
+      > - **Inbound** `AzureLoadBalancer` -> `VirtualNetwork` TCP `6390`
      >
      > 若這兩條沒先放，internal APIM 很可能會長時間停在 `Activating`，甚至最後 provisioning 失敗。
      >
@@ -854,6 +885,7 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | Credential hygiene | 走 managed identity 時仍把 SP secret 留在 app settings | 部署雖然能跑，但把不必要的 secret 長期留在 Azure | 走 managed identity 就不要設定 `MCP_ENTRA_*`；走 service principal 則優先用 Key Vault reference |
 | Function runtime 版本 | Flex runtime 與 app target framework 不一致 | `/mcp` 回 `502` | `net10.0` app 要對齊 `dotnet-isolated 10.0` |
 | 既有 VNet / subnet 重用 | Flex integration subnet 名稱、delegation、既有關聯不符 | subnet 不能用、或更新時意外掉 NSG / route table 關聯 | integration subnet 名稱不要用 `_`，要用 `Microsoft.App/environments` delegation；若 Bicep 會更新 subnet，也要一併帶入 NSG / route table ID |
+| APIM subnet prefix 調整 | 直接把現有 `apim-subnet` 從 `/24` 縮到 `/25`，但該 subnet 上其實已有 APIM active allocations | Azure 直接回 `InUsePrefixCannotBeDeleted`，例如：`IpPrefix 172.18.78.0/24 on Subnet apim-subnet has active allocations and cannot be deleted.` | 先把這條路徑視為 **不可原地縮編**；若要 `/25`，改走 **新 subnet 建立 + APIM 遷移**。另外先區分「容量」和「縮編」：Azure 每個 subnet 先保留 5 個 IP；目前這條 classic Developer internal 路徑可把 **`/29 = 3 usable IP`** 視為理論最小值，`/25 ≈ 123 usable IP`、`/24 ≈ 251 usable IP`。這次失敗不是容量不足，而是舊 prefix 已 in use |
 | 既有 VNet 跨 RG | 目前 template 仍預設既有 VNet 與部署 RG 同一個 resource group | 跨 RG reuse 時找不到 VNet | 若要跨 RG 重用既有 VNet，先擴充 template，再部署；不要先假設目前版本支援 |
 
 #### APIM internal + OAuth 實際落地架構（2026-04）
