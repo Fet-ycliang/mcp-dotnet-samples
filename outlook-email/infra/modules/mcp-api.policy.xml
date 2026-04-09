@@ -83,9 +83,14 @@
         <set-header name="x-functions-key" exists-action="override">
             <value>{{function-host-key}}</value>
         </set-header>
+        <!-- Some external MCP clients only send application/json. Normalize Accept so the backend can still serve Streamable HTTP / SSE. -->
+        <set-header name="Accept" exists-action="override">
+            <value>application/json, text/event-stream</value>
+        </set-header>
     </inbound>
     <backend>
-        <base />
+        <!-- Disable response buffering and extend timeout to support MCP Streamable HTTP / SSE long-lived connections -->
+        <forward-request timeout="300" buffer-response="false" />
     </backend>
     <outbound>
         <base />

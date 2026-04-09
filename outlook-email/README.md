@@ -823,6 +823,8 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 
 > 這個 sample 的遠端 `/mcp` 目前回的是 **`text/event-stream` (SSE)**。若你用 `curl` / PowerShell 直接除錯，不要把整個回應當成純 JSON；應改抓 `data:` 那一行再解析。
 
+> 這個 sample 的 backend 也要求 client `Accept` 同時包含 **`application/json`** 與 **`text/event-stream`**。目前 APIM `mcp` policy 會主動補成這組 header，避免某些 external MCP client 只送 `application/json` 時在 `initialize` / `tools/list` 被 backend 拒絕。
+
 <a id="common-troubleshooting"></a>
 ## 常見陷阱與排錯入口
 
@@ -835,7 +837,7 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | 附件被拒絕 | 提示 Base64、MIME、大小或數量錯誤 | 檢查 `contentType` 是否正確、`contentBytesBase64` 是否有效、單檔是否超過 **3 MiB**、附件總數是否超過 **10** |
 | local / Azure 設定看起來正確，但認證模式不如預期 | 誤以為程式一定會跟著 `AZURE_CLIENT_ID` 或一定會跟著 client secret 走 | 先看 `EntraId__UseManagedIdentity`；若未明確設定，程式會優先採用已提供的 tenant / client / secret，只有在這些都不存在時才回退到 `AZURE_CLIENT_ID` |
 | Copilot CLI / Claude Code 一直顯示 `Connecting` | 遠端 MCP server 遲遲連不上 | 先確認 `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN` 已在當前 shell 刷新，再確認 `NO_PROXY` 是否包含 `fet-mcp-apim-bst.azure-api.net` 或 `.azure-api.net` |
-| Databricks external MCP 欄位看起來都對，但 `tools/list` 還是失敗 | connection overview 已顯示 token expiration，卻仍回 `Failed to list tools` / generic `400` | 先用**同一組 caller app** 直接對 APIM 測 `/mcp initialize` / `/mcp tools/list`；若直打 `200`、Databricks 仍失敗，優先判定為 **Databricks 到 private APIM / private DNS 的 reachability 問題** |
+| Databricks external MCP 欄位看起來都對，但 `tools/list` 還是失敗 | connection overview 已顯示 token expiration，卻仍回 `Failed to list tools` / generic `400` | 先用**同一組 caller app** 直接對 APIM 測 `/mcp initialize` / `/mcp tools/list`；若 backend 曾回過 `Client must accept both application/json and text/event-stream`，確認 APIM `mcp` policy 已補 `Accept: application/json, text/event-stream`；若直打 `200`、Databricks 仍失敗，再優先判定為 **Databricks 到 private APIM / private DNS 的 reachability 問題** |
 | private endpoint 明明存在，但 `curl` / CLI 還是連不上 | 看到 proxy 相關錯誤、`403 Ip Forbidden` 或 schannel revocation 錯誤 | 先檢查 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`；診斷時可用 `curl --noproxy '*' ...` 直接驗證私網路徑 |
 | 改了程式碼，但文件或範本沒跟著改 | 新加入的人照文件操作卻跑不起來 | 若你改了 `send_email`、認證流程、啟動方式或設定欄位，記得同步更新 `README.md`、`local.settings.sample.json` 與相關腳本 |
 
