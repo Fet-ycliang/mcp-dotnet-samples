@@ -131,6 +131,15 @@ param apimInternalVirtualNetwork bool = false
 @description('Optional existing subnet name for APIM when apimInternalVirtualNetwork is true. The subnet must already exist, have no delegation, and include the required NSG rules.')
 param apimSubnetName string = ''
 
+@description('Optional. Address prefix to update the existing APIM subnet inside an existing VNet when apimInternalVirtualNetwork is true. Leave empty to reference the subnet without changing it.')
+param apimSubnetAddressPrefix string = ''
+
+@description('Optional. Route table resource ID to attach when updating the APIM subnet inside an existing VNet.')
+param apimSubnetRouteTableResourceId string = ''
+
+@description('Optional. Network security group resource ID to attach when updating the APIM subnet inside an existing VNet.')
+param apimSubnetNetworkSecurityGroupResourceId string = ''
+
 @description('Whether to create a private endpoint for the Function App and disable public network access on the app.')
 param deployFunctionAppPrivateEndpoint bool = false
 
@@ -194,6 +203,9 @@ module resources 'resources.bicep' = {
     apimNameOverride: apimNameOverride
     apimInternalVirtualNetwork: apimInternalVirtualNetwork
     apimSubnetName: apimSubnetName
+    apimSubnetAddressPrefix: apimSubnetAddressPrefix
+    apimSubnetRouteTableResourceId: apimSubnetRouteTableResourceId
+    apimSubnetNetworkSecurityGroupResourceId: apimSubnetNetworkSecurityGroupResourceId
     deployFunctionAppPrivateEndpoint: deployFunctionAppPrivateEndpoint
   }
   dependsOn: [

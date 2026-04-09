@@ -104,6 +104,15 @@
       "apimSubnetName": {
         "value": "${AZURE_APIM_SUBNET_NAME=}"
       },
+      "apimSubnetAddressPrefix": {
+        "value": "${AZURE_APIM_SUBNET_ADDRESS_PREFIX=}"
+      },
+      "apimSubnetRouteTableResourceId": {
+        "value": "${AZURE_APIM_SUBNET_ROUTE_TABLE_RESOURCE_ID=}"
+      },
+      "apimSubnetNetworkSecurityGroupResourceId": {
+        "value": "${AZURE_APIM_SUBNET_NSG_RESOURCE_ID=}"
+      },
       "deployFunctionAppPrivateEndpoint": {
         "value": "${AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=false}"
       }

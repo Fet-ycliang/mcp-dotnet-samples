@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "14840054405760363651"
+      "templateHash": "9902989438160370193"
     }
   },
   "parameters": {
@@ -269,6 +269,27 @@
         "description": "Optional existing subnet name for APIM when apimInternalVirtualNetwork is true. The subnet must already exist, have no delegation, and include the required NSG rules."
       }
     },
+    "apimSubnetAddressPrefix": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional. Address prefix to update the existing APIM subnet inside an existing VNet when apimInternalVirtualNetwork is true. Leave empty to reference the subnet without changing it."
+      }
+    },
+    "apimSubnetRouteTableResourceId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional. Route table resource ID to attach when updating the APIM subnet inside an existing VNet."
+      }
+    },
+    "apimSubnetNetworkSecurityGroupResourceId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional. Network security group resource ID to attach when updating the APIM subnet inside an existing VNet."
+      }
+    },
     "deployFunctionAppPrivateEndpoint": {
       "type": "bool",
       "defaultValue": false,
@@ -399,6 +420,15 @@
           "apimSubnetName": {
             "value": "[parameters('apimSubnetName')]"
           },
+          "apimSubnetAddressPrefix": {
+            "value": "[parameters('apimSubnetAddressPrefix')]"
+          },
+          "apimSubnetRouteTableResourceId": {
+            "value": "[parameters('apimSubnetRouteTableResourceId')]"
+          },
+          "apimSubnetNetworkSecurityGroupResourceId": {
+            "value": "[parameters('apimSubnetNetworkSecurityGroupResourceId')]"
+          },
           "deployFunctionAppPrivateEndpoint": {
             "value": "[parameters('deployFunctionAppPrivateEndpoint')]"
           }
@@ -410,7 +440,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "3112584716719208538"
+              "templateHash": "1071588290329198561"
             }
           },
           "parameters": {
@@ -610,6 +640,27 @@
                 "description": "Optional existing subnet name for APIM when apimInternalVirtualNetwork is true. The subnet must already exist, have no delegation, and include the required NSG rules."
               }
             },
+            "apimSubnetAddressPrefix": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional. Address prefix to update the existing APIM subnet inside an existing VNet when deploying APIM in internal mode."
+              }
+            },
+            "apimSubnetRouteTableResourceId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional. Route table resource ID to attach when updating the APIM subnet inside an existing VNet."
+              }
+            },
+            "apimSubnetNetworkSecurityGroupResourceId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional. Network security group resource ID to attach when updating the APIM subnet inside an existing VNet."
+              }
+            },
             "deployFunctionAppPrivateEndpoint": {
               "type": "bool",
               "defaultValue": false,
@@ -775,6 +826,7 @@
             "functionAppPrivateDnsZoneName": "privatelink.azurewebsites.net",
             "useSharedPrivateDnsZones": "[not(empty(parameters('privateDnsZoneResourceGroupName')))]",
             "deployApimInternal": "[and(parameters('deployApim'), parameters('apimInternalVirtualNetwork'))]",
+            "manageExistingApimSubnet": "[and(and(and(variables('useExistingVirtualNetwork'), variables('deployApimInternal')), not(empty(parameters('apimSubnetName')))), not(empty(parameters('apimSubnetAddressPrefix'))))]",
             "logAnalyticsName": "[format('{0}{1}', variables('abbrs').operationalInsightsWorkspaces, variables('normalizedStem'))]",
             "applicationInsightsName": "[format('{0}{1}', variables('abbrs').insightsComponents, variables('normalizedStem'))]",
             "applicationInsightsDashboardName": "[format('{0}{1}', variables('abbrs').portalDashboards, variables('normalizedStem'))]",
@@ -828,6 +880,20 @@
                 ],
                 "routeTable": "[if(not(empty(parameters('integrationSubnetRouteTableResourceId'))), createObject('id', parameters('integrationSubnetRouteTableResourceId')), null())]",
                 "networkSecurityGroup": "[if(not(empty(parameters('integrationSubnetNetworkSecurityGroupResourceId'))), createObject('id', parameters('integrationSubnetNetworkSecurityGroupResourceId')), null())]"
+              }
+            },
+            {
+              "condition": "[variables('manageExistingApimSubnet')]",
+              "type": "Microsoft.Network/virtualNetworks/subnets",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', variables('virtualNetworkName'), parameters('apimSubnetName'))]",
+              "properties": {
+                "addressPrefix": "[parameters('apimSubnetAddressPrefix')]",
+                "delegations": [],
+                "privateEndpointNetworkPolicies": "Disabled",
+                "privateLinkServiceNetworkPolicies": "Enabled",
+                "routeTable": "[if(not(empty(parameters('apimSubnetRouteTableResourceId'))), createObject('id', parameters('apimSubnetRouteTableResourceId')), null())]",
+                "networkSecurityGroup": "[if(not(empty(parameters('apimSubnetNetworkSecurityGroupResourceId'))), createObject('id', parameters('apimSubnetNetworkSecurityGroupResourceId')), null())]"
               }
             },
             {
@@ -6090,7 +6156,10 @@
                     }
                   }
                 }
-              }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), parameters('apimSubnetName'))]"
+              ]
             },
             {
               "condition": "[and(variables('deployApimInternal'), not(variables('useSharedPrivateDnsZones')))]",
@@ -6629,7 +6698,7 @@
                     "_generator": {
                       "name": "bicep",
                       "version": "0.39.26.7824",
-                      "templateHash": "12163511064242095996"
+                      "templateHash": "4284997392096347479"
                     }
                   },
                   "parameters": {
@@ -6659,7 +6728,7 @@
                     }
                   },
                   "variables": {
-                    "$fxv#0": "<!--\r\n    Azure API Management Policy for AAD Token Validation\r\n    This policy validates Azure Active Directory (AAD) access tokens from incoming requests.\r\n    If validation fails, it returns HTTP 401 with proper WWW-Authenticate header.\r\n-->\r\n<policies>\r\n    <inbound>\r\n        <base />\r\n        <!-- Validate Azure AD JWT Token -->\r\n        <validate-azure-ad-token tenant-id=\"{{McpTenantId}}\" failed-validation-httpcode=\"401\" failed-validation-error-message=\"Unauthorized\">\r\n            <audiences>\r\n                <audience>{{McpClientId}}</audience>\r\n                <audience>api://{{McpClientId}}</audience>\r\n            </audiences>\r\n        </validate-azure-ad-token>\r\n\r\n        <set-variable name=\"mcpTokenAccessType\" value=\"@{\r\n            var authHeader = context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;, string.Empty);\r\n            if (string.IsNullOrEmpty(authHeader))\r\n            {\r\n                return &quot;missing&quot;;\r\n            }\r\n\r\n            var token = authHeader.StartsWith(&quot;Bearer &quot;, StringComparison.OrdinalIgnoreCase)\r\n                ? authHeader.Substring(7)\r\n                : authHeader;\r\n            var segments = token.Split('.');\r\n            if (segments.Length < 2)\r\n            {\r\n                return &quot;invalid&quot;;\r\n            }\r\n\r\n            var payload = segments[1].Replace('-', '+').Replace('_', '/');\r\n            switch (payload.Length % 4)\r\n            {\r\n                case 2:\r\n                    payload += &quot;==&quot;;\r\n                    break;\r\n                case 3:\r\n                    payload += &quot;=&quot;;\r\n                    break;\r\n            }\r\n\r\n            var claimsJson = Encoding.UTF8.GetString(Convert.FromBase64String(payload));\r\n            var claims = JObject.Parse(claimsJson);\r\n\r\n            var delegatedScopes = ((string)claims[&quot;scp&quot;] ?? string.Empty)\r\n                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);\r\n            if (delegatedScopes.Any(scope =&gt; string.Equals(scope, &quot;user_impersonation&quot;, StringComparison.Ordinal)))\r\n            {\r\n                return &quot;delegated&quot;;\r\n            }\r\n\r\n            var rolesClaim = claims[&quot;roles&quot;];\r\n            if (rolesClaim != null)\r\n            {\r\n                if (rolesClaim.Type == JTokenType.Array &amp;&amp; rolesClaim.Any(role =&gt; string.Equals((string)role, &quot;access_as_application&quot;, StringComparison.Ordinal)))\r\n                {\r\n                    return &quot;application&quot;;\r\n                }\r\n\r\n                if (rolesClaim.Type != JTokenType.Array &amp;&amp; string.Equals((string)rolesClaim, &quot;access_as_application&quot;, StringComparison.Ordinal))\r\n                {\r\n                    return &quot;application&quot;;\r\n                }\r\n            }\r\n\r\n            return &quot;insufficient&quot;;\r\n        }\" />\r\n\r\n        <choose>\r\n            <when condition=\"@((string)context.Variables[&quot;mcpTokenAccessType&quot;] == &quot;insufficient&quot;)\">\r\n                <return-response>\r\n                    <set-status code=\"403\" reason=\"Forbidden\" />\r\n                    <set-header name=\"WWW-Authenticate\" exists-action=\"override\">\r\n                        <value>Bearer error=\"insufficient_scope\", resource_metadata=\"{{APIMGatewayURL}}/.well-known/oauth-protected-resource\"</value>\r\n                    </set-header>\r\n                    <set-body>Access token must contain delegated scope 'user_impersonation' or application role 'access_as_application'.</set-body>\r\n                </return-response>\r\n            </when>\r\n        </choose>\r\n\r\n        <set-header name=\"x-functions-key\" exists-action=\"override\">\r\n            <value>{{function-host-key}}</value>\r\n        </set-header>\r\n    </inbound>\r\n    <backend>\r\n        <base />\r\n    </backend>\r\n    <outbound>\r\n        <base />\r\n    </outbound>\r\n    <on-error>\r\n        <base />\r\n        <choose>\r\n            <when condition=\"@(context.Response.StatusCode == 401)\">\r\n                <return-response>\r\n                    <set-status code=\"401\" reason=\"Unauthorized\" />\r\n                    <set-header name=\"WWW-Authenticate\" exists-action=\"override\">\r\n                        <value>Bearer error=\"invalid_token\", resource_metadata=\"{{APIMGatewayURL}}/.well-known/oauth-protected-resource\"</value>\r\n                    </set-header>\r\n                </return-response>\r\n            </when>\r\n        </choose>\r\n        <!-- Handle authentication/authorization errors -->\r\n    </on-error>\r\n</policies>\r\n",
+                    "$fxv#0": "<!--\r\n    Azure API Management Policy for AAD Token Validation\r\n    This policy validates Azure Active Directory (AAD) access tokens from incoming requests.\r\n    If validation fails, it returns HTTP 401 with proper WWW-Authenticate header.\r\n-->\r\n<policies>\r\n    <inbound>\r\n        <base />\r\n        <!-- Validate Azure AD JWT Token -->\r\n        <validate-azure-ad-token tenant-id=\"{{McpTenantId}}\" failed-validation-httpcode=\"401\" failed-validation-error-message=\"Unauthorized\">\r\n            <audiences>\r\n                <audience>{{McpClientId}}</audience>\r\n                <audience>api://{{McpClientId}}</audience>\r\n            </audiences>\r\n        </validate-azure-ad-token>\r\n\r\n        <set-variable name=\"mcpTokenAccessType\" value=\"@{\r\n            var authHeader = context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;, string.Empty);\r\n            if (string.IsNullOrEmpty(authHeader))\r\n            {\r\n                return &quot;missing&quot;;\r\n            }\r\n\r\n            var token = authHeader.StartsWith(&quot;Bearer &quot;, StringComparison.OrdinalIgnoreCase)\r\n                ? authHeader.Substring(7)\r\n                : authHeader;\r\n            var segments = token.Split('.');\r\n            if (segments.Length < 2)\r\n            {\r\n                return &quot;invalid&quot;;\r\n            }\r\n\r\n            var payload = segments[1].Replace('-', '+').Replace('_', '/');\r\n            switch (payload.Length % 4)\r\n            {\r\n                case 2:\r\n                    payload += &quot;==&quot;;\r\n                    break;\r\n                case 3:\r\n                    payload += &quot;=&quot;;\r\n                    break;\r\n            }\r\n\r\n            var claimsJson = Encoding.UTF8.GetString(Convert.FromBase64String(payload));\r\n            var claims = JObject.Parse(claimsJson);\r\n\r\n            var delegatedScopes = ((string)claims[&quot;scp&quot;] ?? string.Empty)\r\n                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);\r\n            if (delegatedScopes.Any(scope =&gt; string.Equals(scope, &quot;user_impersonation&quot;, StringComparison.Ordinal)))\r\n            {\r\n                return &quot;delegated&quot;;\r\n            }\r\n\r\n            var rolesClaim = claims[&quot;roles&quot;];\r\n            if (rolesClaim != null)\r\n            {\r\n                if (rolesClaim.Type == JTokenType.Array &amp;&amp; rolesClaim.Any(role =&gt; string.Equals((string)role, &quot;access_as_application&quot;, StringComparison.Ordinal)))\r\n                {\r\n                    return &quot;application&quot;;\r\n                }\r\n\r\n                if (rolesClaim.Type != JTokenType.Array &amp;&amp; string.Equals((string)rolesClaim, &quot;access_as_application&quot;, StringComparison.Ordinal))\r\n                {\r\n                    return &quot;application&quot;;\r\n                }\r\n            }\r\n\r\n            return &quot;insufficient&quot;;\r\n        }\" />\r\n\r\n        <choose>\r\n            <when condition=\"@((string)context.Variables[&quot;mcpTokenAccessType&quot;] == &quot;insufficient&quot;)\">\r\n                <return-response>\r\n                    <set-status code=\"403\" reason=\"Forbidden\" />\r\n                    <set-header name=\"WWW-Authenticate\" exists-action=\"override\">\r\n                        <value>Bearer error=\"insufficient_scope\", resource_metadata=\"{{APIMGatewayURL}}/.well-known/oauth-protected-resource\"</value>\r\n                    </set-header>\r\n                    <set-body>Access token must contain delegated scope 'user_impersonation' or application role 'access_as_application'.</set-body>\r\n                </return-response>\r\n            </when>\r\n        </choose>\r\n\r\n        <set-header name=\"x-functions-key\" exists-action=\"override\">\r\n            <value>{{function-host-key}}</value>\r\n        </set-header>\r\n        <!-- Some external MCP clients only send application/json. Normalize Accept so the backend can still serve Streamable HTTP / SSE. -->\r\n        <set-header name=\"Accept\" exists-action=\"override\">\r\n            <value>application/json, text/event-stream</value>\r\n        </set-header>\r\n    </inbound>\r\n    <backend>\r\n        <!-- Disable response buffering and extend timeout to support MCP Streamable HTTP / SSE long-lived connections -->\r\n        <forward-request timeout=\"300\" buffer-response=\"false\" />\r\n    </backend>\r\n    <outbound>\r\n        <base />\r\n    </outbound>\r\n    <on-error>\r\n        <base />\r\n        <choose>\r\n            <when condition=\"@(context.Response.StatusCode == 401)\">\r\n                <return-response>\r\n                    <set-status code=\"401\" reason=\"Unauthorized\" />\r\n                    <set-header name=\"WWW-Authenticate\" exists-action=\"override\">\r\n                        <value>Bearer error=\"invalid_token\", resource_metadata=\"{{APIMGatewayURL}}/.well-known/oauth-protected-resource\"</value>\r\n                    </set-header>\r\n                </return-response>\r\n            </when>\r\n        </choose>\r\n        <!-- Handle authentication/authorization errors -->\r\n    </on-error>\r\n</policies>\r\n",
                     "$fxv#1": "<!--\r\n    Azure API Management Policy for Protected Resource Metadata (RFC 9728)\r\n    This policy returns Protected Resource Metadata information for OAuth 2.0 protected resources.\r\n    It provides clients with information about the authorization servers, supported methods, and scopes.\r\n    Note: Authentication is disabled for this endpoint to allow anonymous access.\r\n-->\r\n<policies>\r\n    <inbound>\r\n        <!-- Return Protected Resource Metadata according to RFC 9728 -->\r\n        <return-response>\r\n            <set-status code=\"200\" reason=\"OK\" />\r\n            <set-header name=\"Content-Type\" exists-action=\"override\">\r\n                <value>application/json</value>\r\n            </set-header>\r\n            <set-header name=\"Cache-Control\" exists-action=\"override\">\r\n                <value>public, max-age=3600</value>\r\n            </set-header>\r\n            <set-body>@{\r\n                return JsonConvert.SerializeObject(new {\r\n                    resource = \"{{APIMGatewayURL}}/mcp\",\r\n                    authorization_servers = new[] {\r\n                        $\"https://login.microsoftonline.com/{{McpTenantId}}/v2.0\"\r\n                    },\r\n                    bearer_methods_supported = new[] {\r\n                        \"header\"\r\n                    },\r\n                    scopes_supported = new[] {\r\n                        $\"api://{{McpClientId}}/user_impersonation\"\r\n                    }\r\n                });\r\n            }</set-body>\r\n        </return-response>\r\n    </inbound>\r\n    <backend>\r\n        <base />\r\n    </backend>\r\n    <outbound>\r\n        <base />\r\n    </outbound>\r\n    <on-error>\r\n        <base />\r\n    </on-error>\r\n</policies>\r\n"
                   },
                   "resources": [
