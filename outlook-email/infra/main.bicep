@@ -143,6 +143,9 @@ param apimSubnetNetworkSecurityGroupResourceId string = ''
 @description('Whether to create a private endpoint for the Function App and disable public network access on the app.')
 param deployFunctionAppPrivateEndpoint bool = false
 
+@description('Whether to deploy the MCP server on Azure Container Apps (ACA) instead of Azure Functions. When true, set the azure.yaml service host to containerapp.')
+param deployAca bool = false
+
 // Tags that should be applied to all resources.
 // 
 // Note that 'azd-service-name' tags should be applied separately to service host resources.
@@ -179,7 +182,7 @@ module resources 'resources.bicep' = {
     resourceNameStem: effectiveResourceNameStem
     principalId: principalId
     mcpOutlookEmailExists: mcpOutlookEmailExists
-    azdServiceName: 'outlook-email'
+    azdServiceName: deployAca ? 'outlook-email-aca' : 'outlook-email'
     vnetEnabled: vnetEnabled
     allowUserIdentityPrincipalRbac: allowUserIdentityPrincipalRbac
     allowedSendersCsv: allowedSendersCsv
@@ -207,13 +210,14 @@ module resources 'resources.bicep' = {
     apimSubnetRouteTableResourceId: apimSubnetRouteTableResourceId
     apimSubnetNetworkSecurityGroupResourceId: apimSubnetNetworkSecurityGroupResourceId
     deployFunctionAppPrivateEndpoint: deployFunctionAppPrivateEndpoint
+    deployAca: deployAca
   }
   dependsOn: [
     rg
   ]
 }
 
-// output AZURE_CONTAINER_REGISTRY_ENDPOINT string = resources.outputs.AZURE_CONTAINER_REGISTRY_ENDPOINT
+output AZURE_CONTAINER_REGISTRY_ENDPOINT string = resources.outputs.AZURE_CONTAINER_REGISTRY_ENDPOINT
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN

@@ -1,0 +1,108 @@
+<!--
+    Azure API Management Policy for ACA backend – AAD Token Validation
+    This policy validates Azure Active Directory (AAD) access tokens from incoming requests.
+    Unlike the Function App variant, there is no x-functions-key header injection because the
+    ACA (Azure Container Apps) backend is reachable only from within APIM and does not require
+    a host-key secret.  The backend section disables response buffering so that MCP Streamable
+    HTTP / SSE long-lived connections are forwarded to the ACA container without interruption.
+-->
+<policies>
+    <inbound>
+        <base />
+        <!-- Validate Azure AD JWT Token -->
+        <validate-azure-ad-token tenant-id="{{McpTenantId}}" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized">
+            <audiences>
+                <audience>{{McpClientId}}</audience>
+                <audience>api://{{McpClientId}}</audience>
+            </audiences>
+        </validate-azure-ad-token>
+
+        <set-variable name="mcpTokenAccessType" value="@{
+            var authHeader = context.Request.Headers.GetValueOrDefault(&quot;Authorization&quot;, string.Empty);
+            if (string.IsNullOrEmpty(authHeader))
+            {
+                return &quot;missing&quot;;
+            }
+
+            var token = authHeader.StartsWith(&quot;Bearer &quot;, StringComparison.OrdinalIgnoreCase)
+                ? authHeader.Substring(7)
+                : authHeader;
+            var segments = token.Split('.');
+            if (segments.Length < 2)
+            {
+                return &quot;invalid&quot;;
+            }
+
+            var payload = segments[1].Replace('-', '+').Replace('_', '/');
+            switch (payload.Length % 4)
+            {
+                case 2:
+                    payload += &quot;==&quot;;
+                    break;
+                case 3:
+                    payload += &quot;=&quot;;
+                    break;
+            }
+
+            var claimsJson = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+            var claims = JObject.Parse(claimsJson);
+
+            var delegatedScopes = ((string)claims[&quot;scp&quot;] ?? string.Empty)
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (delegatedScopes.Any(scope =&gt; string.Equals(scope, &quot;user_impersonation&quot;, StringComparison.Ordinal)))
+            {
+                return &quot;delegated&quot;;
+            }
+
+            var rolesClaim = claims[&quot;roles&quot;];
+            if (rolesClaim != null)
+            {
+                if (rolesClaim.Type == JTokenType.Array &amp;&amp; rolesClaim.Any(role =&gt; string.Equals((string)role, &quot;access_as_application&quot;, StringComparison.Ordinal)))
+                {
+                    return &quot;application&quot;;
+                }
+
+                if (rolesClaim.Type != JTokenType.Array &amp;&amp; string.Equals((string)rolesClaim, &quot;access_as_application&quot;, StringComparison.Ordinal))
+                {
+                    return &quot;application&quot;;
+                }
+            }
+
+            return &quot;insufficient&quot;;
+        }" />
+
+        <choose>
+            <when condition="@((string)context.Variables[&quot;mcpTokenAccessType&quot;] == &quot;insufficient&quot;)">
+                <return-response>
+                    <set-status code="403" reason="Forbidden" />
+                    <set-header name="WWW-Authenticate" exists-action="override">
+                        <value>Bearer error="insufficient_scope", resource_metadata="{{APIMGatewayURL}}/.well-known/oauth-protected-resource"</value>
+                    </set-header>
+                    <set-body>Access token must contain delegated scope 'user_impersonation' or application role 'access_as_application'.</set-body>
+                </return-response>
+            </when>
+        </choose>
+        <!-- No x-functions-key header: ACA backend is not protected by a Function host key -->
+    </inbound>
+    <backend>
+        <!-- Disable response buffering and extend timeout to support MCP Streamable HTTP / SSE long-lived connections -->
+        <forward-request timeout="300" buffer-response="false" />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+        <choose>
+            <when condition="@(context.Response.StatusCode == 401)">
+                <return-response>
+                    <set-status code="401" reason="Unauthorized" />
+                    <set-header name="WWW-Authenticate" exists-action="override">
+                        <value>Bearer error="invalid_token", resource_metadata="{{APIMGatewayURL}}/.well-known/oauth-protected-resource"</value>
+                    </set-header>
+                </return-response>
+            </when>
+        </choose>
+        <!-- Handle authentication/authorization errors -->
+    </on-error>
+</policies>

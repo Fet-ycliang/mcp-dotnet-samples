@@ -6,7 +6,23 @@ metadata:
   template: azd-init@1.14.0
 
 services:
-  # outlook-email:
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Option A (default): Azure Functions (Flex Consumption) backend
+  # Use this when AZURE_DEPLOY_ACA is false (the default).
+  # ──────────────────────────────────────────────────────────────────────────────
+  outlook-email:
+    project: src/McpSamples.OutlookEmail.HybridApp
+    host: function
+    language: csharp
+
+  # ──────────────────────────────────────────────────────────────────────────────
+  # Option B (ACA): Azure Container Apps backend
+  # To switch to ACA:
+  #   1. Set `azd env set AZURE_DEPLOY_ACA true`
+  #   2. Comment out the `outlook-email` Function App service above
+  #   3. Uncomment the `outlook-email-aca` service below
+  # ──────────────────────────────────────────────────────────────────────────────
+  # outlook-email-aca:
   #   project: src/McpSamples.OutlookEmail.HybridApp
   #   host: containerapp
   #   language: dotnet
@@ -14,7 +30,3 @@ services:
   #     path: ../../../Dockerfile.outlook-email-azure
   #     context: ../../../
   #     remoteBuild: true
-  outlook-email:
-    project: src/McpSamples.OutlookEmail.HybridApp
-    host: function
-    language: csharp

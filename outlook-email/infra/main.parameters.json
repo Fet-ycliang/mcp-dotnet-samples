@@ -115,6 +115,9 @@
       },
       "deployFunctionAppPrivateEndpoint": {
         "value": "${AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=false}"
+      },
+      "deployAca": {
+        "value": "${AZURE_DEPLOY_ACA=false}"
       }
     }
   }
