@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceNameStem": {
+      "value": "${AZURE_RESOURCE_NAME_STEM=}"
+    },
+    "apimNameOverride": {
+      "value": "${AZURE_APIM_NAME=}"
+    },
+    "userAssignedIdentityResourceId": {
+      "value": "${AZURE_REMOVE_APIM_IDENTITY_RESOURCE_ID}"
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}"
+    },
+    "removeApimPrivateDnsLinks": {
+      "value": "${AZURE_REMOVE_APIM_PRIVATE_DNS_LINKS=false}"
+    },
+    "virtualNetworkResourceId": {
+      "value": "${AZURE_VNET_RESOURCE_ID=}"
+    },
+    "privateDnsZoneResourceGroupName": {
+      "value": "${AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME=}"
+    }
+  }
+}

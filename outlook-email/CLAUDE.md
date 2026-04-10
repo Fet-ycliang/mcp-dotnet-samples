@@ -27,6 +27,8 @@
 | `src\McpSamples.OutlookEmail.HybridApp\host.json` / `mcp-handler\function.json` | Azure Functions custom handler 與路由轉送設定 |
 | `Register-App.ps1` / `register-app.sh` | Entra ID app 註冊腳本 |
 | `azure.yaml` / `infra\` | Azure 部署入口與基礎設施 |
+| `infra\remove-apim.bicep` / `infra\remove-apim.parameters.json` | 手動刪除 APIM 用（`az deployment group create`）|
+| `infra\rebuild-apim.bicep` / `infra\rebuild-apim.parameters.json` | 手動重建 APIM 用（`az deployment group create`）|
 | `.vscode\mcp*.json` | STDIO / HTTP / Functions / remote MCP 連線模板 |
 
 ## 常用指令
@@ -42,6 +44,9 @@
 - 認證與 Graph client 建立都留在 `outlook-email` sample 內，不要隨意搬到 shared。
 - `azure.yaml` 目前預設把 `outlook-email` 部署成 **Azure Functions**，不是 Container Apps。
 - Azure 命名與 tag 基線目前以 **`fet-outlook-email-bst`** 為核心 stem；實際覆寫方式看 `infra\main.bicep`、`infra\main.parameters.json` 與 `README.md` 的 Azure 部署段落。
+- **APIM 名稱使用 `apimNameOverride`**：實際部署的 APIM 名稱是 `fet-mcp-apim-bst`，不是 `apim-${stem}` 的預設命名。查或操作 APIM 時請用確認後的名稱，不要從命名規則推導。
+- **APIM VNet 模式是 External**（`apimInternalVirtualNetwork = false`）：RG 內沒有 APIM private DNS zones（`azure-api.net` 等），不需要建立或清理。
+- **APIM subnet**：`apim-subnet`，`172.18.78.0/28`，位於 `apim-bst-vnet`，NSG `172.18.78.0_24_APIM` 與 Route Table `DG-Route-APIM` 已就位，重建 APIM 時 subnet 本身不需異動。
 - Graph 認證模式的優先序是：`EntraId__UseManagedIdentity` 明確值 > 明確提供的 `EntraId__TenantId` / `ClientId` / `ClientSecret` > `AZURE_CLIENT_ID` fallback。不要只看 `AZURE_CLIENT_ID` 來判斷目前是否一定走 managed identity。
 - `send_email` 的責任分層是：
   - `OutlookEmailTool`：MCP tool 介面、參數描述、例外轉結果
@@ -97,6 +102,12 @@
 - Databricks external MCP 若要打 internal/private APIM，M2M 欄位就算填對，仍可能因 private DNS / reachability 卡在 `tools/list`；若同一組 caller app 直打 APIM `/mcp initialize` / `/mcp tools/list` 成功，先把問題歸在 Databricks 到 private APIM 的可達性，而不是 tool 定義本身。
 - 遠端 `/mcp` 目前是 SSE 回應；若用 `curl` / PowerShell 除錯，記得解析 `data:` 行。
 - 若 Azure 走 managed identity，就不要同時把 `MCP_ENTRA_*` service principal 值留在 app settings；走 service principal 時則優先使用 Key Vault reference。
+
+### APIM 維運相關陷阱
+- **APIM 刪除是長時間操作**（實測約 10 分鐘），不要中途 Ctrl+C；中斷後資源狀態會卡在 Deleting，需在 Portal 確認完成。
+- **`az role assignment list --assignee <managed-identity-resource-id>` 會因 Graph API 限制報錯**；查 managed identity 的角色指派時，需先用 `az identity show --query principalId` 取得 `principalId`，再用 `--assignee-object-id <principalId>` 查詢。
+- **`remove-apim.bicep` 的 deploymentScript 需要 managed identity 具備 Contributor 以上權限**；若指定的 identity 沒有足夠 RBAC，script 會在 Azure 端靜默失敗或卡住。
+- **APIM subnet 不會隨 APIM 一起刪除**；重建前先確認 subnet 仍存在且 prefix 正確，不要重複建立。
 
 ## 這次建議用到的 local skills
 
