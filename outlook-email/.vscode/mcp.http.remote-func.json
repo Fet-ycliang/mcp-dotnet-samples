@@ -7,8 +7,8 @@
     },
     {
       "type": "promptString",
-      "id": "funcapp-key",
-      "description": "Azure Functions Key",
+      "id": "funcapp-access-token",
+      "description": "Function App MCP OAuth access token",
       "password": true
     }
   ],
@@ -17,7 +17,7 @@
       "type": "http",
       "url": "https://${input:funcapp-server-fqdn}/mcp",
       "headers": {
-        "x-functions-key": "${input:funcapp-key}"
+        "Authorization": "Bearer ${input:funcapp-access-token}"
       }
     }
   }

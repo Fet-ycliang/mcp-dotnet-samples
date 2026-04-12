@@ -83,6 +83,9 @@ param existingMcpOauthTenantId string = ''
 @description('Optional. Existing Entra client/application ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthTenantId, deployment reuses that app instead of creating a new MCP app registration.')
 param existingMcpOauthClientId string = ''
 
+@description('Optional. Semicolon-separated Entra client/application IDs allowed to call the Function App private endpoint directly with MCP OAuth tokens.')
+param directAllowedClientApplicationsCsv string = ''
+
 @description('Optional. Existing VNet name to reuse when vnetEnabled is true. Leave empty to create a new VNet.')
 param existingVirtualNetworkName string = ''
 
@@ -190,6 +193,7 @@ module resources 'resources.bicep' = {
     entraClientSecret: entraClientSecret
     existingMcpOauthTenantId: existingMcpOauthTenantId
     existingMcpOauthClientId: existingMcpOauthClientId
+    directAllowedClientApplicationsCsv: directAllowedClientApplicationsCsv
     existingVirtualNetworkName: existingVirtualNetworkName
     integrationSubnetName: integrationSubnetName
     integrationSubnetAddressPrefix: integrationSubnetAddressPrefix

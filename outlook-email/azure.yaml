@@ -18,3 +18,8 @@ services:
     project: src/McpSamples.OutlookEmail.HybridApp
     host: function
     language: csharp
+    hooks:
+      postdeploy:
+        shell: pwsh
+        run: ./hooks/postdeploy-validate-mcp.ps1
+        interactive: false

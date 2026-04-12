@@ -1,3 +1,5 @@
+extension microsoftGraphV1
+
 @description('The location used for all deployed resources')
 param location string = resourceGroup().location
 
@@ -41,6 +43,9 @@ param existingMcpOauthTenantId string = ''
 
 @description('Optional. Existing Entra client/application ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthTenantId, deployment reuses that app instead of creating a new MCP app registration.')
 param existingMcpOauthClientId string = ''
+
+@description('Optional. Semicolon-separated Entra client/application IDs allowed to call the Function App private endpoint directly with MCP OAuth tokens.')
+param directAllowedClientApplicationsCsv string = ''
 
 @description('Optional. Existing VNet name to reuse when vnetEnabled is true. Leave empty to create a new VNet.')
 param existingVirtualNetworkName string = ''
@@ -111,9 +116,10 @@ var functionAppName = '${abbrs.webSitesFunctions}${normalizedStem}'
 var deploymentStorageContainerName = 'app-package-${normalizedStem}'
 var allowedSenders = empty(allowedSendersCsv) ? [] : split(allowedSendersCsv, ';')
 var allowedReplyTo = empty(allowedReplyToCsv) ? [] : split(allowedReplyToCsv, ';')
+var directAllowedClientApplications = empty(directAllowedClientApplicationsCsv) ? [] : filter(map(split(directAllowedClientApplicationsCsv, ';'), appId => trim(appId)), appId => !empty(appId))
 var useExistingVirtualNetwork = vnetEnabled && !empty(existingVirtualNetworkName)
 var deployApimFacade = deployApim && deployApimMcpApi
-var reuseExistingMcpOauthApp = deployApimFacade && !empty(existingMcpOauthTenantId) && !empty(existingMcpOauthClientId)
+var reuseExistingMcpOauthApp = !empty(existingMcpOauthTenantId) && !empty(existingMcpOauthClientId)
 var virtualNetworkName = useExistingVirtualNetwork ? existingVirtualNetworkName : '${abbrs.networkVirtualNetworks}${normalizedStem}'
 var effectiveIntegrationSubnetName = !empty(integrationSubnetName) ? integrationSubnetName : 'app'
 var effectivePrivateEndpointSubnetName = !empty(privateEndpointSubnetName) ? privateEndpointSubnetName : 'private-endpoints-subnet'
@@ -127,12 +133,16 @@ var logAnalyticsName = '${abbrs.operationalInsightsWorkspaces}${normalizedStem}'
 var applicationInsightsName = '${abbrs.insightsComponents}${normalizedStem}'
 var applicationInsightsDashboardName = '${abbrs.portalDashboards}${normalizedStem}'
 var userAssignedIdentityName = '${abbrs.managedIdentityUserAssignedIdentities}${normalizedStem}'
+var apimGatewayIdentityName = '${abbrs.managedIdentityUserAssignedIdentities}${normalizedStem}-apim'
 var apiManagementName = !empty(apimNameOverride) ? apimNameOverride : '${abbrs.apiManagementService}${normalizedStem}'
 var appServicePlanName = '${abbrs.webServerFarms}${normalizedStem}'
 var storageAccountName = '${abbrs.storageStorageAccounts}${compactStem}'
 var mcpEntraAppUniqueName = 'mcp-${normalizedStem}'
 var mcpEntraAppDisplayName = 'MCP-${normalizedStem}'
 var functionAppDnsLinkName = '${functionAppName}-sites-link'
+var effectiveMcpOauthTenantId = reuseExistingMcpOauthApp ? existingMcpOauthTenantId : mcpEntraApp!.outputs.mcpAppTenantId
+var effectiveMcpOauthClientId = reuseExistingMcpOauthApp ? existingMcpOauthClientId : mcpEntraApp!.outputs.mcpAppId
+var effectiveDirectAllowedClientApplications = deployApimFacade && !empty(directAllowedClientApplications) ? concat(directAllowedClientApplications, [mcpApimGatewayIdentity!.outputs.clientId]) : directAllowedClientApplications
 var allowedSenderAppSettings = reduce(
   allowedSenders,
   {},
@@ -180,6 +190,15 @@ module mcpOutlookEmailIdentity 'br/public:avm/res/managed-identity/user-assigned
   name: 'mcpOutlookEmailIdentity'
   params: {
     name: userAssignedIdentityName
+    location: location
+    tags: tags
+  }
+}
+
+module mcpApimGatewayIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.2.1' = if (deployApimFacade) {
+  name: 'mcpApimGatewayIdentity'
+  params: {
+    name: apimGatewayIdentityName
     location: location
     tags: tags
   }
@@ -248,6 +267,7 @@ module apimService './modules/apim.bicep' = if (deployApim) {
     apimSku: apimSku
     apimVirtualNetworkType: deployApimInternal ? 'Internal' : 'None'
     apimSubnetResourceId: apimSubnetResourceId
+    managedIdentityResourceId: deployApimFacade ? mcpApimGatewayIdentity!.outputs.resourceId : ''
   }
   dependsOn: [
     existingVirtualNetworkApimSubnet
@@ -258,7 +278,7 @@ module apimPrivateDns './modules/apim-private-dns.bicep' = if (deployApimInterna
   name: 'apimPrivateDnsManaged'
   params: {
     apiManagementName: apiManagementName
-    privateIpAddress: apimService.outputs.privateIpAddress
+    privateIpAddress: apimService!.outputs.privateIpAddress
     virtualNetworkResourceId: virtualNetworkResourceId
     tags: tags
   }
@@ -269,14 +289,14 @@ module apimPrivateDnsShared './modules/apim-private-dns.bicep' = if (deployApimI
   scope: resourceGroup(privateDnsZoneResourceGroupName)
   params: {
     apiManagementName: apiManagementName
-    privateIpAddress: apimService.outputs.privateIpAddress
+    privateIpAddress: apimService!.outputs.privateIpAddress
     virtualNetworkResourceId: virtualNetworkResourceId
     tags: tags
   }
 }
 
-// MCP Entra App is only required for the APIM + OAuth path.
-module mcpEntraApp './modules/mcp-entra-app.bicep' = if (deployApimFacade && !reuseExistingMcpOauthApp) {
+// MCP Entra App protects both the direct Function path and the retained APIM path.
+module mcpEntraApp './modules/mcp-entra-app.bicep' = if (!reuseExistingMcpOauthApp) {
   name: 'mcpEntraApp'
   params: {
     mcpAppUniqueName: mcpEntraAppUniqueName
@@ -287,17 +307,35 @@ module mcpEntraApp './modules/mcp-entra-app.bicep' = if (deployApimFacade && !re
   }
 }
 
+resource effectiveMcpOauthServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = if (deployApimFacade) {
+  appId: effectiveMcpOauthClientId
+}
+
+resource apimGatewayServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = if (deployApimFacade) {
+  appId: mcpApimGatewayIdentity!.outputs.clientId
+}
+
+var mcpApplicationRoleId = deployApimFacade ? first(filter(effectiveMcpOauthServicePrincipal!.appRoles, role => role.value == 'access_as_application'))!.id : ''
+
+resource apimGatewayAppRoleAssignment 'Microsoft.Graph/appRoleAssignedTo@v1.0' = if (deployApimFacade) {
+  resourceId: effectiveMcpOauthServicePrincipal!.id
+  appRoleId: mcpApplicationRoleId
+  principalId: apimGatewayServicePrincipal!.id
+}
+
 // MCP server API endpoints
 module mcpApiModule './modules/mcp-api.bicep' = if (deployApimFacade) {
   name: 'mcpApiModule'
   params: {
-    apimServiceName: apimService.outputs.name
+    apimServiceName: apimService!.outputs.name
     functionAppName: functionAppName
-    mcpAppId: reuseExistingMcpOauthApp ? existingMcpOauthClientId : mcpEntraApp.outputs.mcpAppId
-    mcpAppTenantId: reuseExistingMcpOauthApp ? existingMcpOauthTenantId : mcpEntraApp.outputs.mcpAppTenantId
+    mcpAppId: effectiveMcpOauthClientId
+    mcpAppTenantId: effectiveMcpOauthTenantId
+    backendManagedIdentityClientId: mcpApimGatewayIdentity!.outputs.clientId
   }
   dependsOn: [
     fncapp
+    apimGatewayAppRoleAssignment
   ]
 }
 
@@ -340,6 +378,9 @@ module fncapp './modules/functionapp.bicep' = {
     graphTenantId: entraTenantId
     graphClientId: entraClientId
     graphClientSecret: entraClientSecret
+    mcpAuthTenantId: effectiveMcpOauthTenantId
+    mcpAuthClientId: effectiveMcpOauthClientId
+    allowedClientApplicationIds: effectiveDirectAllowedClientApplications
     appSettings: union(allowedSenderAppSettings, allowedReplyToAppSettings)
     virtualNetworkSubnetId: integrationSubnetResourceId
     privateEndpointSubnetResourceId: privateEndpointSubnetResourceId
@@ -555,6 +596,6 @@ output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = fncapp.outputs.resourceId
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = fncapp.outputs.name
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = fncapp.outputs.fqdn
 
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = deployApim ? apimService.outputs.id : ''
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = deployApim ? apimService.outputs.name : ''
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN string = deployApim ? replace(apimService.outputs.gatewayUrl, 'https://', '') : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = deployApim ? apimService!.outputs.id : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = deployApim ? apimService!.outputs.name : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN string = deployApim ? replace(apimService!.outputs.gatewayUrl, 'https://', '') : ''

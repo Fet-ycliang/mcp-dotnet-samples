@@ -1,3 +1,4 @@
 !.vscode/mcp.json
 .azure
+.copilot/
 local.settings.json

@@ -62,12 +62,15 @@
       "existingMcpOauthTenantId": {
         "value": "${MCP_OAUTH_TENANT_ID=}"
       },
-      "existingMcpOauthClientId": {
-        "value": "${MCP_OAUTH_CLIENT_ID=}"
-      },
-      "existingVirtualNetworkName": {
-        "value": "${AZURE_EXISTING_VNET_NAME=}"
-      },
+       "existingMcpOauthClientId": {
+         "value": "${MCP_OAUTH_CLIENT_ID=}"
+       },
+       "directAllowedClientApplicationsCsv": {
+         "value": "${MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV=}"
+       },
+       "existingVirtualNetworkName": {
+         "value": "${AZURE_EXISTING_VNET_NAME=}"
+       },
       "integrationSubnetName": {
         "value": "${AZURE_INTEGRATION_SUBNET_NAME=}"
       },
