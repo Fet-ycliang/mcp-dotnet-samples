@@ -80,8 +80,9 @@
             </when>
         </choose>
 
-        <set-header name="x-functions-key" exists-action="override">
-            <value>{{function-host-key}}</value>
+        <authentication-managed-identity resource="{{McpClientId}}" client-id="{{ApimBackendClientId}}" output-token-variable-name="backendAccessToken" ignore-error="false" />
+        <set-header name="Authorization" exists-action="override">
+            <value>@("Bearer " + (string)context.Variables["backendAccessToken"])</value>
         </set-header>
         <!-- Some external MCP clients only send application/json. Normalize Accept so the backend can still serve Streamable HTTP / SSE. -->
         <set-header name="Accept" exists-action="override">

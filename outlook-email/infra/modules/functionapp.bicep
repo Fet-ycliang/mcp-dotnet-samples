@@ -9,6 +9,12 @@ param graphTenantId string = ''
 param graphClientId string = ''
 @secure()
 param graphClientSecret string = ''
+@description('Tenant ID of the MCP OAuth resource application that protects the Function App via Easy Auth.')
+param mcpAuthTenantId string = ''
+@description('Client/application ID of the MCP OAuth resource application that protects the Function App via Easy Auth.')
+param mcpAuthClientId string = ''
+@description('Optional client/application IDs allowed to call the Function App directly with MCP OAuth tokens.')
+param allowedClientApplicationIds array = []
 param runtimeName string 
 param runtimeVersion string 
 param serviceName string = 'mcp'
@@ -39,6 +45,7 @@ param identityType string = 'UserAssigned'
 
 var applicationInsightsIdentity = 'ClientId=${identityClientId};Authorization=AAD'
 var kind = 'functionapp,linux'
+var loginEndpoint = environment().authentication.loginEndpoint
 var privateEndpoints = !empty(privateEndpointSubnetResourceId) && !empty(privateDnsZoneResourceId) ? [
   {
     subnetResourceId: privateEndpointSubnetResourceId
@@ -80,6 +87,47 @@ var graphCredentialAppSettings = !graphUseManagedIdentity ? union(
     EntraId__ClientSecret: graphClientSecret
   } : {}
 ) : {}
+var authAllowedAudiences = !empty(mcpAuthClientId) ? [
+  mcpAuthClientId
+  'api://${mcpAuthClientId}'
+] : []
+var directClientAuthorizationPolicy = !empty(allowedClientApplicationIds) ? {
+  defaultAuthorizationPolicy: {
+    allowedApplications: allowedClientApplicationIds
+  }
+  jwtClaimChecks: {
+    allowedClientApplications: allowedClientApplicationIds
+  }
+} : {}
+var authSettingV2Configuration = !empty(mcpAuthTenantId) && !empty(mcpAuthClientId) ? {
+  platform: {
+    enabled: true
+  }
+  globalValidation: {
+    requireAuthentication: true
+    unauthenticatedClientAction: 'Return401'
+  }
+  httpSettings: {
+    requireHttps: true
+  }
+  login: {
+    tokenStore: {
+      enabled: false
+    }
+  }
+  identityProviders: {
+    azureActiveDirectory: {
+      enabled: true
+      registration: {
+        clientId: mcpAuthClientId
+        openIdIssuer: '${loginEndpoint}${mcpAuthTenantId}/v2.0'
+      }
+      validation: union({
+        allowedAudiences: authAllowedAudiences
+      }, directClientAuthorizationPolicy)
+    }
+  }
+} : {}
 
 // Create base application settings
 var baseAppSettings = {
@@ -89,7 +137,7 @@ var baseAppSettings = {
   
   // Application Insights settings are always included
   APPLICATIONINSIGHTS_AUTHENTICATION_STRING: applicationInsightsIdentity
-  APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.properties.ConnectionString
+  APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights!.properties.ConnectionString
 }
 
 // Dynamically build storage endpoint settings based on feature flags
@@ -158,6 +206,7 @@ module mcp 'br/public:avm/res/web/site:0.15.1' = {
     clientAffinityEnabled: false
     privateEndpoints: privateEndpoints
     publicNetworkAccess: publicNetworkAccess
+    authSettingV2Configuration: authSettingV2Configuration
     virtualNetworkSubnetId: !empty(virtualNetworkSubnetId) ? virtualNetworkSubnetId : null
     appSettingsKeyValuePairs: union(allAppSettings, {
       UseHttp: true

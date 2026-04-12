@@ -57,6 +57,9 @@ param apimVirtualNetworkType string = 'None'
 @description('Optional subnet resource ID used when APIM is deployed in a virtual network.')
 param apimSubnetResourceId string = ''
 
+@description('Optional user-assigned managed identity resource ID that APIM should use for backend token acquisition.')
+param managedIdentityResourceId string = ''
+
 // ------------------
 //    VARIABLES
 // ------------------
@@ -78,6 +81,12 @@ var apimNetworkProperties = apimVirtualNetworkType != 'None' ? {
 resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' = {
   name: apiManagementName
   location: location
+  identity: !empty(managedIdentityResourceId) ? {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${managedIdentityResourceId}': {}
+    }
+  } : null
   sku: {
     name: apimSku
     capacity: 1

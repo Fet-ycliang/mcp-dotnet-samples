@@ -2,9 +2,9 @@
   "mcpServers": {
     "outlook-email": {
       "type": "http",
-      "url": "https://fet-mcp-apim-bst.azure-api.net/mcp",
+      "url": "https://func-fet-outlook-email-bst.azurewebsites.net/mcp",
       "headers": {
-        "Authorization": "Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}"
+        "Authorization": "Bearer ${OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN}"
       }
     }
   }

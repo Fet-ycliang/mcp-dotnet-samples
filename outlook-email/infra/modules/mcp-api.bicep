@@ -10,6 +10,9 @@ param mcpAppId string
 @description('The tenant ID of the MCP Entra application')
 param mcpAppTenantId string
 
+@description('The client/application ID of the managed identity APIM should use when calling the Function App backend.')
+param backendManagedIdentityClientId string
+
 // Get reference to the existing APIM service
 resource apimService 'Microsoft.ApiManagement/service@2023-05-01-preview' existing = {
   name: apimServiceName
@@ -18,18 +21,6 @@ resource apimService 'Microsoft.ApiManagement/service@2023-05-01-preview' existi
 // Get reference to the App Service (Web App)
 resource functionApp 'Microsoft.Web/sites@2023-12-01' existing = {
   name: functionAppName
-}
-
-
-// Create a named value in APIM to store the function key
-resource functionHostKeyNamedValue 'Microsoft.ApiManagement/service/namedValues@2023-05-01-preview' = {
-  parent: apimService
-  name: 'function-host-key'
-  properties: {
-    displayName: 'function-host-key'
-    secret: true
-    value: listKeys('${functionApp.id}/host/default', functionApp.apiVersion).masterKey
-  }
 }
 
 // Create or update named values for MCP OAuth configuration
@@ -49,6 +40,16 @@ resource mcpClientIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2021
   properties: {
     displayName: 'McpClientId'
     value: mcpAppId
+    secret: false
+  }
+}
+
+resource apimBackendClientIdNamedValue 'Microsoft.ApiManagement/service/namedValues@2021-08-01' = {
+  parent: apimService
+  name: 'ApimBackendClientId'
+  properties: {
+    displayName: 'ApimBackendClientId'
+    value: backendManagedIdentityClientId
     secret: false
   }
 }
@@ -80,9 +81,6 @@ resource mcpApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
     ]
     serviceUrl: 'https://${functionApp.properties.defaultHostName}/'
   }
-  dependsOn: [
-    functionHostKeyNamedValue
-  ]
 }
 
 // Apply policy at the API level for all operations
@@ -97,6 +95,7 @@ resource mcpApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2023-05-01-
     APIMGatewayURLNamedValue
     mcpTenantIdNamedValue
     mcpClientIdNamedValue
+    apimBackendClientIdNamedValue
   ]
 }
 

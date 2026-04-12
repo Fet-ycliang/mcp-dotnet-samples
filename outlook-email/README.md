@@ -13,13 +13,14 @@
   - [C# Dev Kit](https://marketplace.visualstudio.com/items/?itemName=ms-dotnettools.csdevkit) 擴充功能
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
 - [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
+- [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell)（若要使用 `azd` 的 `postdeploy` 自動驗證 hook）
 - [Docker Desktop](https://docs.docker.com/get-started/get-docker/)
 
 ## 內容包含
 
 - Outlook Email MCP 伺服器可在下列情境中執行：
   - 作為遠端 MCP 伺服器，透過 Azure API Management 使用 **OAuth authentication**
-  - 作為遠端 MCP 伺服器，透過 Azure Functions 使用 **API key authentication**
+  - 作為遠端 MCP 伺服器，透過 Azure Functions 使用 **Easy Auth + Bearer token authentication**
   - 作為本機執行的 MCP 伺服器，不額外啟用 MCP transport 認證
 - Outlook Email MCP 伺服器包含以下內容：
 
@@ -338,7 +339,44 @@
     azd up
     ```
 
-   在佈建與部署過程中，系統會要求提供 subscription ID、location 與 環境名稱。
+    在佈建與部署過程中，系統會要求提供 subscription ID、location 與 環境名稱。
+
+##### 上版後自動驗證（Asia/Taipei）
+
+- `azure.yaml` 已替 `outlook-email` service 掛上 **`postdeploy` hook**：`src/McpSamples.OutlookEmail.HybridApp/hooks/postdeploy-validate-mcp.ps1`
+- 只要執行 `azd deploy` 或 `azd up`，部署完成後就會**自動驗證 direct Function MCP 路徑**
+- hook 的日誌時間戳固定以 **台北時區（UTC+8 / Asia/Taipei）** 輸出，方便和你們的維運時間對齊
+
+這個 hook 目前會自動執行下列 smoke tests：
+
+| 類型 | 驗證項目 | 預期結果 | 是否自動執行 |
+| --- | --- | --- | --- |
+| MCP metadata | `GET /.well-known/oauth-protected-resource` | `200`，且 resource host 等於 Function App host | 是 |
+| MCP transport | `POST /mcp` with `initialize` | `200` | 是 |
+| MCP discovery | `POST /mcp` with `tools/list` | `200`，且包含 `send_email` | 是 |
+| Tool existence | `send_email` 是否可被列出 | `tools/list` 內可見 | 是 |
+| 業務破壞性測試 | `send_email` 真實寄信 | 成功或依測試案例失敗 | 否，建議在受控信箱做 |
+
+驗證 hook 取 token 的優先順序：
+
+1. 若你有提供 **dedicated validation app**：
+
+   ```bash
+   azd env set MCP_VALIDATION_TENANT_ID "{{TENANT_ID}}"
+   azd env set MCP_VALIDATION_CLIENT_ID "{{VALIDATION_CALLER_APP_ID}}"
+   azd env set MCP_VALIDATION_CLIENT_SECRET "{{VALIDATION_CALLER_APP_SECRET}}"
+   ```
+
+   hook 會改走 **client credentials**，以 `api://<MCP_OAUTH_CLIENT_ID>/.default` 驗證 direct Function。
+
+1. 若你**沒有**提供上面三個值，hook 會 fallback 成：
+
+   - 直接使用目前 Azure CLI 登入身分
+   - 呼叫 `az account get-access-token --scope "api://<MCP_OAUTH_CLIENT_ID>/user_impersonation"`
+
+> 若你有設定 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，請記得把**真正執行 postdeploy 驗證的 caller app** 一起放進 allowlist。  
+> - 若 hook 走 Azure CLI fallback，通常要包含 Azure CLI app：`04b07795-8ddb-461a-bbee-02f9e1bf7b46`
+> - 若 hook 走 dedicated validation app，則要把那顆 validation app 的 client ID 放進 allowlist，並指派 `access_as_application`
 
 1. 正式環境建議先設定下列 azd 環境變數，再部署：
 
@@ -453,16 +491,18 @@
 
 1. 若你這次只想先把 **APIM internal/private 基礎設施** 落地，暫時不建立 MCP API / OAuth app，可再設定：
 
-    ```bash
-    azd env set AZURE_DEPLOY_APIM true
-    azd env set AZURE_APIM_SKU "Developer"
-    azd env set AZURE_APIM_INTERNAL_VNET true
-    azd env set AZURE_DEPLOY_APIM_MCP_API false
-    ```
+     ```bash
+     azd env set AZURE_DEPLOY_APIM true
+     azd env set AZURE_APIM_SKU "Developer"
+     azd env set AZURE_APIM_INTERNAL_VNET true
+     azd env set AZURE_DEPLOY_APIM_MCP_API false
+     ```
 
-     > `AZURE_DEPLOY_APIM_MCP_API=false` 時，sample 仍會部署 APIM service、本次 internal VNet wiring 與 private DNS，但會先**跳過** `mcpEntraApp` 與 APIM 內的 MCP API facade。
-     >
-     > 這個模式適合先把網路 / DNS / APIM service 骨架建好，等 Entra app 與 Graph 權限都準備好之後，再把 `AZURE_DEPLOY_APIM_MCP_API` 改回 `true` 補齊 OAuth 路徑。
+      > `AZURE_DEPLOY_APIM_MCP_API=false` 時，sample 仍會部署 APIM service、本次 internal VNet wiring 與 private DNS，但會先**跳過** APIM 內的 MCP API facade。
+      >
+      > 由於目前 direct Function path 也會共用 `MCP_OAUTH_*` 這顆 resource app 做 Easy Auth，若你沒有提供既有 `MCP_OAUTH_TENANT_ID` / `MCP_OAUTH_CLIENT_ID`，Bicep 仍可能為 Function App auth 建立 `mcpEntraApp`。
+      >
+      > 這個模式適合先把網路 / DNS / APIM service 骨架建好，等 APIM facade 準備好之後，再把 `AZURE_DEPLOY_APIM_MCP_API` 改回 `true` 補齊保留中的 APIM OAuth 路徑。
 
 1. 若正式環境要先用 **service principal + environment variables**，而不是 managed identity，可再設定下列 azd 環境變數：
 
@@ -486,13 +526,20 @@
     ```bash
     azd env set MCP_OAUTH_TENANT_ID "{{TENANT_ID}}"
     azd env set MCP_OAUTH_CLIENT_ID "{{EXISTING_MCP_APP_CLIENT_ID}}"
+    azd env set MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV "{{DATABRICKS_OR_DIRECT_CALLER_APP_ID}}"
     ```
 
-     > 這兩個值是給 **APIM inbound OAuth / bearer token 驗證** 用的，跟上面 `MCP_ENTRA_*` 那組 **Function App 出站呼叫 Graph** 的 service principal 設定不同。
-     >
-     > 當 `MCP_OAUTH_TENANT_ID` 與 `MCP_OAUTH_CLIENT_ID` 都有提供時，Bicep 會**直接重用**該既有 app，不再嘗試建立 `mcpEntraApp`。
-     >
-     > 你提供的既有 app 需要已經能代表這條 MCP resource path：至少要有 delegated scope `user_impersonation`，若還要支援 client credentials / M2M，還要再補 application role `access_as_application`；否則部署可過，但 client 端拿 token 時仍會失敗。
+      > `MCP_OAUTH_TENANT_ID` / `MCP_OAUTH_CLIENT_ID` 這兩個值現在會同時用在：
+      > - **APIM inbound OAuth / bearer token 驗證**
+      > - **Function App direct path 的 Easy Auth audience / issuer**
+      >
+      > 它們跟上面 `MCP_ENTRA_*` 那組 **Function App 出站呼叫 Graph** 的 service principal 設定不同。
+      >
+      > 當 `MCP_OAUTH_TENANT_ID` 與 `MCP_OAUTH_CLIENT_ID` 都有提供時，Bicep 會**直接重用**該既有 app，不再嘗試建立 `mcpEntraApp`。
+      >
+      > 你提供的既有 app 需要已經能代表這條 MCP resource path：至少要有 delegated scope `user_impersonation`，若還要支援 client credentials / M2M，還要再補 application role `access_as_application`；否則部署可過，但 client 端拿 token 時仍會失敗。
+      >
+      > `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是可選的 direct caller allowlist；若有設定，只有列在這裡的 caller app 才能直接打 Function App private endpoint。APIM backend 自己使用的 managed identity 會由模板自動加入，不需要手動再填一次。
 
 1. 若你要請 administrator 一次補齊 **OAuth / sendMail** 權限，可直接用下面這份需求：
 
@@ -566,9 +613,9 @@
     >
     > `AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME` 有值時，Bicep 會直接重用該 RG 內既有的 `privatelink.azurewebsites.net`、`privatelink.blob.core.windows.net` 等 zone，不再另外建立新的 private DNS zone。
     >
-    > `AZURE_DEPLOY_APIM=false` 適合目前這種 **Function App-only** 階段；若仍要保留 APIM facade，再改回 `true`。
-    >
-    > `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true` 時，Bicep 會替 Function App 建立 inbound private endpoint，並將 Function App 的 `publicNetworkAccess` 關閉；若同時指定 `AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME`，則會直接把 private endpoint 掛到該 RG 內既有的 `privatelink.azurewebsites.net` zone。
+      > `AZURE_DEPLOY_APIM=false` 適合目前這種 **Databricks direct Function** 或單純 **Function App-only** 階段；若仍要保留 APIM facade，再改回 `true`。
+      >
+      > `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true` 時，Bicep 會替 Function App 建立 inbound private endpoint，將 Function App 的 `publicNetworkAccess` 關閉，並透過 Easy Auth 要求 bearer token；若同時指定 `AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME`，則會直接把 private endpoint 掛到該 RG 內既有的 `privatelink.azurewebsites.net` zone。
 
 1. Flex Consumption 重用既有 VNet 時，請特別注意 integration subnet 限制：
 
@@ -654,7 +701,7 @@
       azd env get-value AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN
       ```
 
-      > 如果這次部署採 `AZURE_DEPLOY_APIM=false`，這個值會是空字串；請改用 Function App FQDN 與 `.vscode\mcp.http.remote-func.json`。
+      > 如果這次部署採 `AZURE_DEPLOY_APIM=false`，這個值會是空字串；請改用 Function App FQDN、bearer token 與 `.vscode\mcp.http.remote-func.json`。
 
 <a id="connect-mcp-server-to-an-mcp-hostclient"></a>
 ### 將 MCP 伺服器連線到 MCP 主機／客戶端
@@ -795,8 +842,11 @@
 
 #### Claude Code / Copilot CLI + 遠端 MCP 伺服器
 
+##### APIM 保留路徑（Copilot CLI / Claude Code）
+
 - **Claude Code**：正式使用 `outlook-email\.claude\mcp.json` 內的 `outlook-email`
 - **Copilot CLI**：正式使用 `~/.copilot/mcp-config.json` 內的 `outlook-email`
+- VS Code 遠端 APIM 範本請使用 `.vscode\mcp.http.remote-apim.json`
 - Claude Code 目前維持 **手動 Bearer header** 模式；localhost / UT 參考請改看 `.vscode\mcp.http.local-func.json`、`.vscode\mcp.stdio.local.json`
 
 若設定檔使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`（例如目前的 Claude Code 設定），啟動前請先在**同一個 shell** 刷新 token：
@@ -807,21 +857,51 @@ $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
   --query accessToken -o tsv
 ```
 
-若是 **Databricks / job / daemon / 外部平台** 這種 **machine-to-machine** 呼叫端，請改走 **OAuth Machine to Machine**，不要保存長效 Bearer token。這條路徑的設定重點是：
+##### Databricks / 外部平台直連 Function App（NCC + private endpoint）
 
-- token endpoint：`https://login.microsoftonline.com/<tenant-id>/oauth2/v2.0/token`
-- scope：`api://87123f9d-6cf0-4672-9003-c8eba016749d/.default`
-- resource app 端需要暴露 **application role**：`access_as_application`
-- APIM 會接受兩種 inbound token：
-  - delegated：`scp=user_impersonation`
-  - app-only：`roles=access_as_application`
+- Databricks direct path 要連的是 **Function App private endpoint FQDN**，不是 APIM gateway。
+- VS Code 遠端 Function 範本請使用 `.vscode\mcp.http.remote-func.json`；它現在走的是 **Bearer token**，不是 `x-functions-key`。
+- direct Function 與 APIM 會共用同一顆 `MCP_OAUTH_*` resource app；因此 token endpoint / scope 形狀相同，只是 **Host** 不同。
+- 若你有設定 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，只有列在裡面的 direct caller app 可以直打 Function App；APIM backend 使用的 managed identity 會由模板自動加入。
+- 若你還想用 Azure CLI / 手動 shell 直接驗證 direct Function，且同時啟用了 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，請記得把實際拿 token 的 caller app 一起列入 allowlist。
 
-> `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN` 只適合 CLI / 手動測試；它是短效 access token，不是給外部平台長期保存的固定憑證。
+需要手動刷 direct Function bearer token 時，可在同一個 shell 先設：
 
+```powershell
+$env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
+  --scope "api://87123f9d-6cf0-4672-9003-c8eba016749d/user_impersonation" `
+  --query accessToken -o tsv
+```
+
+> `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN` 與 `OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN` 都只適合 CLI / 手動測試；它們是短效 access token，不是給外部平台長期保存的固定憑證。
+
+#### 不同環境的 MCP 設定對照
+
+| 環境 | 建議路徑 | Host / URL | 認證方式 | 主要設定檔 / 欄位 | 備註 |
+| --- | --- | --- | --- | --- | --- |
+| Databricks external MCP / Genie | **direct Function** | `https://<function-app>.azurewebsites.net/mcp` | OAuth M2M 或 Bearer | Databricks connection UI 的 Host / Port / Client ID / Client secret / scope | 若有 NCC，優先走這條；Host 要填 Function App private endpoint，不是 APIM |
+| Copilot CLI | **APIM retained path** | `https://<apim-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}` | `~/.copilot/mcp-config.json` 的 `mcpServers` | 適合現有人員操作；若 APIM 走 private route，記得補 `NO_PROXY` |
+| Copilot CLI | **direct Function** | `https://<function-app-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN}` | `~/.copilot/mcp-config.json` 的 `mcpServers` | 若有 direct caller allowlist，manual CLI 的 caller app 也要被放行 |
+| Claude Code | **APIM retained path** | `https://<apim-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}` | `outlook-email/.claude/mcp.json` | 目前正式範本維持這條 |
+| VS Code Agent Mode | 本機或遠端範本皆可 | 依 `.vscode/mcp.*.json` | 依範本 | `.vscode/mcp.http.remote-apim.json`、`.vscode/mcp.http.remote-func.json` | 適合本機或示範環境 |
+
+> **原則**：Databricks 優先看 **Function App direct path**；Copilot CLI / Claude Code 優先看 **APIM retained path**。兩條路共用同一顆 `MCP_OAUTH_*` resource app，只是 Host 不同。
 
 #### 外部平台 OAuth Machine to Machine 表單欄位對照
 
-若你看到的 UI 欄位是 **Host / Port / Client ID / Client secret / OAuth scope**，可直接對應如下：
+若你看到的 UI 欄位是 **Host / Port / Client ID / Client secret / OAuth scope**，可依路徑分成下面兩種填法：
+
+##### Databricks direct Function 路徑
+
+| UI 欄位 | 要填什麼 | 這次環境應填值 / 說明 |
+| --- | --- | --- |
+| Host | **Function App private endpoint 對外呈現的 hostname**，不要填 Entra token endpoint | `https://<function-app>.azurewebsites.net` |
+| Port | HTTPS port | `443` |
+| Client ID | **呼叫端 client app** 的 Application (client) ID。這裡填的是 caller，不是 resource app | 請填 Databricks / 外部平台專用 client app ID |
+| Client secret | 上面同一顆 **呼叫端 client app** 的 secret | 請填該 client app 對應的 secret |
+| OAuth scope | **resource app** 的 `.default` scope；不要填 delegated `user_impersonation`，也不要填 caller 自己的 app ID | `api://87123f9d-6cf0-4672-9003-c8eba016749d/.default` |
+
+##### APIM 保留路徑
 
 | UI 欄位 | 要填什麼 | 這次環境應填值 / 說明 |
 | --- | --- | --- |
@@ -837,10 +917,28 @@ $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
 - 若 UI 另外有 **Is mcp connection** 這類 checkbox，請 **勾選**
 - 若 UI 另外有 **Path / Base path** 欄位，請填：`/mcp`
 - 若你前一頁的 Host 已經誤填成 `https://fet-mcp-apim-bst.azure-api.net/mcp`，那這一頁的 Base path 請改回 `/`，避免重複變成 `/mcp/mcp`
-- 這個 caller client app **必須先被指派**到 resource app 的 `access_as_application` app role；不然 token 可能拿得到，但 APIM 仍會回 `403`
+- direct Function 或 APIM retained path 都一樣：caller client app **必須先被指派**到 resource app 的 `access_as_application` app role；不然 token 可能拿得到，但 resource app / APIM 仍會回 `403`
 - **建議為 Databricks / 外部平台建立 dedicated client app**，只給它 `access_as_application`；不要直接重用 Function App 出站打 Graph 的 `MCP_ENTRA_*` app，避免把外部 caller 與 Graph `Mail.Send` 權限綁在同一顆 app 上
 
-如果你的 APIM gateway 只走 **private route**，而本機又有公司 proxy，請把下列 host 加進 `NO_PROXY`，否則 Claude Code / Copilot CLI / `curl` 都可能一直卡在連線或把流量錯送到公網：
+##### 目前 tenant 已確認的 app 分工（2026-04）
+
+下列判斷基於目前 tenant 內既有 app registration 的實際狀態，供後續設定 Databricks external MCP 時直接對照：
+
+| App | 角色判定 | 目前狀態 | 是否適合填 Databricks `Client ID / secret` |
+| --- | --- | --- | --- |
+| `DatabricksAgent` (`e11ff460-a5c8-47a8-8d10-9e0a04233a4e`) | Databricks caller client app | 已有 password credential，且已被指派到 `mcpEntraApp` 的 `access_as_application` app role | **是，優先使用** |
+| `mcpEntraApp` (`87123f9d-6cf0-4672-9003-c8eba016749d`) | MCP resource app | 暴露 delegated scope `user_impersonation` 與 application role `access_as_application` | **否**。這顆應留在 `OAuth scope` / audience 這一側，不是 caller app |
+| `dw_fabric_ap` (`4d44998d-c0d1-465a-9219-d246d579a34f`) | 其他 client app 候選 | 已有 password credential，但**尚未**被指派到 `mcpEntraApp` 的 `access_as_application` app role | **暫不建議**。若要改用它，先補 app role assignment |
+
+適合當 Databricks external MCP caller app 的最低要求：
+
+1. 這顆 app 必須是 **confidential client**，也就是至少要有 client secret 或 certificate。
+2. 這顆 app 必須先被指派到 MCP resource app（目前是 `mcpEntraApp`）的 `access_as_application` app role。
+3. 若有啟用 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，還要把這顆 caller app 的 client ID 一起放進 allowlist。
+
+因此，**目前這個環境建議 Databricks external MCP 先使用 `DatabricksAgent` 當 caller app**；`mcpEntraApp` 繼續作為 resource app；`dw_fabric_ap` 除非先補齊 `access_as_application` 指派，否則不要直接拿去填 Databricks 連線表單。
+
+如果你的 APIM gateway 或 Function App 只走 **private route**，而本機又有公司 proxy，請把對應 host 加進 `NO_PROXY`，否則 Claude Code / Copilot CLI / `curl` 都可能一直卡在連線或把流量錯送到公網。以 APIM 為例：
 
 ```powershell
 $existing = [Environment]::GetEnvironmentVariable('NO_PROXY', 'User')
@@ -854,7 +952,7 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 
 > 這個 sample 的遠端 `/mcp` 目前回的是 **`text/event-stream` (SSE)**。若你用 `curl` / PowerShell 直接除錯，不要把整個回應當成純 JSON；應改抓 `data:` 那一行再解析。
 
-> 這個 sample 的 backend 也要求 client `Accept` 同時包含 **`application/json`** 與 **`text/event-stream`**。目前 APIM `mcp` policy 會主動補成這組 header，避免某些 external MCP client 只送 `application/json` 時在 `initialize` / `tools/list` 被 backend 拒絕。
+> backend 也要求 client `Accept` 同時包含 **`application/json`** 與 **`text/event-stream`**。APIM retained path 目前會由 `mcp` policy 主動補這組 header；若你 direct 打 Function App，也請確認 caller 端沒有把 `text/event-stream` 拿掉。
 
 <a id="common-troubleshooting"></a>
 ## 常見陷阱與排錯入口
@@ -868,14 +966,17 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | 附件被拒絕 | 提示 Base64、MIME、大小或數量錯誤 | 檢查 `contentType` 是否正確、`contentBytesBase64` 是否有效、單檔是否超過 **3 MiB**、附件總數是否超過 **10** |
 | local / Azure 設定看起來正確，但認證模式不如預期 | 誤以為程式一定會跟著 `AZURE_CLIENT_ID` 或一定會跟著 client secret 走 | 先看 `EntraId__UseManagedIdentity`；若未明確設定，程式會優先採用已提供的 tenant / client / secret，只有在這些都不存在時才回退到 `AZURE_CLIENT_ID` |
 | Copilot CLI / Claude Code 一直顯示 `Connecting` | 遠端 MCP server 遲遲連不上 | 先確認 `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN` 已在當前 shell 刷新，再確認 `NO_PROXY` 是否包含 `fet-mcp-apim-bst.azure-api.net` 或 `.azure-api.net` |
-| Databricks external MCP 欄位看起來都對，但 `tools/list` 還是失敗 | connection overview 已顯示 token expiration，卻仍回 `Failed to list tools` / generic `400` | 先用**同一組 caller app** 直接對 APIM 測 `/mcp initialize` / `/mcp tools/list`；若 backend 曾回過 `Client must accept both application/json and text/event-stream`，確認 APIM `mcp` policy 已補 `Accept: application/json, text/event-stream`；若直打 `200`、Databricks 仍失敗，再優先判定為 **Databricks 到 private APIM / private DNS 的 reachability 問題** |
+| Databricks external MCP 欄位看起來都對，但 `tools/list` 還是失敗 | connection overview 已顯示 token expiration，卻仍回 `Failed to list tools` / generic `400` | 先用 **Function App private FQDN** 驗證 direct path 的 `/mcp initialize` / `/mcp tools/list`；若 direct path 正常，再回頭檢查 Databricks NCC workspace binding、private DNS 與 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是否包含實際 caller app |
 | private endpoint 明明存在，但 `curl` / CLI 還是連不上 | 看到 proxy 相關錯誤、`403 Ip Forbidden` 或 schannel revocation 錯誤 | 先檢查 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`；診斷時可用 `curl --noproxy '*' ...` 直接驗證私網路徑 |
+| `azd deploy` 成功，但 postdeploy validation 失敗 | hook 明明有跑，卻在 `initialize` 或 `tools/list` 回 `403` | 先檢查 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是否包含**真正執行驗證的 caller app**（Azure CLI 或 dedicated validation app） |
+| direct Function 正常，但 `azd provision` 更新 APIM API / policy 失敗 | `fet-mcp-apim-bst.management.azure-api.net:3443` 連不上 | 先檢查 `apim-subnet` 的 NSG 與 UDR；這通常是 internal APIM control-plane / firewall 路徑問題，不是 MCP tool 或 Function 本身故障 |
 | 改了程式碼，但文件或範本沒跟著改 | 新加入的人照文件操作卻跑不起來 | 若你改了 `send_email`、認證流程、啟動方式或設定欄位，記得同步更新 `README.md`、`local.settings.sample.json` 與相關腳本 |
 
 ### 本輪踩雷與避坑紀錄（2026-04）
 
 | 類別 | 這次踩到的雷 | 典型症狀 | 下次怎麼避開 |
 | --- | --- | --- | --- |
+| direct caller allowlist | `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 明明沒設，direct Function 卻還是只允許 APIM managed identity | 用 Azure CLI bearer token 驗 `initialize` 時收到 `403`，但 Function `/.well-known/oauth-protected-resource` 又是好的 | allowlist 必須維持**真正 optional**；只有明確設定 direct caller allowlist 時，才附帶把 APIM managed identity 加進去 |
 | Flex private deploy | Flex Consumption 不能直接用通用 Kudu zip publish | `/api/publish?type=zip` 失敗，或 private SCM 行為和預期不同 | 對 private SCM 使用 `POST /api/publish?RemoteBuild=<bool>&Deployer=az_cli`，並以 `Content-Type: application/zip` + Bearer token 發佈 |
 | 公司 proxy + private endpoint | 要求被公司 proxy 轉送到公網 | `403 Ip Forbidden`、proxy `CONNECT`、TLS / revocation 錯誤 | 把 Function App / SCM host 加進 `NO_PROXY`；診斷時可先用 `curl --noproxy '*'` |
 | Copilot CLI remote header 參照 | remote header 需要依賴 shell 內已存在的 access token | APIM-backed server 連線失敗或 token 過期 | 先在當前 shell 刷新 `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN`，再啟動 Copilot CLI / Claude Code；不要把短效 token 寫死在 JSON 設定裡 |
@@ -888,17 +989,18 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | APIM subnet prefix 調整 | 直接把現有 `apim-subnet` 從 `/24` 縮到 `/25`，但該 subnet 上其實已有 APIM active allocations | Azure 直接回 `InUsePrefixCannotBeDeleted`，例如：`IpPrefix 172.18.78.0/24 on Subnet apim-subnet has active allocations and cannot be deleted.` | 先把這條路徑視為 **不可原地縮編**；若要 `/25`，改走 **新 subnet 建立 + APIM 遷移**。另外先區分「容量」和「縮編」：Azure 每個 subnet 先保留 5 個 IP；目前這條 classic Developer internal 路徑可把 **`/29 = 3 usable IP`** 視為理論最小值，`/25 ≈ 123 usable IP`、`/24 ≈ 251 usable IP`。這次失敗不是容量不足，而是舊 prefix 已 in use |
 | 既有 VNet 跨 RG | 目前 template 仍預設既有 VNet 與部署 RG 同一個 resource group | 跨 RG reuse 時找不到 VNet | 若要跨 RG 重用既有 VNet，先擴充 template，再部署；不要先假設目前版本支援 |
 
-#### APIM internal + OAuth 實際落地架構（2026-04）
+#### APIM retained + direct Function 實際落地架構（2026-04）
 
 > 本圖對應這次已落地的開發環境：APIM `fet-mcp-apim-bst`、VNet `apim-bst-vnet`、subnet `apim-subnet`、private DNS zones 置於 `aibde-common-rg`。
 
 ```mermaid
 flowchart LR
-    Client["Copilot CLI / Claude Code<br/>需具 private 路徑"]
+    Client["Copilot CLI / Claude Code<br/>APIM retained path"]
+    Databricks["Databricks Genie / external MCP<br/>NCC direct Function path"]
     DNS["Private DNS zones<br/>aibde-common-rg<br/>azure-api.net family"]
     APIM["APIM Developer (Internal)<br/>fet-mcp-apim-bst<br/>private IP: 172.18.78.4"]
     Net["apim-bst-vnet / apim-subnet<br/>NSG + DG-Route-APIM"]
-    InboundAuth["Entra app for APIM inbound OAuth<br/>Expose an API + user_impersonation + access_as_application"]
+    InboundAuth["Shared MCP OAuth resource app<br/>Expose an API + user_impersonation + access_as_application"]
     Func["Azure Function App backend<br/>func-fet-outlook-email-bst"]
     OutboundAuth["Outbound Graph identity<br/>Managed identity or service principal"]
     Graph["Microsoft Graph<br/>Mail.Send"]
@@ -907,12 +1009,13 @@ flowchart LR
     Client -->|"HTTPS /mcp + Bearer token"| APIM
     APIM --- Net
     APIM -->|"validate-azure-ad-token"| InboundAuth
-    APIM -->|"forward /mcp + x-functions-key"| Func
+    Databricks -->|"HTTPS /mcp + Bearer token"| Func
+    APIM -->|"managed identity token for MCP audience"| Func
     Func -->|"get Graph token"| OutboundAuth
     Func -->|"sendMail"| Graph
 ```
 
-#### APIM remote MCP / send_email 資料流
+#### APIM retained / send_email 資料流
 
 ```mermaid
 sequenceDiagram
@@ -929,7 +1032,7 @@ sequenceDiagram
     EntraIn-->>Client: access token
     Client->>APIM: POST /mcp with Authorization: Bearer
     APIM->>APIM: validate-azure-ad-token
-    APIM->>Func: forward /mcp with x-functions-key
+    APIM->>Func: forward /mcp with managed identity bearer token
     Func-->>Client: initialize / tools/list / tool result
     Client->>APIM: send_email tool call
     APIM->>Func: forward send_email request
@@ -938,7 +1041,7 @@ sequenceDiagram
     Func-->>Client: MCP response
 ```
 
-> **注意**：APIM inbound OAuth 與 Function App 出站呼叫 Graph 的認證是兩條不同的路。前者看 `MCP_OAUTH_*`，後者看 `MCP_ENTRA_*` 或 managed identity。
+> **注意**：現在有三個認證責任面：**APIM inbound OAuth**、**direct Function Easy Auth**、**Function App 出站呼叫 Graph**。前兩者共用 `MCP_OAUTH_*` 這顆 MCP resource app；最後一條才看 `MCP_ENTRA_*` 或 managed identity。
 
 #### APIM internal / private 這輪 lesson learned
 
@@ -949,21 +1052,37 @@ sequenceDiagram
 | NSG 前置條件 | internal APIM 若缺少必要 inbound 規則，很容易長時間卡在 `Activating` | 在 provisioning 前先確認 `ApiManagement -> VirtualNetwork TCP 3443` 與 `AzureLoadBalancer -> VirtualNetwork TCP 6390` 已放行 |
 | OAuth app | 既有 Entra app 只有 app registration 還不夠；delegated 與 M2M 需要的 permission model 不同 | 若不讓部署自動建立 `mcpEntraApp`，就先把既有 app 補到至少有 delegated scope `user_impersonation`，以及 application role `access_as_application`，再把 `MCP_OAUTH_TENANT_ID` / `MCP_OAUTH_CLIENT_ID` 設進 azd env |
 | M2M token flow | 外部平台只能選 `OAuth Machine to Machine`，但 API 端只暴露 delegated scope 時，client credentials 會卡住 | 對 service-to-service 呼叫使用 `api://<client-id>/.default`，並先把 client app 指派到 resource app 的 `access_as_application` app role |
-| Auth 邊界 | APIM inbound OAuth 與 Graph `Mail.Send` 是不同責任面，不能當成同一組權限處理 | 權限申請時分成兩塊追蹤：**APIM inbound OAuth**（client 進 APIM）與 **Function App outbound Graph**（APIM 後端寄信） |
+| Auth 邊界 | APIM inbound OAuth、direct Function Easy Auth 與 Graph `Mail.Send` 是不同責任面，不能當成同一組權限處理 | 權限申請時至少分成兩塊追蹤：**MCP resource app**（client 進 APIM 或 direct Function）與 **Function App outbound Graph**（寄信） |
 | 部署開關 | `AZURE_DEPLOY_APIM_MCP_API=false` 只會落地 APIM service、private DNS 與骨架，不會自動把 `mcp` API facade 掛進 APIM | 若目標是完整遠端 MCP 路徑，最後要把 `AZURE_DEPLOY_APIM_MCP_API` 改回 `true` 再補齊 API / policy / named values |
 | UDR / force tunnel | APIM subnet 不能直接把共用 `DG-Route-CP` 原樣掛回去，因為 `0.0.0.0/0 -> firewall` 會把管理面 return path 搞壞 | 若 `apim-subnet` 必須走 UDR，改用專用 `DG-Route-APIM`，至少保留 `ApiManagement -> Internet`，再視需要補上 `172.18.0.0/16 -> 172.18.0.132` 與 default route |
+| internal APIM control plane | direct Function 明明已經部署成功，但 `azd provision` 更新 APIM `mcpApiModule` 時還是失敗 | `ManagementApiRequestFailed: failed to connect ... management.azure-api.net:3443` | 先把問題切開：若 direct Function `/.well-known` / `initialize` / `tools/list` 都正常，代表不是 MCP backend 壞掉；要回頭查 **APIM subnet UDR / firewall / control-plane 3443** |
 | APIM 依賴流量 | 只修好 APIM 管理面還不夠；若 subnet force tunnel 到 NVA，Storage / SQL / Key Vault 等相依服務也可能被一起攔住 | 在掛 UDR 前先處理 service endpoints（如 `Microsoft.Storage`、`Microsoft.Sql`、`Microsoft.KeyVault`），或明確放行這些相依流量 |
 | Private endpoint 心智模型 | `Inbound private endpoint connections` 不是這次架構的必要項；Developer classic internal injection 本身就已經是私網入口 | 這條路徑以 **VNet injection + private DNS** 為主，不要把 inbound private endpoint 和 internal injection 混成同一件事 |
 | OAuth client 差異 | **Azure CLI、Copilot CLI、Claude Code** 是不同的 OAuth client；其中一個 client 拿得到 token，不代表另一個也已經完成 consent | 驗證每個 MCP host 時都要各自確認 consent / token acquisition；若先用 Copilot CLI 驗證成功，Claude Code 仍應安排獨立測試時段 |
-| M2M 欄位語意 | 外部平台 UI 最容易把 **Host / Client ID / scope** 填反：常誤把 Entra token endpoint 當 Host，或把 resource app ID 填進 Client ID | Host 填 **APIM gateway**，Client ID / secret 填 **caller app**，scope 才填 resource app 的 `.default` |
+| M2M 欄位語意 | 外部平台 UI 最容易把 **Host / Client ID / scope** 填反：常誤把 Entra token endpoint 當 Host，或把 resource app ID 填進 Client ID | Host 填 **Function App private FQDN** 或 **APIM gateway**；Client ID / secret 填 **caller app**，scope 才填 resource app 的 `.default` |
 | M2M claim gate | 能成功拿到 `client_credentials` token，不代表 APIM 一定會放行；若 token 沒有 `roles=access_as_application`，就應被擋下 | 先看 token claim，再測 `/mcp initialize` / `tools/list`；**role-less app token 預期應回 403** |
 | Caller app 分離 | 若把外部平台 caller app 與 Function App 出站打 Graph 的 app 混用，權限邊界會變模糊 | 為 Databricks / 外部平台建立專用 client app，只指派 `access_as_application`，不要順手把 `Mail.Send` 也綁進去 |
-| Databricks managed proxy | Databricks external MCP 的 M2M 欄位就算填對，connection overview 甚至已顯示 access token expiration，仍可能因 APIM host 是 private/intranet IP 而 `Failed to list tools` | 先用**同一組 caller app** 從 CLI 直打 APIM `/mcp initialize` / `/mcp tools/list`；若 CLI 成功、Databricks 失敗，優先判定是 **Databricks 到 private APIM / private DNS 的 reachability**，不要先反覆改 Host / Base path |
+| Databricks managed proxy | Databricks external MCP 若走 retained APIM path，就算 M2M 欄位填對，仍可能因 APIM host 是 private/intranet IP 而 `Failed to list tools` | 若 Databricks 有 NCC，優先改走 **direct Function path**；只有在 Databricks 確實可達 APIM 時，才繼續排 APIM / private DNS reachability |
 | Path probing | Databricks generic `400` 很容易讓人一直懷疑 path 組錯，但其實 `/mcp` 形狀可能早就正確 | 先做最小 probing：目前這個 sample 實測是 **`POST /mcp` 可用、`POST /` = `404`、`GET /mcp` = `405`**；若這組結果已成立，就把排查重心轉回 reachability / auth 邊界 |
 | azd / ARM TLS | 這台機器上的 `azd provision` / `azd provision --preview` 曾被 ARM TLS 問題卡住（`x509: negative serial number`），即使 source template 本身無誤 | 若再遇到同類問題，先換一台乾淨環境或改用 ARM / Graph REST 套 live patch，之後再回頭用 IaC 重放 |
-| 驗證順序 | 一上來就直接測 `send_email`，很容易把網路、OAuth、Function、Graph 權限問題混在一起 | 建議依序驗證：**APIM control plane** -> **DNS/TCP 443** -> **`/.well-known/oauth-protected-resource`** -> **`initialize` / `tools/list`** -> **`send_email`** |
+| 驗證順序 | 一上來就直接測 `send_email`，很容易把網路、OAuth、Function、Graph 權限問題混在一起 | 建議依序驗證：**NCC / private DNS** -> **Function 或 APIM 的 `/.well-known/oauth-protected-resource`** -> **`initialize` / `tools/list`** -> **`send_email`** |
+
+#### 建議的回歸測試案例（每次上版至少跑一次）
+
+| 類型 | 測試案例 | 預期結果 | 建議執行方式 |
+| --- | --- | --- | --- |
+| 自動 smoke test | direct Function `/.well-known/oauth-protected-resource` | `200` | `azd deploy` / `azd up` 後由 `postdeploy` hook 自動執行 |
+| 自動 smoke test | direct Function `initialize` | `200` | 同上 |
+| 自動 smoke test | direct Function `tools/list` | `200` 且包含 `send_email` | 同上 |
+| 手動安全測試 | `sender` 不在 allowlist | 應被拒絕 | 受控環境手動測 |
+| 手動安全測試 | `replyTo` 不在 allowlist | 應被拒絕 | 受控環境手動測 |
+| 手動資料驗證 | 附件 Base64 非法 | 應被拒絕 | 受控環境手動測 |
+| 手動正向 E2E | 允許的 `sender` + `replyTo` + CSV/XLSX 附件 | 成功寄送 | 受控信箱手動測 |
+| 手動網路驗證 | retained APIM `/.well-known` / `initialize` / `tools/list` | `200` | 僅在 APIM control-plane / DNS / proxy 路徑已健康時執行 |
 
 #### Databricks external MCP 對 internal/private APIM 的目前判讀（2026-04）
+
+> 若你可以使用 NCC 直連 Function App private endpoint，請優先走 **direct Function path**。這段保留是為了說明：為什麼 Databricks 不再優先走 internal/private APIM。
 
 這輪實測後，Databricks 這段可以先收斂成下面幾點：
 
