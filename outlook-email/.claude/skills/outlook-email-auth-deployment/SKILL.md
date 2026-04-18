@@ -168,6 +168,7 @@ azd env get-value AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN
 
 - 目前 `azure.yaml` 是 `host: function`，所以 `azd up` / `azd deploy` 不會自動把容器映像推到 ACR。
 - 若要手動或用 CI 發布容器映像，命名規則使用：`<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`
+- ACA / ACR 這條線固定使用 `Dockerfile.outlook-email-azure`；不要再把 `Dockerfile.outlook-email` 丟給 `az acr build` / ACR Task，否則容易卡在 dependency scanner 的 `FROM --platform=$BUILDPLATFORM ...`
 - branch 分目錄放 **repository path**，不要放進 tag；tag 建議固定用 UTC `yyyyMMdd-HHmmss`
 - branch 名稱先轉小寫、移除 `refs/heads/`，其餘不安全字元轉成 `-`
 - 若同一秒可能產出多個映像，tag 再補一段 short SHA，避免碰撞

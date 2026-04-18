@@ -44,6 +44,7 @@
 - 認證與 Graph client 建立都留在 `outlook-email` sample 內，不要隨意搬到 shared。
 - `azure.yaml` 目前預設把 `outlook-email` 部署成 **Azure Functions**，不是 Container Apps；`azd up` / `azd deploy` 不會自動產出 ACR image。
 - 若要手動或用 CI 發布容器映像到 ACR，命名規則使用 **`<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`**；branch 分目錄放 repository path，不放 tag。
+- **ACA / ACR 這條線固定使用 `Dockerfile.outlook-email-azure`**；不要再把 `Dockerfile.outlook-email` 丟給 `az acr build` / ACR Task，否則容易在 dependency scanner 卡在 `FROM --platform=$BUILDPLATFORM ...`。
 - Azure 命名與 tag 基線目前以 **`fet-outlook-email-bst`** 為核心 stem；實際覆寫方式看 `infra\main.bicep`、`infra\main.parameters.json` 與 `README.md` 的 Azure 部署段落。
 - **目前 live APIM resource 名稱**是 `apim-fet-outlook-email`；`AZURE_APIM_NAME` 或 README 內的 `fet-mcp-apim-bst` 只應視為 env / 範例值，不要直接當成已落地資源名稱。
 - **目前 live frontend 已是 private-only ingress**：Function App 走 **Private Link / private endpoint**，且 `publicNetworkAccess=Disabled`；APIM gateway 走 **Internal VNet + private DNS**。若有人說「frontend 都走 private link」，要先確認他是泛指私網入口，還是嚴格要求 **APIM 也必須是 Azure Private Link**。
@@ -106,6 +107,7 @@
 - 若 Azure 走 managed identity，就不要同時把 `MCP_ENTRA_*` service principal 值留在 app settings；走 service principal 時則優先使用 Key Vault reference。
 - ACR tag 不是資料夾；若要做 branch 分目錄，請把 branch 放在 repository path（例如 `fet-mcp-server-dotnet/feature/pptx-mailer:20260418-101011`），不要放進 tag。
 - branch 名稱若直接拿 `refs/heads/*`、大寫或特殊字元組 image ref，常會踩到非法名稱；先轉小寫、去掉 `refs/heads/`，其餘不安全字元改成 `-`。
+- 若要建 ACA / ACR 映像，請固定用 `Dockerfile.outlook-email-azure`；`Dockerfile.outlook-email` 只要進 ACR scanner，就可能卡在 `FROM --platform=$BUILDPLATFORM ...`。
 
 ### APIM 維運相關陷阱
 - **APIM 刪除是長時間操作**（實測約 10 分鐘），不要中途 Ctrl+C；中斷後資源狀態會卡在 Deleting，需在 Portal 確認完成。

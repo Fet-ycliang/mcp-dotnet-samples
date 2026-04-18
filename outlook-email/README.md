@@ -349,6 +349,8 @@
 
 1. 將 MCP 伺服器 應用程式建置為 容器映像。
 
+    > **注意：** 以下指令是給**本機開發 / 本機容器測試**使用。若要建置並推送到 ACR，或要部署到 ACA，請改看後面的 **「推送到 ACR 的建議命名規則」** 段落，並固定使用 `Dockerfile.outlook-email-azure`。
+
     ```bash
     cd $REPOSITORY_ROOT
     docker build -f Dockerfile.outlook-email -t outlook-email:latest .
@@ -391,6 +393,8 @@
 
 `<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`
 
+若目標是 **Azure Container Apps (ACA)**，或是任何會經過 **`az acr build`**、**ACR Task**、`azd` containerapp remote build 的路徑，請固定使用 **`Dockerfile.outlook-email-azure`**。`Dockerfile.outlook-email` 內含 `FROM --platform=$BUILDPLATFORM ...`，目前容易在 ACR dependency scanner 階段失敗，不建議再拿去做 ACR / ACA 建置。
+
 - `fet-mcp-server-dotnet`：固定 repository root
 - `branch-path`：用 repository path 模擬 branch 分目錄，例如 `main`、`develop`、`feature/pptx-mailer`
 - `utc-timestamp`：建議使用 UTC `yyyyMMdd-HHmmss`，例如 `20260418-101011`
@@ -420,7 +424,7 @@ BRANCH_PATH=$(echo "$BRANCH_NAME" \
 TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
 IMAGE_REF="${ACR_LOGIN_SERVER}/${IMAGE_NAME}/${BRANCH_PATH}:${TIMESTAMP}"
 
-docker build -t "$IMAGE_REF" -f Dockerfile.outlook-email .
+docker build -t "$IMAGE_REF" -f Dockerfile.outlook-email-azure .
 docker push "$IMAGE_REF"
 ```
 
@@ -438,7 +442,7 @@ $branchPath = [regex]::Replace($branchPath, "/+", "/").Trim("/")
 $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmss")
 $imageRef = "$acrLoginServer/$imageName/$branchPath`:$timestamp"
 
-docker build -t $imageRef -f Dockerfile.outlook-email .
+docker build -t $imageRef -f Dockerfile.outlook-email-azure .
 docker push $imageRef
 ```
 
@@ -450,6 +454,7 @@ docker push $imageRef
 | 直接拿 Git branch 名稱組 image ref | `refs/heads/main`、大寫、空白、`#`、中文等字元造成 ref 非法或不一致 | 先轉小寫、移除 `refs/heads/`，其餘不安全字元轉成 `-` |
 | 用本地時區當 tag | 跨時區比對版本時很難對帳 | tag 一律用 UTC `yyyyMMdd-HHmmss` |
 | 同一秒內產出多個映像 | 後推的映像覆蓋前一個 tag | 若 CI 有高併發需求，可改成 `yyyyMMdd-HHmmss-<short-sha>` |
+| 用 `Dockerfile.outlook-email` 建 ACR / ACA 映像 | `az acr build` / ACR Task 卡在 dependency scanner，常見訊息是 `unable to understand line FROM --platform=$BUILDPLATFORM ...` | ACA / ACR 路線固定改用 `Dockerfile.outlook-email-azure` |
 | 把 `azd up` 當成 ACR build/push 流程 | 以為目前 sample 會自動產出自訂 ACR image | 這個 sample 的 `azure.yaml` 目前是 `host: function`；若要控制 ACR image naming，請改走手動 `docker build/push` 或 CI pipeline |
 
 <a id="on-azure"></a>
@@ -486,7 +491,7 @@ docker push $imageRef
 
     在佈建與部署過程中，系統會要求提供 subscription ID、location 與 環境名稱。
 
-    > 目前 `azure.yaml` 仍以 `host: function` 為主，所以 `azd up` / `azd deploy` 走的是 Azure Functions 佈建與部署流程，不會自動幫你推 `fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>` 到 ACR。若你要採用上面的 ACR 命名規則，請改走手動 `docker build` / `docker push` 或你自己的 CI pipeline。
+    > 目前 `azure.yaml` 仍以 `host: function` 為主，所以 `azd up` / `azd deploy` 走的是 Azure Functions 佈建與部署流程，不會自動幫你推 `fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>` 到 ACR。若你要採用上面的 ACR 命名規則，請改走手動 `docker build` / `docker push` 或你自己的 CI pipeline，且 **ACA / ACR 這條線固定使用 `Dockerfile.outlook-email-azure`**。
 
 ##### 上版後自動驗證（Asia/Taipei）
 
