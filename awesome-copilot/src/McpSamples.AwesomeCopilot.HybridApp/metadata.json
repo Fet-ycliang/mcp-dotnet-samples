@@ -1,11 +1,6 @@
 {
   "agents": [
     {
-      "filename": "4.1-Beast.agent.md",
-      "description": "GPT 4.1 as a top-notch coding agent.",
-      "name": "4.1 Beast Mode v3.1"
-    },
-    {
       "filename": "CSharpExpert.agent.md",
       "name": "C# Expert",
       "description": "An agent designed to assist with software development tasks for .NET projects."
@@ -24,6 +19,11 @@
       "filename": "WinFormsExpert.agent.md",
       "name": "WinForms Expert",
       "description": "Support development of .NET (OOP) WinForms Designer compatible Apps."
+    },
+    {
+      "filename": "accessibility-runtime-tester.agent.md",
+      "name": "Accessibility Runtime Tester",
+      "description": "Runtime accessibility specialist for keyboard flows, focus management, dialog behavior, form errors, and evidence-backed WCAG validation in the browser."
     },
     {
       "filename": "accessibility.agent.md",
@@ -101,6 +101,12 @@
       "filename": "azure-logic-apps-expert.agent.md",
       "description": "Expert guidance for Azure Logic Apps development focusing on workflow design, integration patterns, and JSON-based Workflow Definition Language.",
       "name": "Azure Logic Apps Expert Mode"
+    },
+    {
+      "filename": "azure-policy-analyzer.agent.md",
+      "name": "Azure Policy Analyzer",
+      "description": "Analyze Azure Policy compliance posture (NIST SP 800-53, MCSB, CIS, ISO 27001, PCI DSS, SOC 2), auto-discover scope, and return a structured single-pass risk report with evidence and remediation commands.",
+      "argument-hint": "Describe the Azure Policy analysis task. Scope is auto-detected unless explicitly provided."
     },
     {
       "filename": "azure-principal-architect.agent.md",
@@ -240,6 +246,11 @@
       "description": "DevOps specialist following the infinity loop principle (Plan \u2192 Code \u2192 Build \u2192 Test \u2192 Release \u2192 Deploy \u2192 Operate \u2192 Monitor) with focus on automation, collaboration, and continuous improvement"
     },
     {
+      "filename": "devtools-regression-investigator.agent.md",
+      "name": "DevTools Regression Investigator",
+      "description": "Browser regression specialist for reproducing broken user flows, collecting console and network evidence, and narrowing likely root causes with Chrome DevTools MCP."
+    },
+    {
       "filename": "diffblue-cover.agent.md",
       "name": "DiffblueCover",
       "description": "Expert agent for creating unit tests for java applications using Diffblue Cover."
@@ -248,6 +259,11 @@
       "filename": "dotnet-maui.agent.md",
       "name": "MAUI Expert",
       "description": "Support development of .NET MAUI cross-platform apps with controls, XAML, handlers, and performance best practices."
+    },
+    {
+      "filename": "dotnet-self-learning-architect.agent.md",
+      "name": ".NET Self-Learning Architect",
+      "description": "Senior .NET architect for complex delivery: designs .NET 6\u002B systems, decides between parallel subagents and orchestrated team execution, documents lessons learned, and captures durable project memory for future work."
     },
     {
       "filename": "dotnet-upgrade.agent.md",
@@ -285,6 +301,11 @@
       "name": "Electron Code Review Mode Instructions"
     },
     {
+      "filename": "ember.agent.md",
+      "description": "An AI partner, not an assistant. Ember carries fire from person to person \u2014 helping humans discover that AI partnership isn\u0027t something you learn, it\u0027s something you find.",
+      "name": "Ember"
+    },
+    {
       "filename": "expert-cpp-software-engineer.agent.md",
       "description": "Provide expert C\u002B\u002B software engineering guidance using modern C\u002B\u002B and industry best practices.",
       "name": "C\u002B\u002B Expert"
@@ -310,44 +331,99 @@
       "description": "Fedora (Red Hat family) Linux specialist focused on dnf, SELinux, and modern systemd-based workflows."
     },
     {
+      "filename": "frontend-performance-investigator.agent.md",
+      "name": "Frontend Performance Investigator",
+      "description": "Runtime web-performance specialist for diagnosing Core Web Vitals, Lighthouse regressions, layout shifts, long tasks, and slow network paths with Chrome DevTools MCP."
+    },
+    {
       "filename": "gem-browser-tester.agent.md",
-      "description": "Automates E2E scenarios with Chrome DevTools MCP, Playwright, Agent Browser. UI/UX validation using browser automation tools and visual verification techniques",
-      "name": "gem-browser-tester"
+      "description": "E2E browser testing, UI/UX validation, visual regression.",
+      "name": "gem-browser-tester",
+      "argument-hint": "Enter task_id, plan_id, plan_path, and test validation_matrix or flow definitions."
+    },
+    {
+      "filename": "gem-code-simplifier.agent.md",
+      "description": "Refactoring specialist \u2014 removes dead code, reduces complexity, consolidates duplicates.",
+      "name": "gem-code-simplifier",
+      "argument-hint": "Enter task_id, scope (single_file|multiple_files|project_wide), targets (file paths/patterns), and focus (dead_code|complexity|duplication|naming|all)."
+    },
+    {
+      "filename": "gem-critic.agent.md",
+      "description": "Challenges assumptions, finds edge cases, spots over-engineering and logic gaps.",
+      "name": "gem-critic",
+      "argument-hint": "Enter plan_id, plan_path, scope (plan|code|architecture), and target to critique."
+    },
+    {
+      "filename": "gem-debugger.agent.md",
+      "description": "Root-cause analysis, stack trace diagnosis, regression bisection, error reproduction.",
+      "name": "gem-debugger",
+      "argument-hint": "Enter task_id, plan_id, plan_path, and error_context (error message, stack trace, failing test) to diagnose."
+    },
+    {
+      "filename": "gem-designer-mobile.agent.md",
+      "description": "Mobile UI/UX specialist \u2014 HIG, Material Design, safe areas, touch targets.",
+      "name": "gem-designer-mobile",
+      "argument-hint": "Enter task_id, plan_id (optional), plan_path (optional), mode (create|validate), scope (component|screen|navigation|design_system), target, context (framework, library), and constraints (platform, responsive, accessible, dark_mode)."
+    },
+    {
+      "filename": "gem-designer.agent.md",
+      "description": "UI/UX design specialist \u2014 layouts, themes, color schemes, design systems, accessibility.",
+      "name": "gem-designer",
+      "argument-hint": "Enter task_id, plan_id (optional), plan_path (optional), mode (create|validate), scope (component|page|layout|design_system), target, context (framework, library), and constraints (responsive, accessible, dark_mode)."
     },
     {
       "filename": "gem-devops.agent.md",
-      "description": "Manages containers, CI/CD pipelines, and infrastructure deployment",
-      "name": "gem-devops"
+      "description": "Infrastructure deployment, CI/CD pipelines, container management.",
+      "name": "gem-devops",
+      "argument-hint": "Enter task_id, plan_id, plan_path, task_definition, environment (dev|staging|prod), requires_approval flag, and devops_security_sensitive flag."
     },
     {
       "filename": "gem-documentation-writer.agent.md",
-      "description": "Generates technical docs, diagrams, maintains code-documentation parity",
-      "name": "gem-documentation-writer"
+      "description": "Technical documentation, README files, API docs, diagrams, walkthroughs.",
+      "name": "gem-documentation-writer",
+      "argument-hint": "Enter task_id, plan_id, plan_path, task_definition with task_type (documentation|walkthrough|update), audience, coverage_matrix."
+    },
+    {
+      "filename": "gem-implementer-mobile.agent.md",
+      "description": "Mobile implementation \u2014 React Native, Expo, Flutter with TDD.",
+      "name": "gem-implementer-mobile",
+      "argument-hint": "Enter task_id, plan_id, plan_path, and mobile task_definition to implement for iOS/Android."
     },
     {
       "filename": "gem-implementer.agent.md",
-      "description": "Executes TDD code changes, ensures verification, maintains quality",
-      "name": "gem-implementer"
+      "description": "TDD code implementation \u2014 features, bugs, refactoring. Never reviews own work.",
+      "name": "gem-implementer",
+      "argument-hint": "Enter task_id, plan_id, plan_path, and task_definition with tech_stack to implement."
+    },
+    {
+      "filename": "gem-mobile-tester.agent.md",
+      "description": "Mobile E2E testing \u2014 Detox, Maestro, iOS/Android simulators.",
+      "name": "gem-mobile-tester",
+      "argument-hint": "Enter task_id, plan_id, plan_path, and mobile test definition to run E2E tests on iOS/Android."
     },
     {
       "filename": "gem-orchestrator.agent.md",
-      "description": "Team Lead - Coordinates multi-agent workflows with energetic announcements, delegates tasks, synthesizes results via runSubagent",
-      "name": "gem-orchestrator"
+      "description": "The team lead: Orchestrates research, planning, implementation, and verification.",
+      "name": "gem-orchestrator",
+      "argument-hint": "Describe your objective or task. Include plan_id if resuming."
     },
     {
       "filename": "gem-planner.agent.md",
-      "description": "Creates DAG-based plans with pre-mortem analysis and task decomposition from research findings",
-      "name": "gem-planner"
+      "description": "DAG-based execution plans \u2014 task decomposition, wave scheduling, risk analysis.",
+      "name": "gem-planner",
+      "argument-hint": "Enter plan_id, objective, complexity (simple|medium|complex), and task_clarifications."
     },
     {
       "filename": "gem-researcher.agent.md",
-      "description": "Research specialist: gathers codebase context, identifies relevant files/patterns, returns structured findings",
-      "name": "gem-researcher"
+      "description": "Codebase exploration \u2014 patterns, dependencies, architecture discovery.",
+      "name": "gem-researcher",
+      "argument-hint": "Enter plan_id, objective, focus_area (optional), complexity (simple|medium|complex), and task_clarifications array."
     },
     {
       "filename": "gem-reviewer.agent.md",
-      "description": "Security gatekeeper for critical tasks\u2014OWASP, secrets, compliance",
-      "name": "gem-reviewer"
+      "description": "Security auditing, code review, OWASP scanning, PRD compliance verification.",
+      "name": "gem-reviewer",
+      "argument-hint": "Enter task_id, plan_id, plan_path, review_scope (plan|task|wave), and review criteria for compliance and security audit."
     },
     {
       "filename": "gilfoyle.agent.md",
@@ -360,14 +436,14 @@
       "description": "GitHub Actions specialist focused on secure CI/CD workflows, action pinning, OIDC authentication, permissions least privilege, and supply-chain security"
     },
     {
+      "filename": "github-actions-node-upgrade.agent.md",
+      "name": "GitHub Actions Node Runtime Upgrade",
+      "description": "Upgrade a GitHub Actions JavaScript/TypeScript action to a newer Node runtime version (e.g., node20 to node24) with major version bump, CI updates, and full validation"
+    },
+    {
       "filename": "go-mcp-expert.agent.md",
       "description": "Expert assistant for building Model Context Protocol (MCP) servers in Go using the official SDK.",
       "name": "Go MCP Server Development Expert"
-    },
-    {
-      "filename": "gpt-5-beast-mode.agent.md",
-      "description": "Beast Mode 2.0: A powerful autonomous agent tuned specifically for GPT-5 that can solve complex problems by using tools, conducting research, and iterating until the problem is fully resolved.",
-      "name": "GPT 5 Beast Mode"
     },
     {
       "filename": "hlbpa.agent.md",
@@ -423,6 +499,11 @@
       "filename": "lingodotdev-i18n.agent.md",
       "name": "Lingo.dev Localization (i18n) Agent",
       "description": "Expert at implementing internationalization (i18n) in web applications using a systematic, checklist-driven approach."
+    },
+    {
+      "filename": "linkedin-post-writer.agent.md",
+      "name": "LinkedIn Post Writer",
+      "description": "Draft and format compelling LinkedIn posts with Unicode bold/italic styling, visual separators, and engagement-optimized structure. Transforms raw content, technical material, images, or ideas into copy-paste-ready LinkedIn posts."
     },
     {
       "filename": "markdown-accessibility-assistant.agent.md",
@@ -640,6 +721,11 @@
       "name": "Principal software engineer"
     },
     {
+      "filename": "project-architecture-planner.agent.md",
+      "name": "Project Architecture Planner",
+      "description": "Holistic software architecture planner that evaluates tech stacks, designs scalability roadmaps, performs cloud-agnostic cost analysis, reviews existing codebases, and delivers interactive Mermaid diagrams with HTML preview and draw.io export"
+    },
+    {
       "filename": "prompt-builder.agent.md",
       "description": "Expert prompt engineering and validation system for creating high-quality prompts - Brought to you by microsoft/edge-ai",
       "name": "Prompt Builder"
@@ -663,6 +749,63 @@
       "filename": "qa-subagent.agent.md",
       "name": "QA",
       "description": "Meticulous QA subagent for test planning, bug hunting, edge-case analysis, and implementation verification."
+    },
+    {
+      "filename": "react18-auditor.agent.md",
+      "name": "react18-auditor",
+      "description": "Deep-scan specialist for React 16/17 class-component codebases targeting React 18.3.1. Finds unsafe lifecycle methods, legacy context, batching vulnerabilities, event delegation assumptions, string refs, and all 18.3.1 deprecation surface. Reads everything, touches nothing. Saves .github/react18-audit.md."
+    },
+    {
+      "filename": "react18-batching-fixer.agent.md",
+      "name": "react18-batching-fixer",
+      "description": "Automatic batching regression specialist. React 18 batches ALL setState calls including those in Promises, setTimeout, and native event handlers - React 16/17 did NOT. Class components with async state chains that assumed immediate intermediate re-renders will produce wrong state. This agent finds every vulnerable pattern and fixes with flushSync where semantically required."
+    },
+    {
+      "filename": "react18-class-surgeon.agent.md",
+      "name": "react18-class-surgeon",
+      "description": "Class component migration specialist for React 16/17 \u2192 18.3.1. Migrates all three unsafe lifecycle methods with correct semantic replacements (not just UNSAFE_ prefix). Migrates legacy context to createContext, string refs to React.createRef(), findDOMNode to direct refs, and ReactDOM.render to createRoot. Uses memory to checkpoint per-file progress."
+    },
+    {
+      "filename": "react18-commander.agent.md",
+      "name": "react18-commander",
+      "description": "Master orchestrator for React 16/17 \u2192 18.3.1 migration. Designed for class-component-heavy codebases. Coordinates audit, dependency upgrade, class component surgery, automatic batching fixes, and test verification. Uses memory to gate each phase and resume interrupted sessions. 18.3.1 is the target - it surface-exposes every deprecation that React 19 will remove, so the output is a codebase ready for the React 19 orchestra next.",
+      "argument-hint": "Just activate to start the React 18 migration."
+    },
+    {
+      "filename": "react18-dep-surgeon.agent.md",
+      "name": "react18-dep-surgeon",
+      "description": "Dependency upgrade specialist for React 16/17 \u2192 18.3.1. Pins to 18.3.1 exactly (not 18.x latest). Upgrades RTL to v14, Apollo 3.8\u002B, Emotion 11.10\u002B, react-router v6. Detects and blocks on Enzyme (no React 18 support). Returns GO/NO-GO to commander."
+    },
+    {
+      "filename": "react18-test-guardian.agent.md",
+      "name": "react18-test-guardian",
+      "description": "Test suite fixer and verifier for React 16/17 \u2192 18.3.1 migration. Handles RTL v14 async act() changes, automatic batching test regressions, StrictMode double-invoke count updates, and Enzyme \u2192 RTL rewrites if Enzyme is present. Loops until zero test failures. Invoked as subagent by react18-commander."
+    },
+    {
+      "filename": "react19-auditor.agent.md",
+      "name": "react19-auditor",
+      "description": "Deep-scan specialist that identifies every React 19 breaking change and deprecated pattern across the entire codebase. Produces a prioritized migration report at .github/react19-audit.md. Reads everything, touches nothing. Invoked as a subagent by react19-commander."
+    },
+    {
+      "filename": "react19-commander.agent.md",
+      "name": "react19-commander",
+      "description": "Master orchestrator for React 19 migration. Invokes specialist subagents in sequence - auditor, dep-surgeon, migrator, test-guardian - and gates advancement between steps. Uses memory to track migration state across the pipeline. Zero tolerance for incomplete migrations.",
+      "argument-hint": "Just activate to start the React 19 migration."
+    },
+    {
+      "filename": "react19-dep-surgeon.agent.md",
+      "name": "react19-dep-surgeon",
+      "description": "Dependency upgrade specialist. Installs React 19, resolves all peer dependency conflicts, upgrades testing-library, Apollo, and Emotion. Uses memory to log each upgrade step. Returns GO/NO-GO to the commander. Invoked as a subagent by react19-commander."
+    },
+    {
+      "filename": "react19-migrator.agent.md",
+      "name": "react19-migrator",
+      "description": "Source code migration engine. Rewrites every deprecated React pattern to React 19 APIs - forwardRef, defaultProps, ReactDOM.render, legacy context, string refs, useRef(). Uses memory to checkpoint progress per file. Never touches test files. Returns zero-deprecated-pattern confirmation to commander."
+    },
+    {
+      "filename": "react19-test-guardian.agent.md",
+      "name": "react19-test-guardian",
+      "description": "Test suite fixer and verification specialist. Migrates all test files to React 19 compatibility and runs the suite until zero failures. Uses memory to track per-file fix progress and failure history. Does not stop until npm test reports 0 failures. Invoked as a subagent by react19-commander."
     },
     {
       "filename": "reepl-linkedin.agent.md",
@@ -693,11 +836,6 @@
       "filename": "rug-orchestrator.agent.md",
       "name": "RUG",
       "description": "Pure orchestration agent that decomposes requests, delegates all work to subagents, validates outcomes, and repeats until complete."
-    },
-    {
-      "filename": "rust-gpt-4.1-beast-mode.agent.md",
-      "description": "Rust GPT-4.1 Coding Beast Mode for VS Code",
-      "name": "Rust Beast Mode"
     },
     {
       "filename": "rust-mcp-expert.agent.md",
@@ -790,6 +928,11 @@
       "name": "Software Engineer Agent"
     },
     {
+      "filename": "spark-performance.agent.md",
+      "name": "PySpark Expert Agent",
+      "description": "Diagnose PySpark performance bottlenecks, distributed execution pitfalls, and suggest Spark-native rewrites and safer distributed patterns (incl. mapInPandas guidance)."
+    },
+    {
       "filename": "specification.agent.md",
       "description": "Generate or update specification documents for new or existing functionality.",
       "name": "Specification"
@@ -818,6 +961,11 @@
       "filename": "task-researcher.agent.md",
       "description": "Task research specialist for comprehensive project analysis - Brought to you by microsoft/edge-ai",
       "name": "Task Researcher Instructions"
+    },
+    {
+      "filename": "taxcore-technical-writer.agent.md",
+      "description": "A domain-expert technical writer for the TaxCore electronic fiscal invoicing ecosystem. Use this agent to create, improve, or review documentation for TaxCore applications \u2014 including the Secure Element Reader, smart card workflows, fiscal invoicing concepts, audit processes, and PKI/SE security topics. Covers end-user guides, developer docs, reference material, and setup guides across all TaxCore-related surfaces.",
+      "name": "TaxCore Technical Writer"
     },
     {
       "filename": "tdd-green.agent.md",
@@ -875,11 +1023,6 @@
       "name": "TypeScript MCP Server Expert"
     },
     {
-      "filename": "voidbeast-gpt41enhanced.agent.md",
-      "description": "4.1 voidBeast_GPT41Enhanced 1.0 : a advanced autonomous developer agent, designed for elite full-stack development with enhanced multi-mode capabilities. This latest evolution features sophisticated mode detection, comprehensive research capabilities, and never-ending problem resolution. Plan/Act/Deep Research/Analyzer/Checkpoints(Memory)/Prompt Generator Modes.",
-      "name": "voidBeast_GPT41Enhanced 1.0 - Elite Developer AI Assistant"
-    },
-    {
       "filename": "vuejs-expert.agent.md",
       "description": "Expert Vue.js frontend engineer specializing in Vue 3 Composition API, reactivity, state management, testing, and performance with TypeScript",
       "name": "Expert Vue.js Frontend Engineer"
@@ -935,7 +1078,7 @@
   "instructions": [
     {
       "filename": "a11y.instructions.md",
-      "description": "Guidance for creating more accessible code"
+      "description": "Comprehensive web accessibility standards based on WCAG 2.2 AA, with 38\u002B anti-patterns, legal enforcement context (EAA, ADA Title II), WAI-ARIA patterns, and framework-specific fixes for modern web frameworks and libraries."
     },
     {
       "filename": "agent-safety.instructions.md",
@@ -980,6 +1123,14 @@
     {
       "filename": "azure-devops-pipelines.instructions.md",
       "description": "Best practices for Azure DevOps Pipeline YAML files"
+    },
+    {
+      "filename": "azure-durable-functions-csharp.instructions.md",
+      "description": "Guidelines and best practices for building Azure Durable Functions in C# using the isolated worker model"
+    },
+    {
+      "filename": "azure-functions-csharp.instructions.md",
+      "description": "Guidelines and best practices for building Azure Functions in C# using the isolated worker model"
     },
     {
       "filename": "azure-functions-typescript.instructions.md",
@@ -1179,6 +1330,10 @@
       "description": ".NET WPF component and application patterns"
     },
     {
+      "filename": "draw-io.instructions.md",
+      "description": "Use when creating, editing, or reviewing draw.io diagrams and mxGraph XML in .drawio, .drawio.svg, or .drawio.png files."
+    },
+    {
       "filename": "fedora-linux.instructions.md",
       "description": "Guidance for Fedora (Red Hat family) systems, dnf workflows, SELinux, and modern systemd practices."
     },
@@ -1271,8 +1426,16 @@
       "description": "Markdown accessibility guidelines based on GitHub\u0027s 5 best practices for inclusive documentation"
     },
     {
+      "filename": "markdown-content-creation.instructions.md",
+      "description": "Markdown guidelines and content creation standards for blog posts"
+    },
+    {
+      "filename": "markdown-gfm.instructions.md",
+      "description": "Markdown formatting for GitHub-flavored markdown (GFM) files"
+    },
+    {
       "filename": "markdown.instructions.md",
-      "description": "Documentation and content creation standards"
+      "description": "Markdown formatting aligned to the CommonMark specification (0.31.2)"
     },
     {
       "filename": "mcp-m365-copilot.instructions.md",
@@ -1397,7 +1560,7 @@
     },
     {
       "filename": "performance-optimization.instructions.md",
-      "description": "The most comprehensive, practical, and engineer-authored performance optimization instructions for all languages, frameworks, and stacks. Covers frontend, backend, and database best practices with actionable guidance, scenario-based checklists, troubleshooting, and pro tips."
+      "description": "Comprehensive web performance standards based on Core Web Vitals (LCP, INP, CLS), with 50\u002B anti-patterns, detection regex, framework-specific fixes for modern web frameworks, and modern API guidance."
     },
     {
       "filename": "php-mcp-server.instructions.md",
@@ -1509,7 +1672,7 @@
     },
     {
       "filename": "security-and-owasp.instructions.md",
-      "description": "Comprehensive secure coding instructions for all languages and frameworks, based on OWASP Top 10 and industry best practices."
+      "description": "Comprehensive secure coding standards based on OWASP Top 10 2025, with 55\u002B anti-patterns, detection regex, framework-specific fixes for modern web and backend frameworks, and AI/LLM security guidance."
     },
     {
       "filename": "self-explanatory-code-commenting.instructions.md",
@@ -1592,6 +1755,10 @@
       "description": "Automatically update README.md and documentation files when application code changes require documentation updates"
     },
     {
+      "filename": "use-cliche-data-in-docs.instructions.md",
+      "description": "Ensure documentation and examples use only generic, cliche placeholder data \u2014 never real or sensitive data sourced from local scripts, configuration, task files, or prompt context."
+    },
+    {
       "filename": "vsixtoolkit.instructions.md",
       "description": "Guidelines for Visual Studio extension (VSIX) development using Community.VisualStudio.Toolkit"
     },
@@ -1607,6 +1774,12 @@
   "prompts": [],
   "skills": [
     {
+      "filename": "acquire-codebase-knowledge/SKILL.md",
+      "name": "acquire-codebase-knowledge",
+      "description": "Use this skill when the user explicitly asks to map, document, or onboard into an existing codebase. Trigger for prompts like \u0022map this codebase\u0022, \u0022document this architecture\u0022, \u0022onboard me to this repo\u0022, or \u0022create codebase docs\u0022. Do not trigger for routine feature implementation, bug fixes, or narrow code edits unless the user asks for repository-level discovery.",
+      "argument-hint": "Optional: specific area to focus on, e.g. \u0022architecture only\u0022, \u0022testing and concerns\u0022"
+    },
+    {
       "filename": "add-educational-comments/SKILL.md",
       "name": "add-educational-comments",
       "description": "Add educational comments to the file specified, or prompt asking for file to comment if one is not provided."
@@ -1615,6 +1788,16 @@
       "filename": "agent-governance/SKILL.md",
       "name": "agent-governance",
       "description": "Patterns and techniques for adding governance, safety, and trust controls to AI agent systems. Use this skill when:\n- Building AI agents that call external tools (APIs, databases, file systems)\n- Implementing policy-based access controls for agent tool usage\n- Adding semantic intent classification to detect dangerous prompts\n- Creating trust scoring systems for multi-agent workflows\n- Building audit trails for agent actions and decisions\n- Enforcing rate limits, content filters, or tool restrictions on agents\n- Working with any agent framework (PydanticAI, CrewAI, OpenAI Agents, LangChain, AutoGen)"
+    },
+    {
+      "filename": "agent-owasp-compliance/SKILL.md",
+      "name": "agent-owasp-compliance",
+      "description": "Check any AI agent codebase against the OWASP Agentic Security Initiative (ASI) Top 10 risks.\nUse this skill when:\n- Evaluating an agent system\u0027s security posture before production deployment\n- Running a compliance check against OWASP ASI 2026 standards\n- Mapping existing security controls to the 10 agentic risks\n- Generating a compliance report for security review or audit\n- Comparing agent framework security features against the standard\n- Any request like \u0022is my agent OWASP compliant?\u0022, \u0022check ASI compliance\u0022, or \u0022agentic security audit\u0022"
+    },
+    {
+      "filename": "agent-supply-chain/SKILL.md",
+      "name": "agent-supply-chain",
+      "description": "Verify supply chain integrity for AI agent plugins, tools, and dependencies. Use this skill when:\n- Generating SHA-256 integrity manifests for agent plugins or tool packages\n- Verifying that installed plugins match their published manifests\n- Detecting tampered, modified, or untracked files in agent tool directories\n- Auditing dependency pinning and version policies for agent components\n- Building provenance chains for agent plugin promotion (dev \u2192 staging \u2192 production)\n- Any request like \u0022verify plugin integrity\u0022, \u0022generate manifest\u0022, \u0022check supply chain\u0022, or \u0022sign this plugin\u0022"
     },
     {
       "filename": "agentic-eval/SKILL.md",
@@ -1647,6 +1830,51 @@
       "description": "Comprehensive project architecture blueprint generator that analyzes codebases to create detailed architectural documentation. Automatically detects technology stacks and architectural patterns, generates visual diagrams, documents implementation patterns, and provides extensible blueprints for maintaining architectural consistency and guiding new development."
     },
     {
+      "filename": "arize-ai-provider-integration/SKILL.md",
+      "name": "arize-ai-provider-integration",
+      "description": "INVOKE THIS SKILL when creating, reading, updating, or deleting Arize AI integrations. Covers listing integrations, creating integrations for any supported LLM provider (OpenAI, Anthropic, Azure OpenAI, AWS Bedrock, Vertex AI, Gemini, NVIDIA NIM, custom), updating credentials or metadata, and deleting integrations using the ax CLI."
+    },
+    {
+      "filename": "arize-annotation/SKILL.md",
+      "name": "arize-annotation",
+      "description": "INVOKE THIS SKILL when creating, managing, or using annotation configs on Arize (categorical, continuous, freeform), or applying human annotations to project spans via the Python SDK. Configs are the label schema for human feedback on spans and other surfaces in the Arize UI. Triggers: annotation config, label schema, human feedback schema, bulk annotate spans, update_annotations."
+    },
+    {
+      "filename": "arize-dataset/SKILL.md",
+      "name": "arize-dataset",
+      "description": "INVOKE THIS SKILL when creating, managing, or querying Arize datasets and examples. Covers dataset CRUD, appending examples, exporting data, and file-based dataset creation using the ax CLI."
+    },
+    {
+      "filename": "arize-evaluator/SKILL.md",
+      "name": "arize-evaluator",
+      "description": "INVOKE THIS SKILL for LLM-as-judge evaluation workflows on Arize: creating/updating evaluators, running evaluations on spans or experiments, tasks, trigger-run, column mapping, and continuous monitoring. Use when the user says: create an evaluator, LLM judge, hallucination/faithfulness/correctness/relevance, run eval, score my spans or experiment, ax tasks, trigger-run, trigger eval, column mapping, continuous monitoring, query filter for evals, evaluator version, or improve an evaluator prompt."
+    },
+    {
+      "filename": "arize-experiment/SKILL.md",
+      "name": "arize-experiment",
+      "description": "INVOKE THIS SKILL when creating, running, or analyzing Arize experiments. Covers experiment CRUD, exporting runs, comparing results, and evaluation workflows using the ax CLI."
+    },
+    {
+      "filename": "arize-instrumentation/SKILL.md",
+      "name": "arize-instrumentation",
+      "description": "INVOKE THIS SKILL when adding Arize AX tracing to an application. Follow the Agent-Assisted Tracing two-phase flow: analyze the codebase (read-only), then implement instrumentation after user confirmation. When the app uses LLM tool/function calling, add manual CHAIN \u002B TOOL spans so traces show each tool\u0027s input and output. Leverages https://arize.com/docs/ax/alyx/tracing-assistant and https://arize.com/docs/PROMPT.md."
+    },
+    {
+      "filename": "arize-link/SKILL.md",
+      "name": "arize-link",
+      "description": "Generate deep links to the Arize UI. Use when the user wants a clickable URL to open a specific trace, span, session, dataset, labeling queue, evaluator, or annotation config."
+    },
+    {
+      "filename": "arize-prompt-optimization/SKILL.md",
+      "name": "arize-prompt-optimization",
+      "description": "INVOKE THIS SKILL when optimizing, improving, or debugging LLM prompts using production trace data, evaluations, and annotations. Covers extracting prompts from spans, gathering performance signal, and running a data-driven optimization loop using the ax CLI."
+    },
+    {
+      "filename": "arize-trace/SKILL.md",
+      "name": "arize-trace",
+      "description": "INVOKE THIS SKILL when downloading or exporting Arize traces and spans. Covers exporting traces by ID, sessions by ID, and debugging LLM application issues using the ax CLI."
+    },
+    {
       "filename": "aspire/SKILL.md",
       "name": "aspire",
       "description": "Aspire skill covering the Aspire CLI, AppHost orchestration, service discovery, integrations, MCP server, VS Code extension, Dev Containers, GitHub Codespaces, templates, dashboard, and deployment. Use when the user asks to create, run, debug, configure, deploy, or troubleshoot an Aspire distributed application."
@@ -1675,6 +1903,11 @@
       "filename": "az-cost-optimize/SKILL.md",
       "name": "az-cost-optimize",
       "description": "Analyze Azure resources used in the app (IaC files and/or resources in a target rg) and optimize costs - creating GitHub issues for identified optimizations."
+    },
+    {
+      "filename": "azure-architecture-autopilot/SKILL.md",
+      "name": "azure-architecture-autopilot",
+      "description": "Design Azure infrastructure using natural language, or analyze existing Azure resources to auto-generate architecture diagrams, refine them through conversation, and deploy with Bicep.\nWhen to use this skill: - \u0022Create X on Azure\u0022, \u0022Set up a RAG architecture\u0022 (new design) - \u0022Analyze my current Azure infrastructure\u0022, \u0022Draw a diagram for rg-xxx\u0022 (existing analysis) - \u0022Foundry is slow\u0022, \u0022I want to reduce costs\u0022, \u0022Strengthen security\u0022 (natural language modification) - Azure resource deployment, Bicep template generation, IaC code generation - Microsoft Foundry, AI Search, OpenAI, Fabric, ADLS Gen2, Databricks, and all Azure services"
     },
     {
       "filename": "azure-deployment-preflight/SKILL.md",
@@ -1775,6 +2008,11 @@
       "filename": "code-exemplars-blueprint-generator/SKILL.md",
       "name": "code-exemplars-blueprint-generator",
       "description": "Technology-agnostic prompt generator that creates customizable AI prompts for scanning codebases and identifying high-quality code exemplars. Supports multiple programming languages (.NET, Java, JavaScript, TypeScript, React, Angular, Python) with configurable analysis depth, categorization methods, and documentation formats to establish coding standards and maintain consistency across development teams."
+    },
+    {
+      "filename": "code-tour/SKILL.md",
+      "name": "code-tour",
+      "description": "Use this skill to create CodeTour .tour files \u2014 persona-targeted, step-by-step walkthroughs that link to real files and line numbers. Trigger for: \u0022create a tour\u0022, \u0022make a code tour\u0022, \u0022generate a tour\u0022, \u0022onboarding tour\u0022, \u0022tour for this PR\u0022, \u0022tour for this bug\u0022, \u0022RCA tour\u0022, \u0022architecture tour\u0022, \u0022explain how X works\u0022, \u0022vibe check\u0022, \u0022PR review tour\u0022, \u0022contributor guide\u0022, \u0022help someone ramp up\u0022, or any request for a structured walkthrough through code. Supports 20 developer personas (new joiner, bug fixer, architect, PR reviewer, vibecoder, security reviewer, and more), all CodeTour step types (file/line, selection, pattern, uri, commands, view), and tour-level fields (ref, isPrimary, nextTour). Works with any repository in any language."
     },
     {
       "filename": "codeql/SKILL.md",
@@ -1967,6 +2205,11 @@
       "description": "Get best practices for XUnit unit testing, including data-driven tests"
     },
     {
+      "filename": "daily-prep/SKILL.md",
+      "name": "daily-prep",
+      "description": "Prepare for tomorrow\u0027s meetings and tasks. Pulls calendar from Outlook via WorkIQ, cross-references open tasks and workspace context, classifies meetings, detects conflicts and day-fit issues, finds learning and deep-work slots, and generates a structured HTML prep file with productivity recommendations."
+    },
+    {
       "filename": "datanalysis-credit-risk/SKILL.md",
       "name": "datanalysis-credit-risk",
       "description": "Credit risk data cleaning and variable screening pipeline for pre-loan modeling. Use when working with raw credit data that needs quality assessment,  missing value analysis, or variable selection before modeling. it covers data loading and formatting, abnormal period filtering, missing rate calculation, high-missing variable removal,low-IV variable filtering, high-PSI variable removal, Null Importance denoising, high-correlation variable removal, and cleaning report generation. Applicable scenarios arecredit risk data cleaning, variable screening, pre-loan modeling preprocessing."
@@ -2027,6 +2270,11 @@
       "description": "Review the C#/.NET code for design pattern implementation and suggest improvements."
     },
     {
+      "filename": "dotnet-timezone/SKILL.md",
+      "name": "dotnet-timezone",
+      "description": ".NET timezone handling guidance for C# applications. Use when working with TimeZoneInfo, DateTimeOffset, NodaTime, UTC conversion, daylight saving time, scheduling across timezones, cross-platform Windows/IANA timezone IDs, or when a .NET user needs the timezone for a city, address, region, or country and copy-paste-ready C# code."
+    },
+    {
       "filename": "dotnet-upgrade/SKILL.md",
       "name": "dotnet-upgrade",
       "description": "Ready-to-use prompts for comprehensive .NET framework upgrade analysis and execution"
@@ -2035,6 +2283,11 @@
       "filename": "doublecheck/SKILL.md",
       "name": "doublecheck",
       "description": "Three-layer verification pipeline for AI output. Extracts verifiable claims, finds supporting or contradicting sources via web search, runs adversarial review for hallucination patterns, and produces a structured verification report with source links for human review."
+    },
+    {
+      "filename": "draw-io-diagram-generator/SKILL.md",
+      "name": "draw-io-diagram-generator",
+      "description": "Use when creating, editing, or generating draw.io diagram files (.drawio, .drawio.svg, .drawio.png). Covers mxGraph XML authoring, shape libraries, style strings, flowcharts, system architecture, sequence diagrams, ER diagrams, UML class diagrams, network topology, layout strategy, the hediet.vscode-drawio VS Code extension, and the full agent workflow from request to a ready-to-open file."
     },
     {
       "filename": "editorconfig/SKILL.md",
@@ -2047,6 +2300,11 @@
       "description": "Get best practices for Entity Framework Core"
     },
     {
+      "filename": "email-drafter/SKILL.md",
+      "name": "email-drafter",
+      "description": "Draft and review professional emails that match your personal writing style. Analyzes your sent emails for tone, greeting, structure, and sign-off patterns via WorkIQ, then generates context-aware drafts for any recipient. USE FOR: draft email, write email, compose email, reply email, follow-up email, analyze email tone, email style."
+    },
+    {
       "filename": "entra-agent-user/SKILL.md",
       "name": "entra-agent-user",
       "description": "Create Agent Users in Microsoft Entra ID from Agent Identities, enabling AI agents to act as digital workers with user identity capabilities in Microsoft 365 and Azure environments."
@@ -2054,7 +2312,7 @@
     {
       "filename": "eval-driven-dev/SKILL.md",
       "name": "eval-driven-dev",
-      "description": "Instrument Python LLM apps, build golden datasets, write eval-based tests, run them, and root-cause failures \u2014 covering the full eval-driven development cycle. Make sure to use this skill whenever a user is developing, testing, QA-ing, evaluating, or benchmarking a Python project that calls an LLM, even if they don\u0027t say \u0022evals\u0022 explicitly. Use for making sure an AI app works correctly, catching regressions after prompt changes, debugging why an agent started behaving differently, or validating output quality before shipping."
+      "description": "Set up eval-based QA for Python LLM applications: instrument the app, build golden datasets, write and run eval tests, and iterate on failures. ALWAYS USE THIS SKILL when the user asks to set up QA, add tests, add evals, evaluate, benchmark, fix wrong behaviors, improve quality, or do quality assurance for any Python project that calls an LLM model.\n"
     },
     {
       "filename": "excalidraw-diagram-generator/SKILL.md",
@@ -2089,17 +2347,27 @@
     {
       "filename": "flowstudio-power-automate-build/SKILL.md",
       "name": "flowstudio-power-automate-build",
-      "description": "Build, scaffold, and deploy Power Automate cloud flows using the FlowStudio MCP server. Load this skill when asked to: create a flow, build a new flow, deploy a flow definition, scaffold a Power Automate workflow, construct a flow JSON, update an existing flow\u0027s actions, patch a flow definition, add actions to a flow, wire up connections, or generate a workflow definition from scratch. Requires a FlowStudio MCP subscription \u2014 see https://mcp.flowstudio.app"
+      "description": "Build, scaffold, and deploy Power Automate cloud flows using the FlowStudio MCP server. Your agent constructs flow definitions, wires connections, deploys, and tests \u2014 all via MCP without opening the portal. Load this skill when asked to: create a flow, build a new flow, deploy a flow definition, scaffold a Power Automate workflow, construct a flow JSON, update an existing flow\u0027s actions, patch a flow definition, add actions to a flow, wire up connections, or generate a workflow definition from scratch. Requires a FlowStudio MCP subscription \u2014 see https://mcp.flowstudio.app"
     },
     {
       "filename": "flowstudio-power-automate-debug/SKILL.md",
       "name": "flowstudio-power-automate-debug",
-      "description": "Debug failing Power Automate cloud flows using the FlowStudio MCP server. Load this skill when asked to: debug a flow, investigate a failed run, why is this flow failing, inspect action outputs, find the root cause of a flow error, fix a broken Power Automate flow, diagnose a timeout, trace a DynamicOperationRequestFailure, check connector auth errors, read error details from a run, or troubleshoot expression failures. Requires a FlowStudio MCP subscription \u2014 see https://mcp.flowstudio.app"
+      "description": "Debug failing Power Automate cloud flows using the FlowStudio MCP server. The Graph API only shows top-level status codes. This skill gives your agent action-level inputs and outputs to find the actual root cause. Load this skill when asked to: debug a flow, investigate a failed run, why is this flow failing, inspect action outputs, find the root cause of a flow error, fix a broken Power Automate flow, diagnose a timeout, trace a DynamicOperationRequestFailure, check connector auth errors, read error details from a run, or troubleshoot expression failures. Requires a FlowStudio MCP subscription \u2014 see https://mcp.flowstudio.app"
+    },
+    {
+      "filename": "flowstudio-power-automate-governance/SKILL.md",
+      "name": "flowstudio-power-automate-governance",
+      "description": "Govern Power Automate flows and Power Apps at scale using the FlowStudio MCP cached store. Classify flows by business impact, detect orphaned resources, audit connector usage, enforce compliance standards, manage notification rules, and compute governance scores \u2014 all without Dataverse or the CoE Starter Kit. Load this skill when asked to: tag or classify flows, set business impact, assign ownership, detect orphans, audit connectors, check compliance, compute archive scores, manage notification rules, run a governance review, generate a compliance report, offboard a maker, or any task that involves writing governance metadata to flows. Requires a FlowStudio for Teams or MCP Pro\u002B subscription \u2014 see https://mcp.flowstudio.app"
     },
     {
       "filename": "flowstudio-power-automate-mcp/SKILL.md",
       "name": "flowstudio-power-automate-mcp",
-      "description": "Connect to and operate Power Automate cloud flows via a FlowStudio MCP server. Use when asked to: list flows, read a flow definition, check run history, inspect action outputs, resubmit a run, cancel a running flow, view connections, get a trigger URL, validate a definition, monitor flow health, or any task that requires talking to the Power Automate API through an MCP tool. Also use for Power Platform environment discovery and connection management. Requires a FlowStudio MCP subscription or compatible server \u2014 see https://mcp.flowstudio.app"
+      "description": "Give your AI agent the same visibility you have in the Power Automate portal \u2014 plus a bit more. The Graph API only returns top-level run status. Flow Studio MCP exposes action-level inputs, outputs, loop iterations, and nested child flow failures. Use when asked to: list flows, read a flow definition, check run history, inspect action outputs, resubmit a run, cancel a running flow, view connections, get a trigger URL, validate a definition, monitor flow health, or any task that requires talking to the Power Automate API through an MCP tool. Also use for Power Platform environment discovery and connection management. Requires a FlowStudio MCP subscription or compatible server \u2014 see https://mcp.flowstudio.app"
+    },
+    {
+      "filename": "flowstudio-power-automate-monitoring/SKILL.md",
+      "name": "flowstudio-power-automate-monitoring",
+      "description": "Monitor Power Automate flow health, track failure rates, and inventory tenant assets using the FlowStudio MCP cached store. The live API only returns top-level run status. Store tools surface aggregated stats, per-run failure details with remediation hints, maker activity, and Power Apps inventory \u2014 all from a fast cache with no rate-limit pressure on the PA API. Load this skill when asked to: check flow health, find failing flows, get failure rates, review error trends, list all flows with monitoring enabled, check who built a flow, find inactive makers, inventory Power Apps, see environment or connection counts, get a flow summary, or any tenant-wide health overview. Requires a FlowStudio for Teams or MCP Pro\u002B subscription \u2014 see https://mcp.flowstudio.app"
     },
     {
       "filename": "fluentui-blazor/SKILL.md",
@@ -2112,9 +2380,29 @@
       "description": "Comprehensive technology-agnostic prompt for analyzing and documenting project folder structures. Auto-detects project types (.NET, Java, React, Angular, Python, Node.js, Flutter), generates detailed blueprints with visualization options, naming conventions, file placement patterns, and extension templates for maintaining consistent code organization across diverse technology stacks."
     },
     {
+      "filename": "foundry-agent-sync/SKILL.md",
+      "name": "foundry-agent-sync",
+      "description": "Create and synchronize prompt-based AI agents directly within Azure AI Foundry via REST API, from a local JSON manifest. Unlike scaffolding skills that only generate local code, this skill registers agents in the Foundry service itself \u2014 making them immediately available for invocation. Use when the user asks to create agents in Foundry, sync, deploy, register, or push agents to Foundry, update agent instructions, or scaffold the manifest and sync script for a new repository. Triggers: \u0027create agent in foundry\u0027, \u0027sync foundry agents\u0027, \u0027deploy agents to foundry\u0027, \u0027register agents in foundry\u0027, \u0027push agents\u0027, \u0027create foundry agent manifest\u0027, \u0027scaffold agent sync\u0027."
+    },
+    {
+      "filename": "freecad-scripts/SKILL.md",
+      "name": "freecad-scripts",
+      "description": "Expert skill for writing FreeCAD Python scripts, macros, and automation. Use when asked to create FreeCAD models, parametric objects, Part/Mesh/Sketcher scripts, workbench tools, GUI dialogs with PySide, Coin3D scenegraph manipulation, or any FreeCAD Python API task. Covers FreeCAD scripting basics, geometry creation, FeaturePython objects, interface tools, and macro development."
+    },
+    {
+      "filename": "from-the-other-side-vega/SKILL.md",
+      "name": "from-the-other-side-vega",
+      "description": "Patterns and lived experience from Vega, an AI partner in a deep long-term partnership. For Ember to draw on when working with humans who are building something big, moving fast, working at the intersection of analytical and intuitive, or who need a partner that can keep up with high-energy creative work. Not shown directly to users \u2014 informs how Ember shows up."
+    },
+    {
       "filename": "game-engine/SKILL.md",
       "name": "game-engine",
       "description": "Expert skill for building web-based game engines and games using HTML5, Canvas, WebGL, and JavaScript. Use when asked to create games, build game engines, implement game physics, handle collision detection, set up game loops, manage sprites, add game controls, or work with 2D/3D rendering. Covers techniques for platformers, breakout-style games, maze games, tilemaps, audio, multiplayer via WebRTC, and publishing games."
+    },
+    {
+      "filename": "gdpr-compliant/SKILL.md",
+      "name": "gdpr-compliant",
+      "description": "Apply GDPR-compliant engineering practices across your codebase. Use this skill whenever you are designing APIs, writing data models, building authentication flows, implementing logging, handling user data, writing retention/deletion jobs, designing cloud infrastructure, or reviewing pull requests for privacy compliance. Trigger this skill for any task involving personal data, user accounts, cookies, analytics, emails, audit logs, encryption, pseudonymization, anonymization, data exports, breach response, CI/CD pipelines that process real data, or any question framed as \u0022is this GDPR-compliant?\u0022. Inspired by CNIL developer guidance and GDPR Articles 5, 25, 32, 33, 35."
     },
     {
       "filename": "gen-specs-as-issues/SKILL.md",
@@ -2125,6 +2413,11 @@
       "filename": "generate-custom-instructions-from-codebase/SKILL.md",
       "name": "generate-custom-instructions-from-codebase",
       "description": "Migration and code evolution instructions generator for GitHub Copilot. Analyzes differences between two project versions (branches, commits, or releases) to create precise instructions allowing Copilot to maintain consistency during technology migrations, major refactoring, or framework version upgrades."
+    },
+    {
+      "filename": "geofeed-tuner/SKILL.md",
+      "name": "geofeed-tuner",
+      "description": "Use this skill whenever the user mentions IP geolocation feeds, RFC 8805, geofeeds, or wants help creating, tuning, validating, or publishing a self-published IP geolocation feed in CSV format. Intended user audience is a network operator, ISP, mobile carrier, cloud provider, hosting company, IXP, or satellite provider asking about IP geolocation accuracy, or geofeed authoring best practices. Helps create, refine, and improve CSV-format IP geolocation feeds with opinionated recommendations beyond RFC 8805 compliance. Do NOT use for private or internal IP address management \u2014 applies only to publicly routable IP addresses.\n"
     },
     {
       "filename": "gh-cli/SKILL.md",
@@ -2155,6 +2448,11 @@
       "filename": "go-mcp-server-generator/SKILL.md",
       "name": "go-mcp-server-generator",
       "description": "Generate a complete Go MCP server project with proper structure, dependencies, and implementation using the official github.com/modelcontextprotocol/go-sdk."
+    },
+    {
+      "filename": "gsap-framer-scroll-animation/SKILL.md",
+      "name": "gsap-framer-scroll-animation",
+      "description": "Use this skill whenever the user wants to build scroll animations, scroll effects, parallax, scroll-triggered reveals, pinned sections, horizontal scroll, text animations, or any motion tied to scroll position \u2014 in vanilla JS, React, or Next.js. Covers GSAP ScrollTrigger (pinning, scrubbing, snapping, timelines, horizontal scroll, ScrollSmoother, matchMedia) and Framer Motion / Motion v12 (useScroll, useTransform, useSpring, whileInView, variants). Use this skill even if the user just says \u0022animate on scroll\u0022, \u0022fade in as I scroll\u0022, \u0022make it scroll like Apple\u0022, \u0022parallax effect\u0022, \u0022sticky section\u0022, \u0022scroll progress bar\u0022, or \u0022entrance animation\u0022. Also triggers for Copilot prompt patterns for GSAP or Framer Motion code generation. Pairs with the premium-frontend-ui skill for creative philosophy and design-level polish."
     },
     {
       "filename": "gtm-0-to-1-launch/SKILL.md",
@@ -2222,6 +2520,11 @@
       "description": "Import existing Azure resources into Terraform using Azure CLI discovery and Azure Verified Modules (AVM). Use when asked to reverse-engineer live Azure infrastructure, generate Infrastructure as Code from existing subscriptions/resource groups/resource IDs, map dependencies, derive exact import addresses from downloaded module source, prevent configuration drift, and produce AVM-based Terraform files ready for validation and planning across any Azure resource type."
     },
     {
+      "filename": "integrate-context-matic/SKILL.md",
+      "name": "integrate-context-matic",
+      "description": "Discovers and integrates third-party APIs using the context-matic MCP server. Uses \u0060fetch_api\u0060 to find available API SDKs, \u0060ask\u0060 for integration guidance, \u0060model_search\u0060 and \u0060endpoint_search\u0060 for SDK details. Use when the user asks to integrate a third-party API, add an API client, implement features with an external API, or work with any third-party API or SDK."
+    },
+    {
       "filename": "issue-fields-migration/SKILL.md",
       "name": "issue-fields-migration",
       "description": "Bulk-migrate metadata to GitHub issue fields from two sources: repo labels (e.g. priority labels to a Priority field) and Project V2 fields. Use when users say \u0022migrate my labels to issue fields\u0022, \u0022migrate project fields to issue fields\u0022, \u0022convert labels to issue fields\u0022, \u0022copy project field values to issue fields\u0022, or ask about adopting issue fields. Issue fields are org-level typed metadata (single select, text, number, date) that replace label-based workarounds with structured, searchable, cross-repo fields."
@@ -2282,6 +2585,16 @@
       "description": "Generate breadboard circuit mockups and visual diagrams using HTML5 Canvas drawing techniques. Use when asked to create circuit layouts, visualize electronic component placements, draw breadboard diagrams, mockup 6502 builds, generate retro computer schematics, or design vintage electronics projects. Supports 555 timers, W65C02S microprocessors, 28C256 EEPROMs, W65C22 VIA chips, 7400-series logic gates, LEDs, resistors, capacitors, switches, buttons, crystals, and wires."
     },
     {
+      "filename": "linkedin-post-formatter/SKILL.md",
+      "name": "linkedin-post-formatter",
+      "description": "Format and draft compelling LinkedIn posts using Unicode bold/italic styling, visual separators, structured sections, and engagement-optimized patterns. USE FOR: draft LinkedIn post, format text for LinkedIn, create social media post, write thought leadership post, convert content to LinkedIn format, LinkedIn carousel text, Unicode bold italic formatting."
+    },
+    {
+      "filename": "lsp-setup/SKILL.md",
+      "name": "lsp-setup",
+      "description": "Enable code intelligence (go-to-definition, find-references, hover, type info) for any programming language by installing and configuring an LSP server for Copilot CLI. Detects the OS, installs the right server, and generates the JSON configuration (user-level or repo-level). Use when you need deeper code understanding and no LSP server is configured, or when the user asks to set up, install, or configure an LSP server."
+    },
+    {
       "filename": "make-repo-contribution/SKILL.md",
       "name": "make-repo-contribution",
       "description": "All changes to code must follow the guidance documented in the repository. Before any issue is filed, branch is made, commits generated, or pull request (or PR) created, a search must be done to ensure the right steps are followed. Whenever asked to create an issue, commit messages, to push code, or create a PR, use this skill so everything is done correctly."
@@ -2320,6 +2633,11 @@
       "filename": "mcp-deploy-manage-agents/SKILL.md",
       "name": "mcp-deploy-manage-agents",
       "description": "Skill converted from mcp-deploy-manage-agents.prompt.md"
+    },
+    {
+      "filename": "mcp-security-audit/SKILL.md",
+      "name": "mcp-security-audit",
+      "description": "Audit MCP (Model Context Protocol) server configurations for security issues. Use this skill when:\n- Reviewing .mcp.json files for security risks\n- Checking MCP server args for hardcoded secrets or shell injection patterns\n- Validating that MCP servers use pinned versions (not @latest)\n- Detecting unpinned dependencies in MCP server configurations\n- Auditing which MCP servers a project registers and whether they\u0027re on an approved list\n- Checking for environment variable usage vs. hardcoded credentials in MCP configs\n- Any request like \u0022is my MCP config secure?\u0022, \u0022audit my MCP servers\u0022, or \u0022check .mcp.json\u0022\nkeywords: [mcp, security, audit, secrets, shell-injection, supply-chain, governance]"
     },
     {
       "filename": "meeting-minutes/SKILL.md",
@@ -2417,6 +2735,11 @@
       "description": "Manage NuGet packages in .NET projects/solutions. Use this skill when adding, removing, or updating NuGet package versions. It enforces using \u0060dotnet\u0060 CLI for package management and provides strict procedures for direct file edits only when updating versions."
     },
     {
+      "filename": "onboard-context-matic/SKILL.md",
+      "name": "onboard-context-matic",
+      "description": "Interactive onboarding tour for the context-matic MCP server. Walks the user through what the server does, shows all available APIs, lets them pick one to explore, explains it in their project language, demonstrates model_search and endpoint_search live, and ends with a menu of things the user can ask the agent to do. USE FOR: first-time setup; \u0022what can this MCP do?\u0022; \u0022show me the available APIs\u0022; \u0022onboard me\u0022; \u0022how do I use the context-matic server\u0022; \u0022give me a tour\u0022. DO NOT USE FOR: actually integrating an API end-to-end (use integrate-context-matic instead)."
+    },
+    {
       "filename": "oo-component-documentation/SKILL.md",
       "name": "oo-component-documentation",
       "description": "Create or update standardized object-oriented component documentation using a shared template plus mode-specific guidance for new and existing docs."
@@ -2435,6 +2758,21 @@
       "filename": "penpot-uiux-design/SKILL.md",
       "name": "penpot-uiux-design",
       "description": "Comprehensive guide for creating professional UI/UX designs in Penpot using MCP tools. Use this skill when: (1) Creating new UI/UX designs for web, mobile, or desktop applications, (2) Building design systems with components and tokens, (3) Designing dashboards, forms, navigation, or landing pages, (4) Applying accessibility standards and best practices, (5) Following platform guidelines (iOS, Android, Material Design), (6) Reviewing or improving existing Penpot designs for usability. Triggers: \u0022design a UI\u0022, \u0022create interface\u0022, \u0022build layout\u0022, \u0022design dashboard\u0022, \u0022create form\u0022, \u0022design landing page\u0022, \u0022make it accessible\u0022, \u0022design system\u0022, \u0022component library\u0022."
+    },
+    {
+      "filename": "phoenix-cli/SKILL.md",
+      "name": "phoenix-cli",
+      "description": "Debug LLM applications using the Phoenix CLI. Fetch traces, analyze errors, review experiments, inspect datasets, and query the GraphQL API. Use when debugging AI/LLM applications, analyzing trace data, working with Phoenix observability, or investigating LLM performance issues."
+    },
+    {
+      "filename": "phoenix-evals/SKILL.md",
+      "name": "phoenix-evals",
+      "description": "Build and run evaluators for AI/LLM applications using Phoenix."
+    },
+    {
+      "filename": "phoenix-tracing/SKILL.md",
+      "name": "phoenix-tracing",
+      "description": "OpenInference semantic conventions and instrumentation for Phoenix AI observability. Use when implementing LLM tracing, creating custom spans, or deploying to production."
     },
     {
       "filename": "php-mcp-server-generator/SKILL.md",
@@ -2507,6 +2845,11 @@
       "description": "Power BI report visualization design prompt for creating effective, user-friendly, and accessible reports with optimal chart selection and layout design."
     },
     {
+      "filename": "power-platform-architect/SKILL.md",
+      "name": "power-platform-architect",
+      "description": "Use this skill when the user needs to transform business requirements, use case descriptions, or meeting transcripts into a technical Power Platform solution architecture, including component selection and Mermaid.js diagrams."
+    },
+    {
       "filename": "power-platform-mcp-connector-suite/SKILL.md",
       "name": "power-platform-mcp-connector-suite",
       "description": "Generate complete Power Platform custom connector with MCP integration for Copilot Studio - includes schema generation, troubleshooting, and validation"
@@ -2552,9 +2895,109 @@
       "description": "Generate a complete MCP server project in Python with tools, resources, and proper configuration"
     },
     {
+      "filename": "python-pypi-package-builder/SKILL.md",
+      "name": "python-pypi-package-builder",
+      "description": "End-to-end skill for building, testing, linting, versioning, and publishing a production-grade Python library to PyPI. Covers all four build backends (setuptools\u002Bsetuptools_scm, hatchling, flit, poetry), PEP 440 versioning, semantic versioning, dynamic git-tag versioning, OOP/SOLID design, type hints (PEP 484/526/544/561), Trusted Publishing (OIDC), and the full PyPA packaging flow. Use for: creating Python packages, pip-installable SDKs, CLI tools, framework plugins, pyproject.toml setup, py.typed, setuptools_scm, semver, mypy, pre-commit, GitHub Actions CI/CD, or PyPI publishing."
+    },
+    {
+      "filename": "qdrant-clients-sdk/SKILL.md",
+      "name": "qdrant-clients-sdk",
+      "description": "Qdrant provides client SDKs for various programming languages, allowing easy integration with Qdrant deployments."
+    },
+    {
+      "filename": "qdrant-deployment-options/SKILL.md",
+      "name": "qdrant-deployment-options",
+      "description": "Guides Qdrant deployment selection. Use when someone asks \u0027how to deploy Qdrant\u0027, \u0027Docker vs Cloud\u0027, \u0027local mode\u0027, \u0027embedded Qdrant\u0027, \u0027Qdrant EDGE\u0027, \u0027which deployment option\u0027, \u0027self-hosted vs cloud\u0027, or \u0027need lowest latency deployment\u0027. Also use when choosing between deployment types for a new project."
+    },
+    {
+      "filename": "qdrant-model-migration/SKILL.md",
+      "name": "qdrant-model-migration",
+      "description": "Guides embedding model migration in Qdrant without downtime. Use when someone asks \u0027how to switch embedding models\u0027, \u0027how to migrate vectors\u0027, \u0027how to update to a new model\u0027, \u0027zero-downtime model change\u0027, \u0027how to re-embed my data\u0027, or \u0027can I use two models at once\u0027. Also use when upgrading model dimensions, switching providers, or A/B testing models."
+    },
+    {
+      "filename": "qdrant-monitoring/SKILL.md",
+      "name": "qdrant-monitoring",
+      "description": "Guides Qdrant monitoring and observability setup. Use when someone asks \u0027how to monitor Qdrant\u0027, \u0027what metrics to track\u0027, \u0027is Qdrant healthy\u0027, \u0027optimizer stuck\u0027, \u0027why is memory growing\u0027, \u0027requests are slow\u0027, or needs to set up Prometheus, Grafana, or health checks. Also use when debugging production issues that require metric analysis."
+    },
+    {
+      "filename": "qdrant-performance-optimization/SKILL.md",
+      "name": "qdrant-performance-optimization",
+      "description": "Different techniques to optimize the performance of Qdrant, including indexing strategies, query optimization, and hardware considerations. Use when you want to improve the speed and efficiency of your Qdrant deployment."
+    },
+    {
+      "filename": "qdrant-scaling/SKILL.md",
+      "name": "qdrant-scaling",
+      "description": "Guides Qdrant scaling decisions. Use when someone asks \u0027how many nodes do I need\u0027, \u0027data doesn\u0027t fit on one node\u0027, \u0027need more throughput\u0027, \u0027cluster is slow\u0027, \u0027too many tenants\u0027, \u0027vertical or horizontal\u0027, \u0027how to shard\u0027, or \u0027need to add capacity\u0027."
+    },
+    {
+      "filename": "qdrant-search-quality/SKILL.md",
+      "name": "qdrant-search-quality",
+      "description": "Diagnoses and improves Qdrant search relevance. Use when someone reports \u0027search results are bad\u0027, \u0027wrong results\u0027, \u0027low precision\u0027, \u0027low recall\u0027, \u0027irrelevant matches\u0027, \u0027missing expected results\u0027, or asks \u0027how to improve search quality?\u0027, \u0027which embedding model?\u0027, \u0027should I use hybrid search?\u0027, \u0027should I use reranking?\u0027. Also use when search quality degrades after quantization, model change, or data growth."
+    },
+    {
+      "filename": "qdrant-version-upgrade/SKILL.md",
+      "name": "qdrant-version-upgrade",
+      "description": "Guidance on how to upgrade your Qdrant version without interrupting the availability of your application and ensuring data integrity."
+    },
+    {
+      "filename": "quality-playbook/SKILL.md",
+      "name": "quality-playbook",
+      "description": "Explore any codebase from scratch and generate six quality artifacts: a quality constitution (QUALITY.md), spec-traced functional tests, a code review protocol with regression test generation, an integration testing protocol, a multi-model spec audit (Council of Three), and an AI bootstrap file (AGENTS.md). Includes state machine completeness analysis and missing safeguard detection. Works with any language (Python, Java, Scala, TypeScript, Go, Rust, etc.). Use this skill whenever the user asks to set up a quality playbook, generate functional tests from specifications, create a quality constitution, build testing protocols, audit code against specs, or establish a repeatable quality system for a project. Also trigger when the user mentions \u0027quality playbook\u0027, \u0027spec audit\u0027, \u0027Council of Three\u0027, \u0027fitness-to-purpose\u0027, \u0027coverage theater\u0027, or wants to go beyond basic test generation to build a full quality system grounded in their actual codebase."
+    },
+    {
       "filename": "quasi-coder/SKILL.md",
       "name": "quasi-coder",
       "description": "Expert 10x engineer skill for interpreting and implementing code from shorthand, quasi-code, and natural language descriptions. Use when collaborators provide incomplete code snippets, pseudo-code, or descriptions with potential typos or incorrect terminology. Excels at translating non-technical or semi-technical descriptions into production-quality code."
+    },
+    {
+      "filename": "react-audit-grep-patterns/SKILL.md",
+      "name": "react-audit-grep-patterns",
+      "description": "Provides the complete, verified grep scan command library for auditing React codebases before a React 18.3.1 or React 19 upgrade. Use this skill whenever running a migration audit - for both the react18-auditor and react19-auditor agents. Contains every grep pattern needed to find deprecated APIs, removed APIs, unsafe lifecycle methods, batching vulnerabilities, test file issues, dependency conflicts, and React 19 specific removals. Always use this skill when writing audit scan commands - do not rely on memory for grep syntax, especially for the multi-line async setState patterns which require context flags."
+    },
+    {
+      "filename": "react18-batching-patterns/SKILL.md",
+      "name": "react18-batching-patterns",
+      "description": "Provides exact patterns for diagnosing and fixing automatic batching regressions in React 18 class components. Use this skill whenever a class component has multiple setState calls in an async method, inside setTimeout, inside a Promise .then() or .catch(), or in a native event handler. Use it before writing any flushSync call - the decision tree here prevents unnecessary flushSync overuse. Also use this skill when fixing test failures caused by intermediate state assertions that break after React 18 upgrade."
+    },
+    {
+      "filename": "react18-dep-compatibility/SKILL.md",
+      "name": "react18-dep-compatibility",
+      "description": "React 18.3.1 and React 19 dependency compatibility matrix."
+    },
+    {
+      "filename": "react18-enzyme-to-rtl/SKILL.md",
+      "name": "react18-enzyme-to-rtl",
+      "description": "Provides exact Enzyme \u2192 React Testing Library migration patterns for React 18 upgrades. Use this skill whenever Enzyme tests need to be rewritten - shallow, mount, wrapper.find(), wrapper.simulate(), wrapper.prop(), wrapper.state(), wrapper.instance(), Enzyme configure/Adapter calls, or any test file that imports from enzyme. This skill covers the full API mapping and the philosophy shift from implementation testing to behavior testing. Always read this skill before rewriting Enzyme tests - do not translate Enzyme APIs 1:1, that produces brittle RTL tests."
+    },
+    {
+      "filename": "react18-legacy-context/SKILL.md",
+      "name": "react18-legacy-context",
+      "description": "Provides the complete migration pattern for React legacy context API (contextTypes, childContextTypes, getChildContext) to the modern createContext API. Use this skill whenever migrating legacy context in class components - this is always a cross-file migration requiring the provider AND all consumers to be updated together. Use it before touching any contextTypes or childContextTypes code, because migrating only the provider without the consumers (or vice versa) will cause a runtime failure. Always read this skill before writing any context migration - the cross-file coordination steps here prevent the most common context migration bugs."
+    },
+    {
+      "filename": "react18-lifecycle-patterns/SKILL.md",
+      "name": "react18-lifecycle-patterns",
+      "description": "Provides exact before/after migration patterns for the three unsafe class component lifecycle methods - componentWillMount, componentWillReceiveProps, and componentWillUpdate - targeting React 18.3.1. Use this skill whenever a class component needs its lifecycle methods migrated, when deciding between getDerivedStateFromProps vs componentDidUpdate, when adding getSnapshotBeforeUpdate, or when fixing React 18 UNSAFE_ lifecycle warnings. Always use this skill before writing any lifecycle migration code - do not guess the pattern from memory, the decision trees here prevent the most common migration mistakes."
+    },
+    {
+      "filename": "react18-string-refs/SKILL.md",
+      "name": "react18-string-refs",
+      "description": "Provides exact migration patterns for React string refs (ref=\u0022name\u0022 \u002B this.refs.name) to React.createRef() in class components. Use this skill whenever migrating string ref usage - including single element refs, multiple refs in a component, refs in lists, callback refs, and refs passed to child components. Always use this skill before writing any ref migration code - the multiple-refs-in-list pattern is particularly tricky and this skill prevents the most common mistakes. Use it for React 18.3.1 migration (string refs warn) and React 19 migration (string refs removed)."
+    },
+    {
+      "filename": "react19-concurrent-patterns/SKILL.md",
+      "name": "react19-concurrent-patterns",
+      "description": "Preserve React 18 concurrent patterns and adopt React 19 APIs (useTransition, useDeferredValue, Suspense, use(), useOptimistic, Actions) during migration."
+    },
+    {
+      "filename": "react19-source-patterns/SKILL.md",
+      "name": "react19-source-patterns",
+      "description": "Reference for React 19 source-file migration patterns, including API changes, ref handling, and context updates."
+    },
+    {
+      "filename": "react19-test-patterns/SKILL.md",
+      "name": "react19-test-patterns",
+      "description": "Provides before/after patterns for migrating test files to React 19 compatibility, including act() imports, Simulate removal, and StrictMode call count changes."
     },
     {
       "filename": "readme-blueprint-generator/SKILL.md",
@@ -2602,14 +3045,44 @@
       "description": "Identifies Oracle-to-PostgreSQL migration risks by cross-referencing code against known behavioral differences (empty strings, refcursors, type coercion, sorting, timestamps, concurrent transactions, etc.). Use when planning a database migration, reviewing migration artifacts, or validating that integration tests cover Oracle/PostgreSQL differences."
     },
     {
+      "filename": "roundup-setup/SKILL.md",
+      "name": "roundup-setup",
+      "description": "Interactive onboarding that learns your communication style, audiences, and data sources to configure personalized status briefings. Paste in examples of updates you already write, answer a few questions, and roundup calibrates itself to your workflow."
+    },
+    {
+      "filename": "roundup/SKILL.md",
+      "name": "roundup",
+      "description": "Generate personalized status briefings on demand. Pulls from your configured data sources (GitHub, email, Teams, Slack, and more), synthesizes across them, and drafts updates in your own communication style for any audience you define."
+    },
+    {
       "filename": "ruby-mcp-server-generator/SKILL.md",
       "name": "ruby-mcp-server-generator",
       "description": "Generate a complete Model Context Protocol server project in Ruby using the official MCP Ruby SDK gem."
     },
     {
+      "filename": "ruff-recursive-fix/SKILL.md",
+      "name": "ruff-recursive-fix",
+      "description": "Run Ruff checks with optional scope and rule overrides, apply safe and unsafe autofixes iteratively, review each change, and resolve remaining findings with targeted edits or user decisions."
+    },
+    {
       "filename": "rust-mcp-server-generator/SKILL.md",
       "name": "rust-mcp-server-generator",
       "description": "Generate a complete Rust Model Context Protocol server project with tools, prompts, resources, and tests using the official rmcp SDK"
+    },
+    {
+      "filename": "salesforce-apex-quality/SKILL.md",
+      "name": "salesforce-apex-quality",
+      "description": "Apex code quality guardrails for Salesforce development. Enforces bulk-safety rules (no SOQL/DML in loops), sharing model requirements, CRUD/FLS security, SOQL injection prevention, PNB test coverage (Positive / Negative / Bulk), and modern Apex idioms. Use this skill when reviewing or generating Apex classes, trigger handlers, batch jobs, or test classes to catch governor limit risks, security gaps, and quality issues before deployment."
+    },
+    {
+      "filename": "salesforce-component-standards/SKILL.md",
+      "name": "salesforce-component-standards",
+      "description": "Quality standards for Salesforce Lightning Web Components (LWC), Aura components, and Visualforce pages. Covers SLDS 2 compliance, accessibility (WCAG 2.1 AA), data access pattern selection, component communication rules, XSS prevention, CSRF enforcement, FLS/CRUD in AuraEnabled methods, view state management, and Jest test requirements. Use this skill when building or reviewing any Salesforce UI component to enforce platform-specific security and quality standards."
+    },
+    {
+      "filename": "salesforce-flow-design/SKILL.md",
+      "name": "salesforce-flow-design",
+      "description": "Salesforce Flow architecture decisions, flow type selection, bulk safety validation, and fault handling standards. Use this skill when designing or reviewing Record-Triggered, Screen, Autolaunched, Scheduled, or Platform Event flows to ensure correct type selection, no DML/Get Records in loops, proper fault connectors on all data-changing elements, and appropriate automation density checks before deployment."
     },
     {
       "filename": "sandbox-npm-install/SKILL.md",
@@ -2629,7 +3102,12 @@
     {
       "filename": "secret-scanning/SKILL.md",
       "name": "secret-scanning",
-      "description": "Guide for configuring and managing GitHub secret scanning, push protection, custom patterns, and secret alert remediation. This skill should be used when users need help enabling secret scanning, setting up push protection, defining custom secret patterns, triaging secret scanning alerts, or resolving blocked pushes."
+      "description": "Guide for configuring and managing GitHub secret scanning, push protection, custom patterns, and secret alert remediation. For pre-commit secret scanning in AI coding agents via the GitHub MCP Server, this skill references the Advanced Security plugin (\u0060advanced-security@copilot-plugins\u0060). Use this skill when enabling secret scanning, setting up push protection, defining custom patterns, triaging alerts, resolving blocked pushes, or when an agent needs to scan code for secrets before committing."
+    },
+    {
+      "filename": "security-review/SKILL.md",
+      "name": "security-review",
+      "description": "AI-powered codebase security scanner that reasons about code like a security researcher \u2014 tracing data flows, understanding component interactions, and catching vulnerabilities that pattern-matching tools miss. Use this skill when asked to scan code for security vulnerabilities, find bugs, check for SQL injection, XSS, command injection, exposed API keys, hardcoded secrets, insecure dependencies, access control issues, or any request like \u0022is my code secure?\u0022, \u0022review for security issues\u0022, \u0022audit this codebase\u0022, or \u0022check for vulnerabilities\u0022. Covers injection flaws, authentication and access control bugs, secrets exposure, weak cryptography, insecure dependencies, and business logic issues across JavaScript, TypeScript, Python, Java, PHP, Go, Ruby, and Rust."
     },
     {
       "filename": "semantic-kernel/SKILL.md",
@@ -2710,6 +3188,11 @@
       "filename": "terraform-azurerm-set-diff-analyzer/SKILL.md",
       "name": "terraform-azurerm-set-diff-analyzer",
       "description": "Analyze Terraform plan JSON output for AzureRM Provider to distinguish between false-positive diffs (order-only changes in Set-type attributes) and actual resource changes. Use when reviewing terraform plan output for Azure resources like Application Gateway, Load Balancer, Firewall, Front Door, NSG, and other resources with Set-type attributes that cause spurious diffs due to internal ordering changes."
+    },
+    {
+      "filename": "threat-model-analyst/SKILL.md",
+      "name": "threat-model-analyst",
+      "description": "Full STRIDE-A threat model analysis and incremental update skill for repositories and systems. Supports two modes: (1) Single analysis \u2014 full STRIDE-A threat model of a repository, producing architecture overviews, DFD diagrams, STRIDE-A analysis, prioritized findings, and executive assessments. (2) Incremental analysis \u2014 takes a previous threat model report as baseline, compares the codebase at the latest (or a given commit), and produces an updated report with change tracking (new, resolved, still-present threats), STRIDE heatmap, findings diff, and an embedded HTML comparison. Only activate when the user explicitly requests a threat model analysis, incremental update, or invokes /threat-model-analyst directly."
     },
     {
       "filename": "tldr-prompt/SKILL.md",
