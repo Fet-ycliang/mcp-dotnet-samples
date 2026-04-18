@@ -24,8 +24,9 @@ public interface IOutlookEmailTool
     /// <param name="recipients">以逗號或分號分隔的收件者電子郵件地址。</param>
     /// <param name="replyTo">以逗號或分號分隔的選用回覆地址。</param>
     /// <param name="attachments">選用的電子郵件附件。</param>
+    /// <param name="generatedAttachmentIds">由其他工具產生並暫存於伺服器端的附件識別碼。</param>
     /// <returns>回傳 <see cref="OutlookEmailResult"/> 執行個體。</returns>
-    Task<OutlookEmailResult> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default);
+    Task<OutlookEmailResult> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default, string[]? generatedAttachmentIds = default);
 }
 
 /// <summary>
@@ -45,12 +46,13 @@ public class OutlookEmailTool(IOutlookEmailService service, ILogger<OutlookEmail
         [Description("寄件者電子郵件地址。若已設定 AllowedSenders，必須位於允許清單中")] string sender,
         [Description("以逗號或分號分隔的收件者電子郵件地址")] string recipients,
         [Description("以逗號或分號分隔的選用回覆地址")] string? replyTo = default,
-        [Description("選用附件。每個項目都必須包含 name、contentType 與 contentBytesBase64，並會套用附件數量與單檔大小限制")] OutlookEmailAttachment[]? attachments = default)
+        [Description("選用附件。每個項目都必須包含 name、contentType 與 contentBytesBase64，並會套用附件數量與單檔大小限制")] OutlookEmailAttachment[]? attachments = default,
+        [Description("由 generate_pptx_attachment 產生的附件識別碼陣列。與 attachments 一起提供時會合併寄出")] string[]? generatedAttachmentIds = default)
     {
         var result = new OutlookEmailResult();
         try
         {
-            var requestBody = await service.SendEmailAsync(title, body, sender, recipients, replyTo, attachments).ConfigureAwait(false);
+            var requestBody = await service.SendEmailAsync(title, body, sender, recipients, replyTo, attachments, generatedAttachmentIds).ConfigureAwait(false);
 
             logger.LogInformation("已成功從 {Sender} 將主旨為 {Subject} 的電子郵件寄送給 {Recipients}。", sender, title, recipients);
 

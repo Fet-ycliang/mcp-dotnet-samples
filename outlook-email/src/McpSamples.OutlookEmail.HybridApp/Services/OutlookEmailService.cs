@@ -23,8 +23,9 @@ public interface IOutlookEmailService
     /// <param name="recipients">以逗號或分號分隔的收件者電子郵件地址。</param>
     /// <param name="replyTo">以逗號或分號分隔的選用回覆地址。</param>
     /// <param name="attachments">選用的電子郵件附件。</param>
+    /// <param name="generatedAttachmentIds">由其他工具產生並暫存於伺服器端的附件識別碼。</param>
     /// <returns>電子郵件傳送作業的結果。</returns>
-    Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default);
+    Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default, string[]? generatedAttachmentIds = default);
 }
 
 /// <summary>
@@ -32,8 +33,9 @@ public interface IOutlookEmailService
 /// </summary>
 /// <param name="graph"><see cref="GraphServiceClient"/> 執行個體。</param>
 /// <param name="settings"><see cref="OutlookEmailAppSettings"/> 執行個體。</param>
+/// <param name="generatedAttachmentStore"><see cref="IGeneratedAttachmentStore"/> 執行個體。</param>
 /// <param name="logger"><see cref="ILogger{TCategoryName}"/> 執行個體。</param>
-public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettings settings, ILogger<OutlookEmailService> logger) : IOutlookEmailService
+public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettings settings, IGeneratedAttachmentStore generatedAttachmentStore, ILogger<OutlookEmailService> logger) : IOutlookEmailService
 {
     private readonly string[] _allowedSenders = settings.AllowedSenders
                                                         .Where(static sender => string.IsNullOrWhiteSpace(sender) == false)
@@ -56,7 +58,7 @@ public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettin
                                                        : OutlookEmailAppSettings.DefaultMaxAttachmentSizeBytes;
 
     /// <inheritdoc />
-    public async Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default)
+    public async Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default, string[]? generatedAttachmentIds = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title, nameof(title));
         ArgumentException.ThrowIfNullOrWhiteSpace(body, nameof(body));
@@ -68,7 +70,10 @@ public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettin
         var recipientList = ParseAddresses(recipients, nameof(recipients), "至少需要一位收件者");
         var replyToList = ParseAddresses(replyTo, nameof(replyTo), "提供 replyTo 時，至少需要一個回覆地址");
         ValidateReplyTo(replyToList, nameof(replyTo));
-        var attachmentList = ParseAttachments(attachments, nameof(attachments));
+        var directAttachments = ParseAttachments(attachments, nameof(attachments));
+        var generatedAttachments = ParseGeneratedAttachments(generatedAttachmentIds, nameof(generatedAttachmentIds));
+        ValidateAttachmentCount(directAttachments.Length + generatedAttachments.Length);
+        var attachmentList = directAttachments.Concat(generatedAttachments).ToArray();
 
         var req = BuildMailRequest(title, body, recipientList, replyToList, attachmentList);
 
@@ -155,11 +160,6 @@ public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettin
             return [];
         }
 
-        if (attachments.Length > _maxAttachmentCount)
-        {
-            throw new ArgumentException($"附件數量不得超過 {_maxAttachmentCount} 個。", parameterName);
-        }
-
         var attachmentList = new FileAttachment[attachments.Length];
         for (var i = 0; i < attachments.Length; i++)
         {
@@ -202,6 +202,46 @@ public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettin
         }
 
         return attachmentList;
+    }
+
+    private FileAttachment[] ParseGeneratedAttachments(string[]? generatedAttachmentIds, string parameterName)
+    {
+        if (generatedAttachmentIds is null || generatedAttachmentIds.Length == 0)
+        {
+            return [];
+        }
+
+        var attachmentList = new FileAttachment[generatedAttachmentIds.Length];
+        for (var i = 0; i < generatedAttachmentIds.Length; i++)
+        {
+            var attachmentParameterName = $"{parameterName}[{i}]";
+            var storedAttachment = generatedAttachmentStore.GetRequired(generatedAttachmentIds[i], attachmentParameterName);
+
+            if (storedAttachment.ContentBytes.Length > _maxAttachmentSizeBytes)
+            {
+                throw new ArgumentException(
+                    $"附件 '{storedAttachment.Name}' 大小不得超過 {FormatBinarySize(_maxAttachmentSizeBytes)}。",
+                    attachmentParameterName);
+            }
+
+            attachmentList[i] = new FileAttachment
+            {
+                OdataType = "#microsoft.graph.fileAttachment",
+                Name = storedAttachment.Name,
+                ContentType = storedAttachment.ContentType,
+                ContentBytes = storedAttachment.ContentBytes
+            };
+        }
+
+        return attachmentList;
+    }
+
+    private void ValidateAttachmentCount(int attachmentCount)
+    {
+        if (attachmentCount > _maxAttachmentCount)
+        {
+            throw new ArgumentException($"附件總數不得超過 {_maxAttachmentCount} 個（包含 attachments 與 generatedAttachmentIds）。", nameof(attachmentCount));
+        }
     }
 
     private static string ParseContentType(string contentType, string parameterName, string attachmentName)
