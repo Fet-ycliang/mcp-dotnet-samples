@@ -92,6 +92,7 @@ function Invoke-McpRequest {
     $headers = @{
         Authorization = "Bearer $Token"
         Accept        = 'application/json, text/event-stream'
+        'MCP-Protocol-Version' = '2025-03-26'
     }
 
     if ($SessionId) {
@@ -106,15 +107,20 @@ function Invoke-McpRequest {
         -Body ($Payload | ConvertTo-Json -Depth 20)
 }
 
-function Parse-SsePayload {
+function Get-McpPayload {
     param(
         [Parameter(Mandatory = $true)]
         [string] $Content
     )
 
+    $trimmed = $Content.Trim()
+    if ($trimmed.StartsWith('{') -or $trimmed.StartsWith('[')) {
+        return $trimmed | ConvertFrom-Json -Depth 20
+    }
+
     $dataLine = $Content -split "`r?`n" | Where-Object { $_ -like 'data:*' } | Select-Object -Last 1
     if (-not $dataLine) {
-        throw 'No SSE data payload was returned by the MCP endpoint.'
+        throw 'The MCP endpoint did not return either JSON or an SSE data payload.'
     }
 
     $json = $dataLine.Substring(5).Trim()
@@ -123,10 +129,10 @@ function Parse-SsePayload {
 
 Import-AzdEnvironment
 
-$functionHostName = $env:AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN
+$appHostName = $env:AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN
 $resourceClientId = $env:MCP_OAUTH_CLIENT_ID
 
-if (-not $functionHostName) {
+if (-not $appHostName) {
     throw 'AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN is not set in the azd environment.'
 }
 
@@ -134,7 +140,7 @@ if (-not $resourceClientId) {
     throw 'MCP_OAUTH_CLIENT_ID is not set in the azd environment.'
 }
 
-$endpoint = "https://$functionHostName/mcp"
+$endpoint = "https://$appHostName/mcp"
 Write-Step ('Starting postdeploy MCP validation for {0}' -f $endpoint)
 
 $token = Get-McpAccessToken -ResourceClientId $resourceClientId
@@ -142,13 +148,7 @@ if (-not $token) {
     throw 'Failed to acquire an access token for MCP validation.'
 }
 
-Write-Step 'Checking /.well-known/oauth-protected-resource'
-$resourceMetadata = Invoke-RestMethod -Uri ("https://$functionHostName/.well-known/oauth-protected-resource") -Headers @{ Accept = 'application/json' } -Method Get
-if ($resourceMetadata.resource -ne ("https://$functionHostName")) {
-    throw ("Unexpected resource metadata host: {0}" -f $resourceMetadata.resource)
-}
-
-Write-Step 'Calling /mcp initialize'
+Write-Step 'Calling /mcp initialize on the deployed Container App'
 $initializeResponse = Invoke-McpRequest `
     -Url $endpoint `
     -Token $token `
@@ -157,7 +157,7 @@ $initializeResponse = Invoke-McpRequest `
         id      = 1
         method  = 'initialize'
         params  = @{
-            protocolVersion = '2024-11-05'
+            protocolVersion = '2025-03-26'
             capabilities    = @{}
             clientInfo      = @{
                 name    = 'azd-postdeploy-validation'
@@ -166,7 +166,7 @@ $initializeResponse = Invoke-McpRequest `
         }
     }
 
-$initializePayload = Parse-SsePayload -Content $initializeResponse.Content
+$initializePayload = Get-McpPayload -Content $initializeResponse.Content
 $sessionId = if ($initializeResponse.Headers['Mcp-Session-Id']) { $initializeResponse.Headers['Mcp-Session-Id'] } else { $initializeResponse.Headers['mcp-session-id'] }
 
 if (-not $initializePayload.result.protocolVersion) {
@@ -185,11 +185,13 @@ $toolsResponse = Invoke-McpRequest `
         params  = @{}
     }
 
-$toolsPayload = Parse-SsePayload -Content $toolsResponse.Content
+$toolsPayload = Get-McpPayload -Content $toolsResponse.Content
 $toolNames = @($toolsPayload.result.tools | ForEach-Object { $_.name })
 
-if (-not ($toolNames -contains 'send_email')) {
-    throw ('The send_email tool was not returned by tools/list. Returned tools: {0}' -f ($toolNames -join ', '))
+foreach ($requiredTool in @('send_email', 'generate_pptx_attachment', 'generate_xlsx_attachment')) {
+    if (-not ($toolNames -contains $requiredTool)) {
+        throw ('The {0} tool was not returned by tools/list. Returned tools: {1}' -f $requiredTool, ($toolNames -join ', '))
+    }
 }
 
 Write-Step ('Postdeploy MCP validation succeeded. Tools returned: {0}' -f ($toolNames -join ', '))

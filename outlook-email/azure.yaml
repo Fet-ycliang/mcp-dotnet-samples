@@ -6,18 +6,14 @@ metadata:
   template: azd-init@1.14.0
 
 services:
-  # outlook-email:
-  #   project: src/McpSamples.OutlookEmail.HybridApp
-  #   host: containerapp
-  #   language: dotnet
-  #   docker:
-  #     path: ../../../Dockerfile.outlook-email-azure
-  #     context: ../../../
-  #     remoteBuild: true
   outlook-email:
     project: src/McpSamples.OutlookEmail.HybridApp
-    host: function
-    language: csharp
+    host: containerapp
+    language: dotnet
+    docker:
+      path: ../../../Dockerfile.outlook-email-azure
+      context: ../../../
+      remoteBuild: true
     hooks:
       postdeploy:
         shell: pwsh

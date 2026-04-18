@@ -20,7 +20,7 @@
 
 - Outlook Email MCP 伺服器可在下列情境中執行：
   - 作為遠端 MCP 伺服器，透過 Azure API Management 使用 **OAuth authentication**
-  - 作為遠端 MCP 伺服器，透過 Azure Functions 使用 **Easy Auth + Bearer token authentication**
+  - 作為遠端 MCP 伺服器，透過 Azure Container Apps 作為 `azd` 的主要部署 backend，並可由 APIM retained path 前轉
   - 作為本機執行的 MCP 伺服器，不額外啟用 MCP transport 認證
 - Outlook Email MCP 伺服器包含以下內容：
 
@@ -615,7 +615,7 @@ docker push $imageRef
 | 用本地時區當 tag | 跨時區比對版本時很難對帳 | tag 一律用 UTC `yyyyMMdd-HHmmss` |
 | 同一秒內產出多個映像 | 後推的映像覆蓋前一個 tag | 若 CI 有高併發需求，可改成 `yyyyMMdd-HHmmss-<short-sha>` |
 | 用 `Dockerfile.outlook-email` 建 ACR / ACA 映像 | `az acr build` / ACR Task 卡在 dependency scanner，常見訊息是 `unable to understand line FROM --platform=$BUILDPLATFORM ...` | ACA / ACR 路線固定改用 `Dockerfile.outlook-email-azure` |
-| 把 `azd up` 當成 ACR build/push 流程 | 以為目前 sample 會自動產出自訂 ACR image | 這個 sample 的 `azure.yaml` 目前是 `host: function`；若要控制 ACR image naming，請改走手動 `docker build/push` 或 CI pipeline |
+| 把 `azd up` 當成可完全自訂 image naming 的流程 | 以為 `azd` 會照你想要的 repository / tag 命名規則產生 image | `azure.yaml` 現在會用 `host: containerapp` + `remoteBuild: true` 自動推到 azd 管理的 ACR；若你要精準控制 image naming，仍請改走手動 `docker build/push` 或 CI pipeline |
 | workflow matrix 沒留意 `fail-fast` | 同一個 run 只有一個 image 真失敗，其餘 job 卻顯示 `cancelled` / `The operation was canceled.` | 先找第一個 `failure` job 當根因；若要保留每個 image 的完整結果、不要讓其他 image 被連帶取消，請設定 `strategy.fail-fast: false` |
 
 <a id="on-azure"></a>
@@ -638,12 +638,6 @@ docker push $imageRef
     azd auth login
     ```
 
-<!-- 1. 預設會將 MCP 伺服器 部署為 Azure Functions。若要將此 MCP 伺服器 部署到 Azure Container Apps，請新增環境變數 `USE_ACA`。
-
-    ```bash
-    azd env set USE_ACA true
-    ``` -->
-
 1. 將 MCP 伺服器應用程式部署到 Azure。
 
     ```bash
@@ -652,19 +646,20 @@ docker push $imageRef
 
     在佈建與部署過程中，系統會要求提供 subscription ID、location 與 環境名稱。
 
-    > 目前 `azure.yaml` 仍以 `host: function` 為主，所以 `azd up` / `azd deploy` 走的是 Azure Functions 佈建與部署流程，不會自動幫你推 `fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>` 到 ACR。若你要採用上面的 ACR 命名規則，請改走手動 `docker build` / `docker push` 或你自己的 CI pipeline，且 **ACA / ACR 這條線固定使用 `Dockerfile.outlook-email-azure`**。
+    > 目前 `azure.yaml` 已改成 `host: containerapp`，並使用 `Dockerfile.outlook-email-azure` + `remoteBuild: true`。因此 `azd up` / `azd deploy` 會自動把映像建到 azd 管理的 ACR，然後 rollout 到 Container App。若你要完全自訂 repository path / tag naming，仍請改走手動 `docker build` / `docker push` 或你自己的 CI pipeline。
+    >
+    > 這也代表 `azd` 主要會更新 **ACA backend**；repo 內仍保留部分 Function-based 資源 / 設定是為了既有路徑與文件參考，但它不再是這條部署流程的 primary rollout target。
 
 ##### 上版後自動驗證（Asia/Taipei）
 
-- `azure.yaml` 已替 `outlook-email` service 掛上 **`postdeploy` hook**：`src/McpSamples.OutlookEmail.HybridApp/hooks/postdeploy-validate-mcp.ps1`
-- 只要執行 `azd deploy` 或 `azd up`，部署完成後就會**自動驗證 direct Function MCP 路徑**
+- `azure.yaml` 已替 `outlook-email` service 掛上 **`postdeploy` hook**：`./hooks/postdeploy-validate-mcp.ps1`（service hook 的 `cwd` 是 `project: src/McpSamples.OutlookEmail.HybridApp`，所以實際檔案位置仍是 `src/McpSamples.OutlookEmail.HybridApp/hooks/postdeploy-validate-mcp.ps1`）
+- 只要執行 `azd deploy` 或 `azd up`，部署完成後就會**自動驗證剛 rollout 的 direct ACA `/mcp` 路徑**
 - hook 的日誌時間戳固定以 **台北時區（UTC+8 / Asia/Taipei）** 輸出，方便和你們的維運時間對齊
 
 這個 hook 目前會自動執行下列 smoke tests：
 
 | 類型 | 驗證項目 | 預期結果 | 是否自動執行 |
 | --- | --- | --- | --- |
-| MCP metadata | `GET /.well-known/oauth-protected-resource` | `200`，且 resource host 等於 Function App host | 是 |
 | MCP transport | `POST /mcp` with `initialize` | `200` | 是 |
 | MCP discovery | `POST /mcp` with `tools/list` | `200`，且包含 `send_email`、`generate_pptx_attachment` 與 `generate_xlsx_attachment` | 是 |
 | Tool existence | `send_email` / `generate_pptx_attachment` / `generate_xlsx_attachment` 是否可被列出 | `tools/list` 內可見 | 是 |
@@ -680,16 +675,16 @@ docker push $imageRef
    azd env set MCP_VALIDATION_CLIENT_SECRET "{{VALIDATION_CALLER_APP_SECRET}}"
    ```
 
-   hook 會改走 **client credentials**，以 `api://<MCP_OAUTH_CLIENT_ID>/.default` 驗證 direct Function。
+   hook 會改走 **client credentials**，以 `api://<MCP_OAUTH_CLIENT_ID>/.default` 驗證 direct ACA `/mcp`。
 
 1. 若你**沒有**提供上面三個值，hook 會 fallback 成：
 
    - 直接使用目前 Azure CLI 登入身分
    - 呼叫 `az account get-access-token --scope "api://<MCP_OAUTH_CLIENT_ID>/user_impersonation"`
 
-> 若你有設定 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，請記得把**真正執行 postdeploy 驗證的 caller app** 一起放進 allowlist。  
-> - 若 hook 走 Azure CLI fallback，通常要包含 Azure CLI app：`04b07795-8ddb-461a-bbee-02f9e1bf7b46`
-> - 若 hook 走 dedicated validation app，則要把那顆 validation app 的 client ID 放進 allowlist，並指派 `access_as_application`
+> 不論 hook 是走 Azure CLI fallback 還是 dedicated validation app，重點都是它必須能對 `MCP_OAUTH_*` 這顆 resource app 拿到有效 token。
+> - 若 hook 走 Azure CLI fallback，請確認目前登入身分可取得 `user_impersonation`
+> - 若 hook 走 dedicated validation app，請先把那顆 validation app 指派到 resource app 的 `access_as_application`
 
 1. 正式環境建議先設定下列 azd 環境變數，再部署：
 
@@ -699,9 +694,9 @@ docker push $imageRef
     azd env set AZURE_ALLOW_USER_IDENTITY_RBAC false
     ```
 
-     > `MCP_ALLOWED_SENDERS_CSV` 會在 Azure Functions 上展開為 `AllowedSenders__0`、`AllowedSenders__1` 等 app settings，讓正式環境維持與 local 相同的 sender allowlist。
+     > `MCP_ALLOWED_SENDERS_CSV` 會在 Container App 上展開為 `AllowedSenders__0`、`AllowedSenders__1` 等環境變數，讓正式環境維持與 local 相同的 sender allowlist。
      >
-     > `MCP_ALLOWED_REPLY_TO_CSV` 會在 Azure Functions 上展開為 `AllowedReplyTo__0`、`AllowedReplyTo__1` 等 app settings。
+     > `MCP_ALLOWED_REPLY_TO_CSV` 會在 Container App 上展開為 `AllowedReplyTo__0`、`AllowedReplyTo__1` 等環境變數。
      >
      > `AZURE_ALLOW_USER_IDENTITY_RBAC` 預設應保持 `false`。只有在你真的需要讓部署用互動身分暫時取得 Storage / Application Insights 的除錯權限時，才短暫改成 `true`。
 
@@ -720,14 +715,14 @@ docker push $imageRef
       > 若未設定 `AZURE_RESOURCE_NAME_STEM`，Bicep 會預設沿用 `environmentName`。以目前核定的命名方式，建議使用 `fet-outlook-email-bst`，讓資源名稱能直接看出 workload。
       >
       > 這組 naming / tag baseline 套用後，預期名稱會像：
-      > - Function App：`func-fet-outlook-email-bst`
+      > - Container App：`ca-fet-outlook-email-bst`
+      > - Container Apps Environment：`cae-fet-outlook-email-bst`
+      > - Azure Container Registry：`crfetoutlookemailbstacr`
       > - API Management：`apim-fet-outlook-email-bst`
-      > - Flex plan：`plan-fet-outlook-email-bst`
       > - Application Insights：`appi-fet-outlook-email-bst`
       > - Log Analytics：`log-fet-outlook-email-bst`
-     > - User-assigned managed identity：`id-fet-outlook-email-bst`
-     > - Dashboard：`dash-fet-outlook-email-bst`
-     > - Storage account：`stfetoutlookemailbst`
+      > - User-assigned managed identity：`id-fet-outlook-email-bst`
+      > - Dashboard：`dash-fet-outlook-email-bst`
      >
       > `AZURE_TAG_*` 未設定時，sample 會預設使用：`cost_center=3901`、`Purpose=ai_lab`、`EnvType=Develop`、`workload=outlook-email`、`service=mcp`、`managed_by=azd`。
 
@@ -741,21 +736,21 @@ docker push $imageRef
      >
      > 設定 `AZURE_APIM_NAME` 後，APIM 會直接使用你提供的名稱，例如 `fet-mcp-apim-bst`。
      >
-     > `AZURE_APIM_NAME` 只在 `AZURE_DEPLOY_APIM=true` 時有意義；若這次是 Function App-only 部署，這個值會被忽略。
+      > `AZURE_APIM_NAME` 只在 `AZURE_DEPLOY_APIM=true` 時有意義。
 
-1. 若目前 APIM retained path 應該要**前轉到既有 ACA**，而不是回退到 Function App，可再設定：
+1. 若你要讓 azd **直接接手既有 ACA 名稱**，並讓 APIM retained path 跟著前轉到同一個 ACA，可再設定：
 
     ```bash
     azd env set AZURE_APIM_BACKEND_CONTAINER_APP_NAME "fet-outlook-email-ca"
     ```
 
-     > 這個值會讓 `infra\modules\mcp-api.bicep` 直接讀既有 ACA resource 的 ingress FQDN，並把 APIM `mcp` API 的 `serviceUrl` 對準 ACA。
+     > 這個值會讓 `infra\resources.bicep` 先沿用既有 ACA 的 managed environment / 目前 image 當作 deploy baseline，再把 `azd` service 與 APIM backend 都對準同一個 ACA。
      >
-     > 若未設定 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME`，template 仍會 fallback 到 Function App hostname。這適合 sample 預設路徑，但**不符合目前這個環境的 live retained path**。
+     > 若未設定 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME`，template 會改用 sample 衍生名稱建立新的 ACA，並讓 APIM backend 指向那個新 ACA。
      >
      > 目前 template 假設這個 ACA 與本次 deployment 在**同一個 resource group**，而且已啟用 ingress 並有有效 FQDN；若 ACA 在其他 RG / subscription，或根本沒有 ingress，請先擴充 template 再部署。
      >
-     > 這個參數只會把 APIM backend 指到既有 ACA，**不會自動幫既有 ACA 補 auth / network hardening**。若你要保留 APIM 作為正式入口，請自行確保該 ACA 不會變成繞過 APIM 的公開或未受控入口。
+     > 這個參數會讓 template 重新管理該 ACA 的 image、identity 與 registry wiring；但 **不會**順手補上你環境外額外需要的 auth / network hardening。若你要保留 APIM 作為正式入口，請自行確保該 ACA 不會變成繞過 APIM 的公開或未受控入口。
      >
      > 目前這輪已核對的 retained path backend 是 **`fet-outlook-email-ca`**，也就是 `https://fet-outlook-email-ca.proudpebble-d0c3559f.eastus2.azurecontainerapps.io`。
 
@@ -915,7 +910,7 @@ docker push $imageRef
       >
       > `Developer` 不建議直接沿用到 production；若要正式承載團隊使用，請再依 SLA、網路拓撲與流量需求評估 `Basicv2` / `Standardv2` / `Premium`。
       >
-      > 若你這次採 `AZURE_DEPLOY_APIM=false` 的 Function App-only 部署，`AZURE_APIM_SKU` 與 `AZURE_APIM_NAME` 都會被忽略。
+      > 若你這次採 `AZURE_DEPLOY_APIM=false`、只想先驗證 direct backend 路徑，`AZURE_APIM_SKU` 與 `AZURE_APIM_NAME` 都會被忽略。
 
 1. 若你要沿用既有 resource group / VNet，而不是讓 sample 自建新的 RG / VNet，可再設定下列 azd 環境變數：
 
@@ -942,7 +937,7 @@ docker push $imageRef
     >
     > `AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME` 有值時，Bicep 會直接重用該 RG 內既有的 `privatelink.azurewebsites.net`、`privatelink.blob.core.windows.net` 等 zone，不再另外建立新的 private DNS zone。
     >
-      > `AZURE_DEPLOY_APIM=false` 適合目前這種 **Databricks direct Function** 或單純 **Function App-only** 階段；若仍要保留 APIM facade，再改回 `true`。
+      > `AZURE_DEPLOY_APIM=false` 適合只想先驗證 direct backend 路徑、暫時不需要 retained APIM facade 的階段；若仍要保留 APIM facade，再改回 `true`。
       >
       > `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true` 時，Bicep 會替 Function App 建立 inbound private endpoint，將 Function App 的 `publicNetworkAccess` 關閉，並透過 Easy Auth 要求 bearer token；若同時指定 `AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME`，則會直接把 private endpoint 掛到該 RG 內既有的 `privatelink.azurewebsites.net` zone。
 
@@ -1440,9 +1435,8 @@ sequenceDiagram
 
 | 類型 | 測試案例 | 預期結果 | 建議執行方式 |
 | --- | --- | --- | --- |
-| 自動 smoke test | direct Function `/.well-known/oauth-protected-resource` | `200` | `azd deploy` / `azd up` 後由 `postdeploy` hook 自動執行 |
-| 自動 smoke test | direct Function `initialize` | `200` | 同上 |
-| 自動 smoke test | direct Function `tools/list` | `200` 且包含 `send_email`、`generate_pptx_attachment` 與 `generate_xlsx_attachment` | 同上 |
+| 自動 smoke test | direct ACA `initialize` | `200` | `azd deploy` / `azd up` 後由 `postdeploy` hook 自動執行 |
+| 自動 smoke test | direct ACA `tools/list` | `200` 且包含 `send_email`、`generate_pptx_attachment` 與 `generate_xlsx_attachment` | 同上 |
 | 手動安全測試 | `sender` 不在 allowlist | 應被拒絕 | 受控環境手動測 |
 | 手動安全測試 | `replyTo` 不在 allowlist | 應被拒絕 | 受控環境手動測 |
 | 手動資料驗證 | 附件 Base64 非法 | 應被拒絕 | 受控環境手動測 |
