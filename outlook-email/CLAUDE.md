@@ -22,6 +22,8 @@
 | `src\McpSamples.OutlookEmail.HybridApp\Configurations\OutlookEmailAppSettings.cs` | `--tenant-id`、`--client-id`、`--client-secret` 解析 |
 | `src\McpSamples.OutlookEmail.HybridApp\Tools\OutlookEmailTool.cs` | `send_email` MCP tool 介面、描述與結果處理 |
 | `src\McpSamples.OutlookEmail.HybridApp\Services\OutlookEmailService.cs` | 驗證、地址解析、附件處理、Graph `SendMail` 呼叫 |
+| `src\McpSamples.OutlookEmail.HybridApp\Tools\XlsxAttachmentTool.cs` | `generate_xlsx_attachment` MCP tool 介面、參數描述與結果處理 |
+| `src\McpSamples.OutlookEmail.HybridApp\Services\XlsxAttachmentService.cs` | 工作表/資料表/圖表驗證、Open XML Excel 產生與 `GeneratedAttachmentStore` 暫存 |
 | `src\McpSamples.OutlookEmail.HybridApp\Models\` | tool input / output models |
 | `src\McpSamples.OutlookEmail.HybridApp\local.settings.sample.json` | 本機 Functions 設定範本 |
 | `src\McpSamples.OutlookEmail.HybridApp\host.json` / `mcp-handler\function.json` | Azure Functions custom handler 與路由轉送設定 |
@@ -105,6 +107,8 @@
 - private Function App / SCM 在有公司 proxy 的環境下，通常要補 `NO_PROXY`；否則看起來像是 server 壞了，其實是流量被送去公網。
 - APIM remote MCP 目前使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`；啟動 Claude Code / Copilot CLI 前，先在同一個 shell 刷新 access token。
 - `generate_pptx_attachment` 的建議流程是：先產出 `generatedAttachmentId`，再交給 `send_email.generatedAttachmentIds`；不要在遠端 APIM 路徑搬整份 `.pptx` Base64。
+- `generate_xlsx_attachment` 與 `generate_pptx_attachment` 共用 `send_email.generatedAttachmentIds`；若附件是伺服器端生成，優先傳 `generatedAttachmentId`，不要把整份 `.xlsx` Base64 搬進 remote MCP payload。
+- `generate_xlsx_attachment` 目前是 **chart-first**：`tables[].rows` 每格值都用字串輸入，再依 `columns[].type` 解析；圖表的 `valueColumns` 必須指向 `number` 欄位，且 `pie` 只能指定一個 value column。
 - Databricks external MCP 若要打 internal/private APIM，M2M 欄位就算填對，仍可能因 private DNS / reachability 卡在 `tools/list`；若同一組 caller app 直打 APIM `/mcp initialize` / `/mcp tools/list` 成功，先把問題歸在 Databricks 到 private APIM 的可達性，而不是 tool 定義本身。
 - 遠端 `/mcp` 目前是 SSE 回應；若用 `curl` / PowerShell 除錯，記得解析 `data:` 行。
 - 但 `initialize` 也可能直接回一般 JSON；remote MCP parser 不要只假設一種 response shape。

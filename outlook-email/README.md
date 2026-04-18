@@ -27,6 +27,7 @@
   | 組成元件 | 名稱 | 說明 | 用法 |
   |----------|------|------|------|
   | Tools | `generate_pptx_attachment` | 根據結構化投影片內容產生 `.pptx` 附件，並回傳可供 `send_email` 使用的附件識別碼。 | `#generate_pptx_attachment` |
+  | Tools | `generate_xlsx_attachment` | 根據結構化工作表、資料表與圖表內容產生 `.xlsx` 附件，並回傳可供 `send_email` 使用的附件識別碼。 | `#generate_xlsx_attachment` |
   | Tools | `send_email` | 將電子郵件寄送給收件者，並可選擇加入 reply-to 位址與附件。 | `#send_email` |
 
 `send_email` 也接受選用的 `attachments`。每個附件項目應包含：
@@ -47,10 +48,10 @@
 
 若需要更大的附件，必須另外實作大型附件上傳流程；目前 `send_email` 不包含 upload session。
 
-除了直接提供 `attachments` 之外，`send_email` 也支援 `generatedAttachmentIds`。這個欄位用來接收 `generate_pptx_attachment` 產生並暫存在伺服器端的附件識別碼。
+除了直接提供 `attachments` 之外，`send_email` 也支援 `generatedAttachmentIds`。這個欄位用來接收 `generate_pptx_attachment`、`generate_xlsx_attachment` 等工具產生並暫存在伺服器端的附件識別碼。
 
-- 如果你的流程是 **Databricks Genie 查詢結果 -> LLM / 專業 skill 整理內容 -> 產生 PPTX -> 寄信**，建議優先用這條路徑。
-- 這樣可以避免把整個 `.pptx` 的 Base64 內容放回模型上下文中搬來搬去。
+- 如果你的流程是 **Databricks Genie 查詢結果 -> LLM / 專業 skill 整理內容 -> 產生 PPTX / XLSX -> 寄信**，建議優先用這條路徑。
+- 這樣可以避免把整個 `.pptx` / `.xlsx` 的 Base64 內容放回模型上下文中搬來搬去。
 - `generatedAttachmentIds` 與 `attachments` 可以同時提供，寄信前會合併計算附件總數與大小限制。
 
 範例：
@@ -93,12 +94,12 @@
 
 > 若有設定 `AllowedSenders`，`sender` 必須位於允許清單中。若有設定 `AllowedReplyTo`，`replyTo` 也必須位於允許清單中。
 
-### 建議流程：先產生 PPTX，再用 `send_email` 寄出
+### 建議流程：先產生伺服器端附件，再用 `send_email` 寄出
 
-對於 **Genie -> LLM -> PPTX -> Email** 這類 workflow，建議將責任切成三段：
+對於 **Genie -> LLM -> PPTX / XLSX -> Email** 這類 workflow，建議將責任切成三段：
 
 1. **資料取得與整理**：先由 Databricks Genie 取回資料，再由 LLM 或專業 skill 整理成 deck outline / slide spec。
-2. **簡報渲染**：呼叫 `generate_pptx_attachment`，只負責把結構化內容轉成 `.pptx`。
+2. **附件渲染**：依輸出型態呼叫 `generate_pptx_attachment` 或 `generate_xlsx_attachment`，只負責把結構化內容轉成附件。
 3. **寄送**：把前一步回傳的 `generatedAttachmentId` 放進 `send_email.generatedAttachmentIds`。
 
 `generate_pptx_attachment` 本身不負責推論商業內容，也不會替你補齊分析結論；它應該吃的是**已經整理好的投影片結構**。
@@ -185,6 +186,142 @@
 ```
 
 > `generatedAttachmentId` 只會在伺服器端暫存一段時間。若已過期，請重新呼叫 `generate_pptx_attachment`。
+
+### 建議流程：先產生 XLSX，再用 `send_email` 寄出
+
+對於 **Genie -> LLM -> Excel 報表 -> Email** 這類 workflow，建議將責任切成三段：
+
+1. **資料取得與整理**：先把查詢結果整理成工作表、資料表與圖表需要的結構。
+2. **報表渲染**：呼叫 `generate_xlsx_attachment`，只負責把結構化內容轉成 `.xlsx`。
+3. **寄送**：把前一步回傳的 `generatedAttachmentId` 放進 `send_email.generatedAttachmentIds`。
+
+#### `generate_xlsx_attachment` 輸入重點
+
+- `sheets`：必要欄位，陣列中的每一項代表一張工作表。
+- `name`：工作表名稱。若省略會自動補上 `Sheet1`、`Sheet2` 這類預設值。
+- `title`：工作表標題，若提供會寫在工作表最上方。
+- `tables`：每張工作表至少需要一個資料表。
+- `tables[].columns[].type`：支援 `string`、`number`、`date`、`boolean`，若省略則預設為 `string`。
+- `tables[].rows`：每格值都以字串提供，服務端會依對應欄位型別解析。
+- `charts`：選填，支援 `column`、`bar`、`line`、`pie`。
+- `charts[].tableName`：必須對應同一張工作表內某個 `table.name`。
+- `charts[].categoryColumn`：分類軸欄位名稱。
+- `charts[].valueColumns`：數值欄位名稱陣列；`pie` 只能指定一個 value column。
+- `fileName`：選填，若未提供 `.xlsx` 副檔名會自動補上。
+- `themeColorHex`：選填，6 位十六進位色碼，例如 `2F5597`。
+
+#### `generate_xlsx_attachment` 範例 payload
+
+```json
+{
+  "fileName": "regional-dashboard",
+  "themeColorHex": "2F5597",
+  "sheets": [
+    {
+      "name": "Revenue",
+      "title": "2026 Q2 Regional Revenue",
+      "tables": [
+        {
+          "name": "RegionalRevenue",
+          "columns": [
+            { "name": "Region" },
+            { "name": "Revenue", "type": "number" },
+            { "name": "Margin", "type": "number" }
+          ],
+          "rows": [
+            [ "APAC", "1250000", "0.31" ],
+            [ "EMEA", "980000", "0.27" ],
+            [ "AMER", "1430000", "0.29" ]
+          ]
+        }
+      ],
+      "charts": [
+        {
+          "kind": "column",
+          "title": "Revenue by Region",
+          "tableName": "RegionalRevenue",
+          "categoryColumn": "Region",
+          "valueColumns": [ "Revenue" ]
+        },
+        {
+          "kind": "line",
+          "title": "Margin Trend by Region",
+          "tableName": "RegionalRevenue",
+          "categoryColumn": "Region",
+          "valueColumns": [ "Margin" ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+成功時會回傳：
+
+- `generatedAttachmentId`
+- `name`
+- `contentType`
+- `sheetCount`
+- `tableCount`
+- `chartCount`
+- `sizeBytes`
+- `expiresInMinutes`
+
+#### 搭配 `send_email` 的範例 payload
+
+```json
+{
+  "title": "Q2 Regional Dashboard",
+  "body": "請參考附件中的 Excel 報表。",
+  "sender": "shared-mailbox@contoso.com",
+  "recipients": "alice@contoso.com; bob@contoso.com",
+  "generatedAttachmentIds": [
+    "0b65f8bb55fd4b179d0d2b4e4fd6e099"
+  ]
+}
+```
+
+> `generatedAttachmentId` 只會在伺服器端暫存一段時間。若已過期，請重新呼叫 `generate_xlsx_attachment`。
+
+#### 本機 HTTP 直接驗證 `generate_xlsx_attachment -> send_email`（2026-04 實測）
+
+若你要在**不經過 VS Code MCP host** 的情況下，直接用 `curl.exe` 驗證 `generate_xlsx_attachment -> send_email.generatedAttachmentIds`，這輪實測最穩定的順序如下：
+
+1. 啟動本機 HTTP 模式：
+
+   ```powershell
+   dotnet run --project .\src\McpSamples.OutlookEmail.HybridApp -- --http
+   ```
+
+2. 先用 `tools/list` 確認目前這個 process 真的有載入 `generate_xlsx_attachment`。
+3. 準備 **UTF-8** JSON 檔，直接打 `POST http://localhost:5260/mcp` 呼叫 `generate_xlsx_attachment`。
+4. 從 SSE `data:` 行取出 `result.content[0].text`，再解一層 JSON，拿到 `generatedAttachmentId`。
+5. 把這個 `generatedAttachmentId` 放進 `send_email.generatedAttachmentIds` 再呼叫 `send_email`。
+
+> 這次本機實測成功產出 `copilot-xlsx-e2e.xlsx`，結果是 **1 張工作表、1 個資料表、2 張圖表、4778 bytes**，並成功作為 `send_email` 附件寄出。
+
+direct `/mcp` 呼叫建議至少帶下列 header：
+
+- `Accept: application/json, text/event-stream`
+- `Content-Type: application/json`
+- `MCP-Protocol-Version: 2025-03-26`
+
+`curl.exe` 最穩定的送法：
+
+```powershell
+curl.exe -sS -N `
+  -H "Accept: application/json, text/event-stream" `
+  -H "Content-Type: application/json" `
+  -H "MCP-Protocol-Version: 2025-03-26" `
+  --data-binary "@body.json" `
+  http://localhost:5260/mcp
+```
+
+這條路徑最常踩到的雷：
+
+- `tools/call` 常回 **SSE**，而且 tool payload 可能包在 `result.content[0].text`，不要只讀 `structuredContent`。
+- 在 **Windows PowerShell** 下不要直接用 `curl.exe --data-raw` 送中文 JSON；先落成 **UTF-8 檔案**，再用 `--data-binary @body.json`。
+- 如果 `tools/list` 看不到 `generate_xlsx_attachment`，先懷疑目前跑著的是**舊 build**，或既有 `McpSamples.OutlookEmail.HybridApp` process 正在鎖住 `bin\Debug`，讓你以為 rebuild 成功，其實還在跑舊版輸出。
 
 <a id="getting-started"></a>
 ## 開始使用
@@ -529,8 +666,8 @@ docker push $imageRef
 | --- | --- | --- | --- |
 | MCP metadata | `GET /.well-known/oauth-protected-resource` | `200`，且 resource host 等於 Function App host | 是 |
 | MCP transport | `POST /mcp` with `initialize` | `200` | 是 |
-| MCP discovery | `POST /mcp` with `tools/list` | `200`，且包含 `send_email` 與 `generate_pptx_attachment` | 是 |
-| Tool existence | `send_email` / `generate_pptx_attachment` 是否可被列出 | `tools/list` 內可見 | 是 |
+| MCP discovery | `POST /mcp` with `tools/list` | `200`，且包含 `send_email`、`generate_pptx_attachment` 與 `generate_xlsx_attachment` | 是 |
+| Tool existence | `send_email` / `generate_pptx_attachment` / `generate_xlsx_attachment` 是否可被列出 | `tools/list` 內可見 | 是 |
 | 業務破壞性測試 | `send_email` 真實寄信 | 成功或依測試案例失敗 | 否，建議在受控信箱做 |
 
 驗證 hook 取 token 的優先順序：
@@ -1051,11 +1188,11 @@ $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
 若你要先做一輪最小正向驗證，建議順序是：
 
 1. `initialize`
-2. `tools/list`，確認至少看得到 `send_email` 與 `generate_pptx_attachment`
-3. 若要測試簡報附件流程，先呼叫 `generate_pptx_attachment`
+2. `tools/list`，確認至少看得到 `send_email`、`generate_pptx_attachment` 與 `generate_xlsx_attachment`
+3. 若要測試伺服器端附件流程，先呼叫 `generate_pptx_attachment` 或 `generate_xlsx_attachment`
 4. 再把回傳的 `generatedAttachmentId` 放進 `send_email.generatedAttachmentIds`
 
-> APIM retained path 下，若附件原本就是要從投影片內容產生，**優先走 `generate_pptx_attachment -> generatedAttachmentIds`**，不要把整份 `.pptx` Base64 搬進 remote MCP payload。
+> APIM retained path 下，若附件原本就是要由伺服器端產生，**優先走 `generate_pptx_attachment -> generatedAttachmentIds` 或 `generate_xlsx_attachment -> generatedAttachmentIds`**，不要把整份 `.pptx` / `.xlsx` Base64 搬進 remote MCP payload。
 
 ##### direct ACA debug path（只限可達 ACA ingress 的環境）
 
@@ -1185,7 +1322,9 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | Databricks external MCP 欄位看起來都對，但 `tools/list` 還是失敗 | connection overview 已顯示 token expiration，卻仍回 `Failed to list tools` / generic `400` | 先用 **Function App private FQDN** 驗證 direct path 的 `/mcp initialize` / `/mcp tools/list`；若 direct path 正常，再回頭檢查 Databricks NCC workspace binding、private DNS 與 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是否包含實際 caller app |
 | private endpoint 明明存在，但 `curl` / CLI 還是連不上 | 看到 proxy 相關錯誤、`403 Ip Forbidden` 或 schannel revocation 錯誤 | 先檢查 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`；診斷時可用 `curl --noproxy '*' ...` 直接驗證私網路徑 |
 | Windows PowerShell 送中文 payload 後，email / PPTX 文字變亂碼 | 主旨、內文或 slide text 出現 mojibake | 不要直接用 `curl.exe --data-raw`；先把 request body 寫成 **UTF-8** 檔案，再改用 `curl.exe --data-binary @body.json` |
+| direct `/mcp` 的 `tools/call` 一直不穩 | `curl.exe` 卡住、回應形狀怪異、或本機 HTTP 明明活著卻叫不動 tool | 先補上 `MCP-Protocol-Version: 2025-03-26`，並確認 `Accept` 同時包含 `application/json, text/event-stream` |
 | `initialize` / `tools/call` 的 response parser 時好時壞 | 有時 `ConvertFrom-Json` 失敗，有時拿不到 `generatedAttachmentId` | `initialize` 可能直接回 JSON；`tools/list` / `tools/call` 常是 SSE；某些 remote path 下 tool payload 也可能包在 `result.content[0].text`，不要只假設有 `structuredContent` |
+| 改完程式碼後，本機 HTTP 還是看不到 `generate_xlsx_attachment` | `tools/list` 少一顆新 tool，或 build 一直出現 DLL copy / file lock 警告 | 先停掉既有 `McpSamples.OutlookEmail.HybridApp` process，再 rebuild；Windows 下跑著的舊 process 可能鎖住 `bin\Debug`，讓新 build 沒真的生效 |
 | `azd deploy` 成功，但 postdeploy validation 失敗 | hook 明明有跑，卻在 `initialize` 或 `tools/list` 回 `403` | 先檢查 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是否包含**真正執行驗證的 caller app**（Azure CLI 或 dedicated validation app） |
 | direct Function 正常，但 `azd provision` 更新 APIM API / policy 失敗 | `apim-fet-outlook-email.management.azure-api.net:3443` 連不上 | 先檢查 `apim-subnet` 的 NSG 與 UDR；這通常是 internal APIM control-plane / firewall 路徑問題，不是 MCP tool 或 Function 本身故障 |
 | 改了程式碼，但文件或範本沒跟著改 | 新加入的人照文件操作卻跑不起來 | 若你改了 `send_email`、認證流程、啟動方式或設定欄位，記得同步更新 `README.md`、`local.settings.sample.json` 與相關腳本 |
@@ -1201,6 +1340,8 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | 遠端 `/mcp` 回應型態 | 直接把回應當純 JSON 或純 SSE 解析 | `ConvertFrom-Json` 失敗，或同一套 parser 在 `initialize` 與 `tools/call` 間不穩定 | parser 要同時接受 **plain JSON** 與 **SSE `data:`**；不要先假設只有一種格式 |
 | 遠端 tool result 形狀 | 只讀 `result.structuredContent` | `generate_pptx_attachment` 明明成功，卻拿不到 `generatedAttachmentId` | 某些 remote path / client 下，tool payload 可能被包在 `result.content[0].text` 的 JSON 字串；diagnostic script 要有 fallback parse |
 | Windows PowerShell + `curl.exe` 中文 JSON | 主旨、內文或簡報內容變亂碼 | APIM E2E 看起來成功，但寄出的文字是 mojibake | request body 先落成 **UTF-8 檔案**，再用 `curl.exe --data-binary @body.json`；不要直接用 `--data-raw` 送中文 |
+| local HTTP `tools/call` header | direct 打本機 `/mcp` 時少帶 protocol header | `tools/list` 可能正常，但 `tools/call` 看起來卡住或行為不一致 | direct local HTTP 驗證時，把 `MCP-Protocol-Version: 2025-03-26` 與 `Accept: application/json, text/event-stream` 一起固定帶上 |
+| local build output 被舊 process 鎖住 | rebuild 後 `tools/list` 還是看不到新 tool，或一直出現 `McpSamples.Shared.dll` copy / lock 警告 | 你以為換到新版本，其實 server 還在跑舊 build | 先停掉既有 `McpSamples.OutlookEmail.HybridApp`，再 rebuild；必要時改到隔離工作目錄驗證，避免 `bin\Debug` 被既有 process 鎖住 |
 | Graph auth 模式判斷 | 只用 `AZURE_CLIENT_ID` 判斷是否走 managed identity | 明明給了 tenant/client/secret，程式卻走錯認證模式 | 以 `EntraId__UseManagedIdentity` 明確值為第一優先；若未設定，才依是否有完整 SP 設定與 `AZURE_CLIENT_ID` fallback 判斷 |
 | Service principal 缺值 | 只填一部分 `tenant/client/secret` | 直到寄信時才發現 Graph 認證炸掉 | `UseManagedIdentity=false` 時，三個值要一次到位；目前程式已改成 fail-fast |
 | Credential hygiene | 走 managed identity 時仍把 SP secret 留在 app settings | 部署雖然能跑，但把不必要的 secret 長期留在 Azure | 走 managed identity 就不要設定 `MCP_ENTRA_*`；走 service principal 則優先用 Key Vault reference |
@@ -1259,8 +1400,8 @@ sequenceDiagram
     APIM->>APIM: validate-azure-ad-token
     APIM->>ACA: forward /mcp with managed identity bearer token
     ACA-->>Client: initialize / tools/list / tool result
-    Client->>APIM: generate_pptx_attachment tool call
-    APIM->>ACA: forward generate_pptx_attachment
+    Client->>APIM: generate_pptx_attachment / generate_xlsx_attachment tool call
+    APIM->>ACA: forward generated attachment tool call
     ACA-->>Client: generatedAttachmentId
     Client->>APIM: send_email with generatedAttachmentIds
     APIM->>ACA: forward send_email
@@ -1301,13 +1442,14 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | 自動 smoke test | direct Function `/.well-known/oauth-protected-resource` | `200` | `azd deploy` / `azd up` 後由 `postdeploy` hook 自動執行 |
 | 自動 smoke test | direct Function `initialize` | `200` | 同上 |
-| 自動 smoke test | direct Function `tools/list` | `200` 且包含 `send_email` 與 `generate_pptx_attachment` | 同上 |
+| 自動 smoke test | direct Function `tools/list` | `200` 且包含 `send_email`、`generate_pptx_attachment` 與 `generate_xlsx_attachment` | 同上 |
 | 手動安全測試 | `sender` 不在 allowlist | 應被拒絕 | 受控環境手動測 |
 | 手動安全測試 | `replyTo` 不在 allowlist | 應被拒絕 | 受控環境手動測 |
 | 手動資料驗證 | 附件 Base64 非法 | 應被拒絕 | 受控環境手動測 |
 | 手動資料驗證 | `generatedAttachmentId` 不存在或已過期 | 應被拒絕 | 受控環境手動測 |
 | 手動正向 E2E | 允許的 `sender` + `replyTo` + CSV/XLSX 附件 | 成功寄送 | 受控信箱手動測 |
 | 手動正向 E2E | `generate_pptx_attachment` + `send_email.generatedAttachmentIds` | 成功寄送含 `.pptx` 的郵件 | 受控信箱手動測 |
+| 手動正向 E2E | `generate_xlsx_attachment` + `send_email.generatedAttachmentIds` | 成功寄送含 `.xlsx` 圖表報表的郵件 | 受控信箱手動測 |
 | 手動網路驗證 | retained APIM `/.well-known` / `initialize` / `tools/list` | `200` | 僅在 APIM control-plane / DNS / proxy 路徑已健康時執行 |
 
 #### Databricks external MCP 對 internal/private APIM 的目前判讀（2026-04）
