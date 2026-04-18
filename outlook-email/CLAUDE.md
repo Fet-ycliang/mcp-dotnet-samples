@@ -29,6 +29,7 @@
 | `azure.yaml` / `infra\` | Azure 部署入口與基礎設施 |
 | `infra\remove-apim.bicep` / `infra\remove-apim.parameters.json` | 手動刪除 APIM 用（`az deployment group create`）|
 | `infra\rebuild-apim.bicep` / `infra\rebuild-apim.parameters.json` | 手動重建 APIM 用（`az deployment group create`）|
+| `..\.github\workflows\build.yaml` / `..\.github\workflows\build-container.yaml` | repo-level GitHub Actions matrix build、GHCR tag 組法與 fail-fast 設定 |
 | `.vscode\mcp*.json` | STDIO / HTTP / Functions / remote MCP 連線模板 |
 
 ## 常用指令
@@ -112,6 +113,8 @@
 - 若 Azure 走 managed identity，就不要同時把 `MCP_ENTRA_*` service principal 值留在 app settings；走 service principal 時則優先使用 Key Vault reference。
 - ACR tag 不是資料夾；若要做 branch 分目錄，請把 branch 放在 repository path（例如 `fet-mcp-server-dotnet/feature/pptx-mailer:20260418-101011`），不要放進 tag。
 - branch 名稱若直接拿 `refs/heads/*`、大寫或特殊字元組 image ref，常會踩到非法名稱；先轉小寫、去掉 `refs/heads/`，其餘不安全字元改成 `-`。
+- GitHub Actions reusable workflow 若要推 GHCR image，不要直接拿原始 `GITHUB_REPOSITORY` 組 image ref；owner / repo 要先轉小寫，否則 `docker buildx` 常會報 `repository name must be lowercase`。
+- 查 `Build MCP Servers` 這種 matrix workflow 時，`outlook-email` job 若顯示 `cancelled` / `The operation was canceled.`，先別把它當根因；先找同一個 run 裡最早的 `failure` job。若不想讓其他 image 被連帶取消，記得把 `strategy.fail-fast` 關掉。
 - 若要建 ACA / ACR 映像，請固定用 `Dockerfile.outlook-email-azure`；`Dockerfile.outlook-email` 只要進 ACR scanner，就可能卡在 `FROM --platform=$BUILDPLATFORM ...`。
 - `PptxPresentationService` 若再動到 Open XML packaging，**不要**把 `ThemePart` 再掛回 `PresentationPart`，也不要自己手寫 slide relationship ID；交給 SDK 指派，否則 deck 在 4+ slides 可能壞掉。
 - `generate_pptx_attachment` 目前刻意讓 **封面頁不帶 footer**、內容頁才帶 deck title + page number；若你再改模板，README / skills 也要一起同步。

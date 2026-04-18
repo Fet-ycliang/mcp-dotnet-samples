@@ -10,6 +10,7 @@ jobs:
     uses: ./.github/workflows/build-container.yaml
 
     strategy:
+      fail-fast: false
       matrix:
         image_name: [ 'awesome-copilot', 'markdown-to-html', 'outlook-email', 'todo-list' ]
 
