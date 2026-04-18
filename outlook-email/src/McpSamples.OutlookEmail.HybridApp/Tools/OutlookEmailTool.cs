@@ -47,7 +47,7 @@ public class OutlookEmailTool(IOutlookEmailService service, ILogger<OutlookEmail
         [Description("以逗號或分號分隔的收件者電子郵件地址")] string recipients,
         [Description("以逗號或分號分隔的選用回覆地址")] string? replyTo = default,
         [Description("選用附件。每個項目都必須包含 name、contentType 與 contentBytesBase64，並會套用附件數量與單檔大小限制")] OutlookEmailAttachment[]? attachments = default,
-        [Description("由 generate_pptx_attachment 產生的附件識別碼陣列。與 attachments 一起提供時會合併寄出")] string[]? generatedAttachmentIds = default)
+        [Description("由 generate_pptx_attachment、generate_xlsx_attachment 等工具產生的附件識別碼陣列。與 attachments 一起提供時會合併寄出")] string[]? generatedAttachmentIds = default)
     {
         var result = new OutlookEmailResult();
         try

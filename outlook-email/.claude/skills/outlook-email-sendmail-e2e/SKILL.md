@@ -16,7 +16,7 @@ description: |
 3. 若缺少真正必要欄位（例如主旨或內文完全缺失，且無法從上下文合理補出），才回頭追問；不要重問 skill 已能自行推定或從設定檔取得的值。
 4. 若使用者沒有特別指定 `sender`，預設把 `sender` 解讀為**使用者本人**；若目前上下文、既有設定、或唯一可用的 allowlisted sender 已足以推定，就直接使用，不要為了補 payload 再追問第二個 email。只有在完全無法推定寄件者時，才追問一次。
 5. 若使用者提到**附件**且工作區中有對應檔案，直接讀取真實檔案內容、轉成 Base64、帶進 `attachments` 後執行寄信；不要只回「請把 Base64 填回 payload」。
-6. 若附件內容本來就是要從投影片結構產生，**優先改走 `generate_pptx_attachment -> send_email.generatedAttachmentIds`**，不要先把 `.pptx` 產成大段 Base64 再塞回 payload。
+6. 若附件內容本來就是要從結構化內容產生，**優先改走 `generate_pptx_attachment` 或 `generate_xlsx_attachment` -> `send_email.generatedAttachmentIds`**，不要先把 `.pptx` / `.xlsx` 產成大段 Base64 再塞回 payload。
 7. 若附件檔案不存在、無法讀取、超過大小限制、或 MIME/副檔名不明確，才明說阻塞原因並回報是哪個檔案卡住。
 8. 執行完成後，要明確回報：寄件者、收件者、主旨，以及實際帶出的附件檔名。
 
@@ -29,8 +29,9 @@ description: |
 | `src\McpSamples.OutlookEmail.HybridApp\local.settings.sample.json` | 設定範本 |
 | `src\McpSamples.OutlookEmail.HybridApp\Services\OutlookEmailService.cs` | sender / replyTo / 附件驗證與 Graph 發信流程 |
 | `src\McpSamples.OutlookEmail.HybridApp\Tools\PptxPresentationTool.cs` | `generate_pptx_attachment` tool，適合先把結構化投影片轉成 server-side 暫存附件 |
+| `src\McpSamples.OutlookEmail.HybridApp\Tools\XlsxAttachmentTool.cs` | `generate_xlsx_attachment` tool，適合先把結構化工作表 / 圖表轉成 server-side 暫存附件 |
 | `.vscode\mcp.http.local-func.json` | VS Code / Agent Mode 連到本機 Function App 的 MCP 設定 |
-| `.claude\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1` | 直接透過 Microsoft Graph 發送測試信的 fallback 腳本 |
+| `.claude\skills\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1` | 直接透過 Microsoft Graph 發送測試信的 fallback 腳本 |
 
 ## local.settings.json 最小設定
 
@@ -105,6 +106,59 @@ description: |
 - `send_email` 會直接取用伺服器端暫存附件
 - 比較適合 **APIM retained path** 或其他遠端 MCP transport
 
+## XLSX 附件建議路徑
+
+若這次要寄的是**由資料表與圖表結構產生的 Excel 報表附件**，建議不要先在本機手組 `.xlsx` Base64，而是直接：
+
+1. 呼叫 `generate_xlsx_attachment`
+2. 取得 `generatedAttachmentId`
+3. 把它放進 `send_email.generatedAttachmentIds`
+
+範例：
+
+```json
+{
+  "title": "Q2 Regional Dashboard",
+  "body": "請參考附件中的 Excel 報表。",
+  "sender": "shared-mailbox@contoso.com",
+  "recipients": "alice@contoso.com",
+  "generatedAttachmentIds": [
+    "063997d9bfce4a0d8597ab358bdcee77"
+  ]
+}
+```
+
+這條路徑的好處是：
+
+- 不用把整份 `.xlsx` Base64 放進對話上下文
+- `send_email` 會直接取用伺服器端暫存附件
+- 比較適合 **本機 HTTP debug**、**APIM retained path** 或其他遠端 MCP transport
+
+## 本機 HTTP 直打 `/mcp` 的 XLSX E2E 口訣
+
+若這次是要**直接驗證 MCP tool 本身**，而不是只驗 Graph：
+
+1. 啟動本機 HTTP：
+
+   ```powershell
+   dotnet run --project .\src\McpSamples.OutlookEmail.HybridApp -- --http
+   ```
+
+2. 先打 `tools/list`，確認看得到 `generate_xlsx_attachment`
+3. `tools/call` 一律固定帶：
+   - `Accept: application/json, text/event-stream`
+   - `Content-Type: application/json`
+   - `MCP-Protocol-Version: 2025-03-26`
+4. Windows PowerShell 下，request body 先寫成 **UTF-8 檔案**，再用 `curl.exe --data-binary @body.json`
+5. `generate_xlsx_attachment` 成功後，從 `result.content[0].text` 解出 `generatedAttachmentId`
+6. 再把這個 id 帶進 `send_email.generatedAttachmentIds`
+
+這輪本機實測的正向結果是：
+
+- `generate_xlsx_attachment` 成功產出 `copilot-xlsx-e2e.xlsx`
+- 結果是 **1 張工作表、1 個資料表、2 張圖表、4778 bytes**
+- `send_email` 成功寄出，附件 MIME 是 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+
 ## 商務簡報語氣整理規則
 
 若你這次要寄的是給主管、客戶或跨部門看的簡報，**不要把原始資料表述、除錯訊息或工程驗證語氣直接塞進 `slides`**。先把內容整理成商務 deck outline，再呼叫 `generate_pptx_attachment`：
@@ -167,6 +221,13 @@ description: |
 - **收 response**：先分辨 plain JSON vs SSE
 - **取 tool payload**：先看 `structuredContent`，再 fallback `content[0].text`
 
+## local HTTP / 本機 build 常見踩雷
+
+1. **`tools/list` 正常，不代表 `tools/call` 一定正常**：direct 打 `/mcp` 時，少了 `MCP-Protocol-Version` 很容易讓 `tools/call` 看起來卡住或行為不一致。
+2. **不要在 Windows PowerShell 用 `curl.exe --data-raw` 送中文 JSON**：主旨、內文、chart title 都可能亂碼；改用 **UTF-8 檔案 + `--data-binary`**。
+3. **`generatedAttachmentId` 不一定在 `structuredContent`**：這輪直接打本機 HTTP 時，最穩的取法是先抓 SSE `data:`，再解 `result.content[0].text`。
+4. **如果 `tools/list` 看不到 `generate_xlsx_attachment`，先懷疑不是 payload 問題，而是舊 process 還在跑**：Windows 下既有 `McpSamples.OutlookEmail.HybridApp` 可能鎖住 `bin\Debug`，讓你 rebuild 後仍舊打到舊版輸出。
+
 ## Graph 直送 fallback
 
 當目的只是確認 **Graph 認證 / mailbox scope / sender allowlist** 是否正常，而不是驗證 MCP transport，本技能直接提供腳本，不要再手組 token + `sendMail` one-liner。
@@ -176,7 +237,7 @@ description: |
 **先回到 `outlook-email` 根目錄再執行：**
 
 ```powershell
-.\.claude\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1 `
+.\.claude\skills\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1 `
   -Recipients "alice@contoso.com" `
   -Title "Outlook Email Graph 測試信" `
   -Body "這封信直接透過 Microsoft Graph 送出。"
@@ -201,7 +262,7 @@ $env:EntraId__ClientSecret = 'client-secret'
 若要一次寄給多位收件者，可直接傳字串陣列：
 
 ```powershell
-.\.claude\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1 `
+.\.claude\skills\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1 `
   -Recipients @("alice@contoso.com", "bob@contoso.com") `
   -Title "多收件者測試"
 ```
@@ -209,7 +270,7 @@ $env:EntraId__ClientSecret = 'client-secret'
 若工作目錄還停在 `src\McpSamples.OutlookEmail.HybridApp`，可改用：
 
 ```powershell
-..\..\..\.claude\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1 `
+..\..\..\.claude\skills\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1 `
   -Recipients "alice@contoso.com" `
   -Title "HybridApp 相對路徑測試"
 ```
@@ -217,7 +278,7 @@ $env:EntraId__ClientSecret = 'client-secret'
 若要覆寫設定檔路徑或寄給 allowlist 外的測試信箱：
 
 ```powershell
-.\.claude\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1 `
+.\.claude\skills\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1 `
   -Recipients "alice@contoso.com" `
   -ConfigPath ".\src\McpSamples.OutlookEmail.HybridApp\local.settings.json" `
   -AllowAnyRecipient `

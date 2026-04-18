@@ -30,6 +30,7 @@ builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<IGeneratedAttachmentStore, GeneratedAttachmentStore>();
 builder.Services.AddScoped<IOutlookEmailService, OutlookEmailService>();
 builder.Services.AddScoped<IPptxPresentationService, PptxPresentationService>();
+builder.Services.AddScoped<IXlsxAttachmentService, XlsxAttachmentService>();
 builder.Services.AddScoped<GraphServiceClient>(sp =>
 {
     var settings = sp.GetRequiredService<OutlookEmailAppSettings>();
