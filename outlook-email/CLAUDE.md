@@ -45,8 +45,9 @@
 - `azure.yaml` 目前預設把 `outlook-email` 部署成 **Azure Functions**，不是 Container Apps；`azd up` / `azd deploy` 不會自動產出 ACR image。
 - 若要手動或用 CI 發布容器映像到 ACR，命名規則使用 **`<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`**；branch 分目錄放 repository path，不放 tag。
 - Azure 命名與 tag 基線目前以 **`fet-outlook-email-bst`** 為核心 stem；實際覆寫方式看 `infra\main.bicep`、`infra\main.parameters.json` 與 `README.md` 的 Azure 部署段落。
-- **APIM 名稱使用 `apimNameOverride`**：實際部署的 APIM 名稱是 `fet-mcp-apim-bst`，不是 `apim-${stem}` 的預設命名。查或操作 APIM 時請用確認後的名稱，不要從命名規則推導。
-- **APIM VNet 模式是 External**（`apimInternalVirtualNetwork = false`）：RG 內沒有 APIM private DNS zones（`azure-api.net` 等），不需要建立或清理。
+- **目前 live APIM resource 名稱**是 `apim-fet-outlook-email`；`AZURE_APIM_NAME` 或 README 內的 `fet-mcp-apim-bst` 只應視為 env / 範例值，不要直接當成已落地資源名稱。
+- **目前 live frontend 已是 private-only ingress**：Function App 走 **Private Link / private endpoint**，且 `publicNetworkAccess=Disabled`；APIM gateway 走 **Internal VNet + private DNS**。若有人說「frontend 都走 private link」，要先確認他是泛指私網入口，還是嚴格要求 **APIM 也必須是 Azure Private Link**。
+- **注意這不是 template 預設值**：目前合規是因為這個 azd env 已把 `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true` 與 `AZURE_APIM_INTERNAL_VNET=true` 打開；`main.parameters.json` 的預設仍是 `false`。
 - **APIM subnet**：`apim-subnet`，`172.18.78.0/28`，位於 `apim-bst-vnet`，NSG `172.18.78.0_24_APIM` 與 Route Table `DG-Route-APIM` 已就位，重建 APIM 時 subnet 本身不需異動。
 - Graph 認證模式的優先序是：`EntraId__UseManagedIdentity` 明確值 > 明確提供的 `EntraId__TenantId` / `ClientId` / `ClientSecret` > `AZURE_CLIENT_ID` fallback。不要只看 `AZURE_CLIENT_ID` 來判斷目前是否一定走 managed identity。
 - `send_email` 的責任分層是：

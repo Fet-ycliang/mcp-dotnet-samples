@@ -1138,17 +1138,19 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 
 #### APIM retained + direct Function 實際落地架構（2026-04）
 
-> 本圖對應這次已落地的開發環境：APIM `fet-mcp-apim-bst`、VNet `apim-bst-vnet`、subnet `apim-subnet`、private DNS zones 置於 `aibde-common-rg`。
+> 本圖對應這次已核對的開發環境：Function App `func-fet-outlook-email-bst` 透過 **Private Link / private endpoint** 進站，且 `publicNetworkAccess=Disabled`；APIM `apim-fet-outlook-email` 透過 **Internal VNet + private DNS** 提供私網入口。若把「frontend 都走 private link」當成泛稱私網入口，這套架構已符合；若嚴格要求 **APIM 也必須是 Azure Private Link / private endpoint**，那是另一條尚未在這份 template 落地的路徑。
+>
+> **注意**：這是目前 live azd env 的結果，不是 repo 預設值；能成立是因為環境已把 `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true` 與 `AZURE_APIM_INTERNAL_VNET=true` 打開，而 `infra\main.parameters.json` 的預設仍是 `false`。
 
 ```mermaid
 flowchart LR
     Client["Copilot CLI / Claude Code<br/>APIM retained path"]
     Databricks["Databricks Genie / external MCP<br/>NCC direct Function path"]
     DNS["Private DNS zones<br/>aibde-common-rg<br/>azure-api.net family"]
-    APIM["APIM Developer (Internal)<br/>fet-mcp-apim-bst<br/>private IP: 172.18.78.4"]
+    APIM["APIM Developer (Internal)<br/>apim-fet-outlook-email<br/>private IP: 172.18.78.4"]
     Net["apim-bst-vnet / apim-subnet<br/>NSG + DG-Route-APIM"]
     InboundAuth["Shared MCP OAuth resource app<br/>Expose an API + user_impersonation + access_as_application"]
-    Func["Azure Function App backend<br/>func-fet-outlook-email-bst"]
+    Func["Azure Function App backend<br/>func-fet-outlook-email-bst<br/>Private Endpoint: 172.18.79.118"]
     OutboundAuth["Outbound Graph identity<br/>Managed identity or service principal"]
     Graph["Microsoft Graph<br/>Mail.Send"]
 
@@ -1173,7 +1175,7 @@ sequenceDiagram
     participant Func as Function App
     participant Graph as Microsoft Graph
 
-    Client->>DNS: resolve fet-mcp-apim-bst.azure-api.net
+    Client->>DNS: resolve apim-fet-outlook-email.azure-api.net
     DNS-->>Client: 172.18.78.4
     Client->>EntraIn: request token for APIM scope or .default
     EntraIn-->>Client: access token
@@ -1194,8 +1196,8 @@ sequenceDiagram
 
 | 類別 | lesson learned | 建議做法 |
 | --- | --- | --- |
-| Private DNS | internal APIM 的預設 hostname 不會自動出現在公網 DNS；APIM 本身成功不代表 client 已經可達 | 先建立 / 連結 private DNS zones，再用 `Resolve-DnsName` 驗證 `fet-mcp-apim-bst.azure-api.net` 是否真的解析到 private IP |
-| Proxy | DNS 通了之後，CLI / `curl` 仍可能把流量送去公司 proxy，最後拿到 `504` 或其他誤導性錯誤 | 把 APIM hostname（至少 `fet-mcp-apim-bst.azure-api.net`）或對應網域加入 `NO_PROXY`；診斷時優先用 `curl --noproxy '*'` 驗證真實私網路徑 |
+| Private DNS | internal APIM 的預設 hostname 不會自動出現在公網 DNS；APIM 本身成功不代表 client 已經可達 | 先建立 / 連結 private DNS zones，再用 `Resolve-DnsName` 驗證 `apim-fet-outlook-email.azure-api.net` 是否真的解析到 private IP |
+| Proxy | DNS 通了之後，CLI / `curl` 仍可能把流量送去公司 proxy，最後拿到 `504` 或其他誤導性錯誤 | 把 APIM hostname（至少 `apim-fet-outlook-email.azure-api.net`）或對應網域加入 `NO_PROXY`；診斷時優先用 `curl --noproxy '*'` 驗證真實私網路徑 |
 | NSG 前置條件 | internal APIM 若缺少必要 inbound 規則，很容易長時間卡在 `Activating` | 在 provisioning 前先確認 `ApiManagement -> VirtualNetwork TCP 3443` 與 `AzureLoadBalancer -> VirtualNetwork TCP 6390` 已放行 |
 | OAuth app | 既有 Entra app 只有 app registration 還不夠；delegated 與 M2M 需要的 permission model 不同 | 若不讓部署自動建立 `mcpEntraApp`，就先把既有 app 補到至少有 delegated scope `user_impersonation`，以及 application role `access_as_application`，再把 `MCP_OAUTH_TENANT_ID` / `MCP_OAUTH_CLIENT_ID` 設進 azd env |
 | M2M token flow | 外部平台只能選 `OAuth Machine to Machine`，但 API 端只暴露 delegated scope 時，client credentials 會卡住 | 對 service-to-service 呼叫使用 `api://<client-id>/.default`，並先把 client app 指派到 resource app 的 `access_as_application` app role |
@@ -1237,7 +1239,7 @@ sequenceDiagram
 
 1. **OAuth Machine to Machine 的欄位語意沒有問題**：Host / Port / Client ID / Client secret / scope / token endpoint / base path 這套填法本身是對的。
 2. **Dedicated caller app 直打 APIM 已驗證成功**：使用同一組 caller app 做 client credentials，`/mcp initialize` 與 `/mcp tools/list` 都可回 `200`，而且回應中看得到 `send_email`。
-3. **目前環境的 APIM host 解析到 private IP**：`fet-mcp-apim-bst.azure-api.net` 在這輪環境解析到 `172.18.78.4`，屬於 private / intranet 路徑。
+3. **目前環境的 APIM host 解析到 private IP**：`apim-fet-outlook-email.azure-api.net` 在這輪環境解析到 `172.18.78.4`，屬於 private / intranet 路徑。
 4. **因此 Databricks external MCP 若仍失敗，最可疑的是 reachability**：若 Databricks connection overview 已經顯示 token expiration，卻仍在 `tools/list` 卡住，先懷疑 **Databricks managed proxy 到 private APIM / private DNS 的可達性**，而不是 `send_email` tool 名稱或 `/mcp` path 形狀。
 5. **這類問題通常不能靠反覆重填表單解掉**：更可能需要
    - 給 Databricks 一個可達的 public/restricted APIM facade
