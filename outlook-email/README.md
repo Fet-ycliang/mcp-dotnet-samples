@@ -1166,13 +1166,15 @@ docker push $imageRef
 
 ##### APIM 保留路徑（Copilot CLI / Claude Code）
 
-- **Claude Code**：正式使用 `outlook-email\.claude\mcp.json` 內的 `outlook-email`
-- **Copilot CLI**：正式使用 `~/.copilot/mcp-config.json` 內的 `outlook-email`
+- **Claude Code**：正式使用本地 repo 根目錄 `.\.mcp.json` 內的 `mcpServers`；這是**本地 project-level 設定檔，不進版控**；這個 repo 在 Claude Code 內的 project code 是 `y94`
+- **Copilot CLI**：正式使用 `~\.copilot\mcp-config.json` 內的 `outlook-email`
 - VS Code 遠端 APIM 範本請使用 `.vscode\mcp.http.remote-apim.json`
-- 目前 repo 內的 `.claude\mcp.json` 以 live APIM `https://apim-fet-outlook-email.azure-api.net/mcp` 當預設例子；換環境時請改成對應 `https://<apim-fqdn>/mcp`
-- Claude Code 目前維持 **手動 Bearer header** 模式；localhost / UT 參考請改看 `.vscode\mcp.http.local-func.json`、`.vscode\mcp.stdio.local.json`
+- 若要在 Claude Code 新增或調整 project-level MCP server（例如 `databricks-genie`），請直接改你本地的 `.\.mcp.json`
+- `.\.mcp.json` 的變更不會在已開啟的 Claude Code session 內熱載入；改完後請重開該 repo 的 Claude Code project / session（`y94`）再看新的 server 清單
+- `.claude\mcp.json` 目前保留作 APIM remote header 參考範例；不是 Claude Code 現在的 project-level 載入入口
+- localhost / UT 參考請改看 `.vscode\mcp.http.local-func.json`、`.vscode\mcp.stdio.local.json`
 
-若設定檔使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`（例如目前的 Claude Code 設定），啟動前請先在**同一個 shell** 刷新 token：
+若設定檔使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`（例如 `.claude\mcp.json` 內的 APIM remote 範例，或 `.\.mcp.json` 中任何同樣走手動 Bearer 的 server），啟動前請先在**同一個 shell** 刷新 token：
 
 ```powershell
 $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
@@ -1226,9 +1228,9 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 | 環境 | 建議路徑 | Host / URL | 認證方式 | 主要設定檔 / 欄位 | 備註 |
 | --- | --- | --- | --- | --- | --- |
 | Databricks external MCP / Genie | **direct Function** | `https://<function-app>.azurewebsites.net/mcp` | OAuth M2M 或 Bearer | Databricks connection UI 的 Host / Port / Client ID / Client secret / scope | 若有 NCC，優先走這條；Host 要填 Function App private endpoint，不是 APIM |
-| Copilot CLI | **APIM retained path** | `https://<apim-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}` | `~/.copilot/mcp-config.json` 的 `mcpServers` | 適合現有人員操作；若 APIM 走 private route，記得補 `NO_PROXY` |
-| Copilot CLI | **direct Function** | `https://<function-app-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN}` | `~/.copilot/mcp-config.json` 的 `mcpServers` | 若有 direct caller allowlist，manual CLI 的 caller app 也要被放行 |
-| Claude Code | **APIM retained path** | `https://<apim-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}` | `outlook-email/.claude/mcp.json` | 目前 live 例子是 `https://apim-fet-outlook-email.azure-api.net/mcp` |
+| Copilot CLI | **APIM retained path** | `https://<apim-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}` | `~\.copilot\mcp-config.json` 的 `mcpServers` | 適合現有人員操作；若 APIM 走 private route，記得補 `NO_PROXY` |
+| Copilot CLI | **direct Function** | `https://<function-app-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN}` | `~\.copilot\mcp-config.json` 的 `mcpServers` | 若有 direct caller allowlist，manual CLI 的 caller app 也要被放行 |
+| Claude Code | **APIM retained path** | `https://<apim-fqdn>/mcp` | 依你本地 `.\.mcp.json` 內各 server 設定而定 | 本地 `.\.mcp.json` 的 `mcpServers`（不進版控） | 這個 repo 的 Claude Code project code 是 `y94`；`.claude\mcp.json` 目前只保留作 APIM remote header 參考範例 |
 | VS Code Agent Mode | 本機或遠端範本皆可 | 依 `.vscode/mcp.*.json` | 依範本 | `.vscode/mcp.http.remote-apim.json`、`.vscode/mcp.http.remote-func.json`、`.vscode/mcp.http.remote.json` | `.vscode/mcp.http.remote.json` 僅限 direct ACA 除錯，不是標準日常入口 |
 
 > **原則**：Databricks 優先看 **Function App direct path**；Copilot CLI / Claude Code 優先看 **APIM retained path**。兩條路共用同一顆 `MCP_OAUTH_*` resource app，只是 Host 不同。
@@ -1314,6 +1316,7 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | 附件被拒絕 | 提示 Base64、MIME、大小或數量錯誤 | 檢查 `contentType` 是否正確、`contentBytesBase64` 是否有效、單檔是否超過 **3 MiB**、附件總數是否超過 **10** |
 | local / Azure 設定看起來正確，但認證模式不如預期 | 誤以為程式一定會跟著 `AZURE_CLIENT_ID` 或一定會跟著 client secret 走 | 先看 `EntraId__UseManagedIdentity`；若未明確設定，程式會優先採用已提供的 tenant / client / secret，只有在這些都不存在時才回退到 `AZURE_CLIENT_ID` |
 | Copilot CLI / Claude Code 一直顯示 `Connecting` | 遠端 MCP server 遲遲連不上 | 先確認 `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN` 已在當前 shell 刷新，再確認 `NO_PROXY` 是否包含 `apim-fet-outlook-email.azure-api.net` 或 `.azure-api.net` |
+| Claude Code 已經改了 `.\.mcp.json`，但 session 內還是看不到新 server | project-level MCP server 清單看起來像沒更新 | `.\.mcp.json` 不會在既有 session 內熱載入；請重開該 repo 的 Claude Code project / session（project code `y94`）再重新讀取 |
 | Databricks external MCP 欄位看起來都對，但 `tools/list` 還是失敗 | connection overview 已顯示 token expiration，卻仍回 `Failed to list tools` / generic `400` | 先用 **Function App private FQDN** 驗證 direct path 的 `/mcp initialize` / `/mcp tools/list`；若 direct path 正常，再回頭檢查 Databricks NCC workspace binding、private DNS 與 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是否包含實際 caller app |
 | private endpoint 明明存在，但 `curl` / CLI 還是連不上 | 看到 proxy 相關錯誤、`403 Ip Forbidden` 或 schannel revocation 錯誤 | 先檢查 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`；診斷時可用 `curl --noproxy '*' ...` 直接驗證私網路徑 |
 | Windows PowerShell 送中文 payload 後，email / PPTX 文字變亂碼 | 主旨、內文或 slide text 出現 mojibake | 不要直接用 `curl.exe --data-raw`；先把 request body 寫成 **UTF-8** 檔案，再改用 `curl.exe --data-binary @body.json` |
@@ -1331,6 +1334,7 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | direct caller allowlist | `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 明明沒設，direct Function 卻還是只允許 APIM managed identity | 用 Azure CLI bearer token 驗 `initialize` 時收到 `403`，但 Function `/.well-known/oauth-protected-resource` 又是好的 | allowlist 必須維持**真正 optional**；只有明確設定 direct caller allowlist 時，才附帶把 APIM managed identity 加進去 |
 | Flex private deploy | Flex Consumption 不能直接用通用 Kudu zip publish | `/api/publish?type=zip` 失敗，或 private SCM 行為和預期不同 | 對 private SCM 使用 `POST /api/publish?RemoteBuild=<bool>&Deployer=az_cli`，並以 `Content-Type: application/zip` + Bearer token 發佈 |
 | 公司 proxy + private endpoint | 要求被公司 proxy 轉送到公網 | `403 Ip Forbidden`、proxy `CONNECT`、TLS / revocation 錯誤 | 把 Function App / SCM host 加進 `NO_PROXY`；診斷時可先用 `curl --noproxy '*'` |
+| Claude Code 設定來源漂移 | 一開始把 repo 內的 `.claude\mcp.json` 當成實際載入來源，或把本地 `.\.mcp.json` 誤送進版控 | 明明改了 project-level server，但 Claude Code session 看不到；或 PR 多出本機 MCP 設定 | 記住 Claude Code 實際看的是**本地** `.\.mcp.json`，不是 `.claude\mcp.json`；`.\.mcp.json` 不進版控，改完後還要重開 project / session（`y94`） |
 | Copilot CLI remote header 參照 | remote header 需要依賴 shell 內已存在的 access token | APIM-backed server 連線失敗或 token 過期 | 先在當前 shell 刷新 `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN`，再啟動 Copilot CLI / Claude Code；不要把短效 token 寫死在 JSON 設定裡 |
 | 遠端 `/mcp` 回應型態 | 直接把回應當純 JSON 或純 SSE 解析 | `ConvertFrom-Json` 失敗，或同一套 parser 在 `initialize` 與 `tools/call` 間不穩定 | parser 要同時接受 **plain JSON** 與 **SSE `data:`**；不要先假設只有一種格式 |
 | 遠端 tool result 形狀 | 只讀 `result.structuredContent` | `generate_pptx_attachment` 明明成功，卻拿不到 `generatedAttachmentId` | 某些 remote path / client 下，tool payload 可能被包在 `result.content[0].text` 的 JSON 字串；diagnostic script 要有 fallback parse |
