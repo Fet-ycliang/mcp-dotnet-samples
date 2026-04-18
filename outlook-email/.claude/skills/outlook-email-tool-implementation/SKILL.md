@@ -16,9 +16,12 @@ description: |
 | --- | --- |
 | `src\McpSamples.OutlookEmail.HybridApp\Tools\OutlookEmailTool.cs` | `send_email` MCP 工具對外介面、參數描述，以及將例外轉為結果 |
 | `src\McpSamples.OutlookEmail.HybridApp\Services\OutlookEmailService.cs` | 郵件驗證、sender / replyTo allowlist、收件者拆分、Graph API 呼叫、payload 建立 |
+| `src\McpSamples.OutlookEmail.HybridApp\Tools\PptxPresentationTool.cs` | `generate_pptx_attachment` MCP 工具介面、參數描述與結果回傳 |
+| `src\McpSamples.OutlookEmail.HybridApp\Services\PptxPresentationService.cs` | PPTX 投影片驗證、Open XML 產生與 server-side attachment 暫存 |
 | `src\McpSamples.OutlookEmail.HybridApp\Tools\XlsxAttachmentTool.cs` | `generate_xlsx_attachment` MCP 工具介面、參數描述與結果回傳 |
 | `src\McpSamples.OutlookEmail.HybridApp\Services\XlsxAttachmentService.cs` | XLSX 工作表 / 資料表 / 圖表驗證、Open XML 產生與 server-side attachment 暫存 |
 | `src\McpSamples.OutlookEmail.HybridApp\Models\OutlookEmailResult.cs` | `send_email` 工具回傳模型 |
+| `src\McpSamples.OutlookEmail.HybridApp\Models\Pptx*.cs` | PowerPoint 附件輸入 / 輸出模型 |
 | `src\McpSamples.OutlookEmail.HybridApp\Models\Xlsx*.cs` | Excel 附件輸入 / 輸出模型 |
 | `src\McpSamples.OutlookEmail.HybridApp\Program.cs` | `GraphServiceClient` 與各 tool service 註冊 |
 | `src\McpSamples.OutlookEmail.HybridApp\Configurations\OutlookEmailAppSettings.cs` | 認證參數來源 |
@@ -40,6 +43,14 @@ description: |
 3. `generatedAttachmentIds` 目前同時支援 `generate_pptx_attachment` 與 `generate_xlsx_attachment`；若修改這條路徑，記得同步更新 tool 描述與 README 範例。
 4. 收件者目前支援逗號與分號分隔；若要修改，必須保留或明確更新這項規則。
 5. 若有調整 `AllowedSenders` 或 `AllowedReplyTo` 驗證，記得同步更新 `local.settings.sample.json` 與 `README.md`。
+
+### 調整 PPTX 產生邏輯時
+
+1. 主要修改 `PptxPresentationService.GenerateAttachmentAsync(...)` 與相關 layout / validation 流程。
+2. 目前 baseline 是 **封面頁不帶 footer**、內容頁才帶 deck title + page number；若要改模板，請同步更新 `README.md`、相關 skill 與驗收基準。
+3. Open XML packaging 不要把 `ThemePart` 再掛回 `PresentationPart`，也不要自己手寫 slide relationship ID；交給 SDK 自動指派。
+4. 若調整內容框大小、字級或文字上限，記得保留 auto-fit，或同步收緊 validation；否則 deck 雖然能開，但長標題 / bullets 可能被裁掉。
+5. `generate_pptx_attachment` 的輸出同樣會進 `GeneratedAttachmentStore`；若調整 `generatedAttachmentId` 的生命週期、附件 metadata 或回傳模型，也要同步檢查 `send_email` 與 `Models\Pptx*.cs`。
 
 ### 調整 XLSX 產生邏輯時
 
