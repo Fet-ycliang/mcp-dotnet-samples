@@ -134,6 +134,9 @@ azd up
 ### APIM internal / private 快速記憶點（2026-04）
 
 - `MCP_OAUTH_*` 是 **APIM inbound OAuth**；`MCP_ENTRA_*` 或 managed identity 是 **Function App outbound Graph auth**
+- 目前 live frontend 是 **private-only ingress**：Function App 走 **Private Link / private endpoint**，APIM 走 **Internal VNet + private DNS**
+- 若有人要求「frontend 都走 private link」，先確認他是泛指私網入口，還是嚴格要求 **APIM 也必須改成 Azure Private Link / private endpoint**；目前這份 template 的 APIM 路徑是 internal injection，不是 APIM inbound private endpoint
+- 這個結論是 **live azd env** 的現況，不是 repo default；目前能成立是因為環境已把 `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true` 與 `AZURE_APIM_INTERNAL_VNET=true` 打開
 - 若呼叫端是 **Copilot CLI / Claude Code**，通常走 delegated `user_impersonation`
 - 若呼叫端是 **Databricks / job / daemon / 外部平台**，應走 **OAuth Machine to Machine**，並以 `api://<MCP_OAUTH_CLIENT_ID>/.default` 取得 app-only token
 - 外部平台 UI 若出現 **Host / Port / Client ID / Client secret / OAuth scope**：
