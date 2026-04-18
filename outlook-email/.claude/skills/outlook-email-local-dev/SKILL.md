@@ -26,6 +26,17 @@ description: |
 3. 如果要執行 HTTP 模式，**一定要保留 `--` 分隔符號**，再接 `--http` 與其他參數。
 4. 若不想把認證資料放在命令列，請改用 `dotnet user-secrets`。
 5. 若要模擬本機 Function App 真實寄信，請在 `local.settings.json` 設定 `AllowedSenders__0`；若測試會帶 `replyTo`，再額外設定 `AllowedReplyTo__0`。
+6. 若要驗證簡報附件流程，先確認 `tools/list` 看得到 `generate_pptx_attachment`，再走 `generate_pptx_attachment -> send_email.generatedAttachmentIds`。
+
+## 本機驗證簡報附件時的內容整理原則
+
+- `generate_pptx_attachment` 現在會輸出較接近商務模板的版型，但它不會自動幫你把測試文字改寫成主管簡報。
+- 若要驗證「輸出看起來是否專業」，請用**商務語氣**準備 `slides`：
+  1. 第一張用 `kind=title`
+  2. 內容頁的 `title` 寫成結論句
+  3. `body` 先放 1-2 句摘要
+  4. `bullets` 再放支撐點、影響與建議
+- 若只是做工具穩定性驗證，可以保留技術字句；若是要看視覺效果，請改用正式簡報語氣，不要直接塞 `E2E 成功`、`validator 0 errors` 這類字串。
 
 ## 常用指令
 
@@ -61,8 +72,9 @@ dotnet user-secrets --project .\src\McpSamples.OutlookEmail.HybridApp set EntraI
 - 參數沒有生效：先看 `OutlookEmailAppSettings.ParseMore(...)` 是否正確解析，並確認命令列保留 `--`。
 - 認證失敗：先確認是否提供 tenant/client/client secret，或目前環境是否預期走 Managed Identity。
 - `sender` / `replyTo` 被拒絕：先檢查 `local.settings.json` 中的 `AllowedSenders__N`、`AllowedReplyTo__N`。
+- `generate_pptx_attachment` 看不到：先確認目前 build 已包含 `Tools\PptxPresentationTool.cs`，再用本機 `tools/list` 驗證 assembly scanning 是否正常。
 - 若只想切開「Graph 認證有沒有問題」與「MCP transport 有沒有問題」：先回到 `outlook-email` 根目錄，再改用 `.\.claude\outlook-email-sendmail-e2e\scripts\send-test-mail.ps1` 直接寄測試信。
-- 如果要做真實寄信與附件驗證，優先改用 `outlook-email-sendmail-e2e` skill。
+- 如果要做真實寄信與附件驗證，優先改用 `outlook-email-sendmail-e2e` skill；若附件是投影片內容，先產出 `generatedAttachmentId` 再寄。
 
 ## 修改時的工作原則
 

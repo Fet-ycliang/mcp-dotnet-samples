@@ -35,10 +35,18 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
 {
     private const string DefaultFileName = "presentation.pptx";
     private const string DefaultThemeColorHex = "2F5597";
+    private const string DefaultTitleTextColorHex = "17202A";
     private const string DefaultTextColorHex = "1F1F1F";
     private const string DefaultSecondaryTextColorHex = "5B6573";
+    private const string DefaultSurfaceColorHex = "F7F9FC";
+    private const string DefaultPanelColorHex = "FBFCFE";
+    private const string DefaultBorderColorHex = "DCE3ED";
+    private const string DefaultFooterColorHex = "7B8BA6";
     private const string DefaultContentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
     private const string DefaultLanguage = "zh-TW";
+    private const string DefaultLatinTypeface = "Aptos";
+    private const string DefaultEastAsianTypeface = "Microsoft JhengHei";
+    private const string DefaultComplexScriptTypeface = "Aptos";
     private const int MaxSlides = 20;
     private const int MaxBulletsPerSlide = 8;
     private const int MaxTextLength = 2000;
@@ -247,6 +255,7 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
 
     private static void CreatePresentationParts(PresentationPart presentationPart, IReadOnlyList<NormalizedSlideSpec> slides, string themeColorHex, CancellationToken cancellationToken)
     {
+        var presentationTitle = slides[0].Title;
         var slideMasterIdList = new P.SlideMasterIdList(new P.SlideMasterId
         {
             Id = (UInt32Value)2147483648U,
@@ -274,17 +283,16 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var relationshipId = $"rId{i + 2}";
-            var slidePart = CreateSlidePart(presentationPart, relationshipId, slides[i], themeColorHex);
+            var slidePart = CreateSlidePart(presentationPart, slides[i], presentationTitle, i + 1, slides.Count, themeColorHex);
+            var relationshipId = presentationPart.GetIdOfPart(slidePart) ?? throw new InvalidOperationException("Slide relationship ID is missing.");
             if (i == 0)
             {
                 slideLayoutPart = CreateSlideLayoutPart(slidePart);
                 var slideMasterPart = CreateSlideMasterPart(slideLayoutPart);
-                var themePart = CreateTheme(slideMasterPart, themeColorHex);
+                CreateTheme(slideMasterPart, themeColorHex);
 
                 slideMasterPart.AddPart(slideLayoutPart, "rId1");
                 presentationPart.AddPart(slideMasterPart, "rId1");
-                presentationPart.AddPart(themePart, "rId5");
             }
             else
             {
@@ -299,32 +307,19 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
         }
     }
 
-    private static SlidePart CreateSlidePart(PresentationPart presentationPart, string relationshipId, NormalizedSlideSpec slideSpec, string themeColorHex)
+    private static SlidePart CreateSlidePart(PresentationPart presentationPart, NormalizedSlideSpec slideSpec, string presentationTitle, int slideNumber, int slideCount, string themeColorHex)
     {
-        var slidePart = presentationPart.AddNewPart<SlidePart>(relationshipId);
+        var slidePart = presentationPart.AddNewPart<SlidePart>();
         var shapeTree = CreateBaseShapeTree();
-
-        shapeTree.Append(CreateFilledRectangle(2U, "Accent Bar", 0L, 0L, SlideWidth, ToEmu(0.28), themeColorHex));
 
         switch (slideSpec.Kind)
         {
             case PptxSlideKind.Title:
-                shapeTree.Append(CreateTextShape(3U, "Title", ToEmu(1.10), ToEmu(1.75), SlideWidth - ToEmu(2.20), ToEmu(1.40),
-                                                 [CreateParagraph(slideSpec.Title, 3000, themeColorHex, true, A.TextAlignmentTypeValues.Center)]));
-
-                if (slideSpec.Subtitle is not null)
-                {
-                    shapeTree.Append(CreateTextShape(4U, "Subtitle", ToEmu(1.20), ToEmu(3.10), SlideWidth - ToEmu(2.40), ToEmu(1.00),
-                                                     [CreateParagraph(slideSpec.Subtitle, 1800, DefaultSecondaryTextColorHex, false, A.TextAlignmentTypeValues.Center)]));
-                }
+                AppendTitleSlideShapes(shapeTree, slideSpec, themeColorHex);
                 break;
 
             default:
-                shapeTree.Append(CreateTextShape(3U, "Title", ToEmu(0.85), ToEmu(0.52), SlideWidth - ToEmu(1.70), ToEmu(0.80),
-                                                 [CreateParagraph(slideSpec.Title, 2400, themeColorHex, true)]));
-
-                shapeTree.Append(CreateTextShape(4U, "Body", ToEmu(0.95), ToEmu(1.45), SlideWidth - ToEmu(1.90), ToEmu(5.35),
-                                                 BuildContentParagraphs(slideSpec)));
+                AppendContentSlideShapes(shapeTree, slideSpec, presentationTitle, slideNumber, slideCount, themeColorHex);
                 break;
         }
 
@@ -352,17 +347,81 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
         return shapeTree;
     }
 
+    private static void AppendTitleSlideShapes(P.ShapeTree shapeTree, NormalizedSlideSpec slideSpec, string themeColorHex)
+    {
+        shapeTree.Append(
+            CreateFilledRectangle(2U, "Hero Panel", ToEmu(0.78), ToEmu(1.18), SlideWidth - ToEmu(1.56), ToEmu(2.96), DefaultSurfaceColorHex, DefaultBorderColorHex, 12700),
+            CreateFilledRectangle(3U, "Hero Accent", ToEmu(0.78), ToEmu(1.18), ToEmu(0.12), ToEmu(2.96), themeColorHex),
+            CreateTextShape(4U, "Title", ToEmu(1.08), ToEmu(1.56), SlideWidth - ToEmu(2.36), ToEmu(1.18),
+                            [CreatePresentationTitleParagraph(slideSpec.Title)],
+                            leftInset: ToTextUnits(0.08),
+                            rightInset: ToTextUnits(0.08)));
+
+        if (slideSpec.Subtitle is not null)
+        {
+            shapeTree.Append(CreateTextShape(5U, "Subtitle", ToEmu(1.08), ToEmu(2.88), SlideWidth - ToEmu(2.36), ToEmu(0.78),
+                                             [CreatePresentationSubtitleParagraph(slideSpec.Subtitle)],
+                                             leftInset: ToTextUnits(0.08),
+                                             rightInset: ToTextUnits(0.08)));
+        }
+    }
+
+    private static void AppendContentSlideShapes(P.ShapeTree shapeTree, NormalizedSlideSpec slideSpec, string presentationTitle, int slideNumber, int slideCount, string themeColorHex)
+    {
+        shapeTree.Append(
+            CreateFilledRectangle(2U, "Section Accent", ToEmu(0.80), ToEmu(0.54), ToEmu(0.12), ToEmu(0.64), themeColorHex),
+            CreateTextShape(3U, "Title", ToEmu(1.02), ToEmu(0.48), SlideWidth - ToEmu(2.00), ToEmu(0.82),
+                            [CreateSectionTitleParagraph(slideSpec.Title)]),
+            CreateFilledRectangle(4U, "Content Panel", ToEmu(0.80), ToEmu(1.46), SlideWidth - ToEmu(1.60), ToEmu(4.48), DefaultPanelColorHex, DefaultBorderColorHex, 12700),
+            CreateFilledRectangle(5U, "Panel Accent", ToEmu(0.80), ToEmu(1.46), ToEmu(0.10), ToEmu(4.48), themeColorHex),
+            CreateTextShape(6U, "Body", ToEmu(1.10), ToEmu(1.72), SlideWidth - ToEmu(2.06), ToEmu(3.92),
+                            BuildContentParagraphs(slideSpec),
+                            leftInset: ToTextUnits(0.06),
+                            topInset: ToTextUnits(0.02),
+                            rightInset: ToTextUnits(0.06),
+                            bottomInset: ToTextUnits(0.02)));
+
+        AppendFooter(shapeTree, 7U, presentationTitle, slideNumber, slideCount);
+    }
+
+    private static void AppendFooter(P.ShapeTree shapeTree, uint firstShapeId, string presentationTitle, int slideNumber, int slideCount)
+    {
+        shapeTree.Append(
+            CreateFilledRectangle(firstShapeId, "Footer Divider", ToEmu(0.80), SlideHeight - ToEmu(0.58), SlideWidth - ToEmu(1.60), ToEmu(0.02), DefaultBorderColorHex),
+            CreateTextShape(firstShapeId + 1, "Footer Title", ToEmu(0.80), SlideHeight - ToEmu(0.48), ToEmu(6.30), ToEmu(0.20),
+                            [CreateFooterParagraph(presentationTitle)]),
+            CreateTextShape(firstShapeId + 2, "Footer Page", SlideWidth - ToEmu(1.50), SlideHeight - ToEmu(0.48), ToEmu(0.70), ToEmu(0.20),
+                            [CreateFooterParagraph($"{slideNumber:00}/{slideCount:00}", A.TextAlignmentTypeValues.Right)]));
+    }
+
     private static IEnumerable<A.Paragraph> BuildContentParagraphs(NormalizedSlideSpec slideSpec)
     {
         var paragraphs = new List<A.Paragraph>();
-        paragraphs.AddRange(slideSpec.BodyParagraphs.Select(body => CreateParagraph(body, 1800, DefaultTextColorHex, false)));
-        paragraphs.AddRange(slideSpec.Bullets.Select(bullet => CreateParagraph($"• {bullet}", 1800, DefaultTextColorHex, false)));
+        paragraphs.AddRange(slideSpec.BodyParagraphs.Select(CreateBodyParagraph));
 
-        return paragraphs.Count > 0 ? paragraphs : [CreateParagraph(" ", 1800, DefaultTextColorHex, false)];
+        for (var i = 0; i < slideSpec.Bullets.Length; i++)
+        {
+            paragraphs.Add(CreateBulletParagraph(slideSpec.Bullets[i], addTopSpacing: i == 0 && slideSpec.BodyParagraphs.Length > 0));
+        }
+
+        return paragraphs.Count > 0 ? paragraphs : [CreateBodyParagraph(" ")];
     }
 
-    private static P.Shape CreateFilledRectangle(uint shapeId, string name, long x, long y, long width, long height, string fillColorHex)
+    private static P.Shape CreateFilledRectangle(uint shapeId, string name, long x, long y, long width, long height, string fillColorHex, string? outlineColorHex = null, int outlineWidth = 9525)
     {
+        OpenXmlElement outline = outlineColorHex is null
+                                     ? new A.Outline(new A.NoFill())
+                                     : new A.Outline(new A.SolidFill(new A.RgbColorModelHex
+                                     {
+                                         Val = outlineColorHex
+                                     }))
+                                     {
+                                         Width = outlineWidth,
+                                         CapType = A.LineCapValues.Flat,
+                                         CompoundLineType = A.CompoundLineValues.Single,
+                                         Alignment = A.PenAlignmentValues.Center
+                                     };
+
         return new P.Shape(
             new P.NonVisualShapeProperties(
                 new P.NonVisualDrawingProperties
@@ -395,7 +454,7 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
                 {
                     Val = fillColorHex
                 }),
-                new A.Outline(new A.NoFill())),
+                outline),
             new P.TextBody(
                 new A.BodyProperties(),
                 new A.ListStyle(),
@@ -405,18 +464,21 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
                 })));
     }
 
-    private static P.Shape CreateTextShape(uint shapeId, string name, long x, long y, long width, long height, IEnumerable<A.Paragraph> paragraphs)
+    private static P.Shape CreateTextShape(uint shapeId, string name, long x, long y, long width, long height, IEnumerable<A.Paragraph> paragraphs, int leftInset = 0, int topInset = 0, int rightInset = 0, int bottomInset = 0, A.TextAnchoringTypeValues? anchor = null)
     {
+        var bodyProperties = new A.BodyProperties
+        {
+            Wrap = A.TextWrappingValues.Square,
+            Anchor = anchor ?? A.TextAnchoringTypeValues.Top,
+            LeftInset = leftInset,
+            TopInset = topInset,
+            RightInset = rightInset,
+            BottomInset = bottomInset
+        };
+        bodyProperties.Append(new A.NormalAutoFit());
+
         var textBody = new P.TextBody(
-            new A.BodyProperties
-            {
-                Wrap = A.TextWrappingValues.Square,
-                Anchor = A.TextAnchoringTypeValues.Top,
-                LeftInset = 0,
-                TopInset = 0,
-                RightInset = 0,
-                BottomInset = 0
-            },
+            bodyProperties,
             new A.ListStyle());
         textBody.Append(paragraphs);
 
@@ -453,16 +515,80 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
             textBody);
     }
 
-    private static A.Paragraph CreateParagraph(string text, int fontSize, string colorHex, bool bold, A.TextAlignmentTypeValues? alignment = null)
+    private static A.Paragraph CreatePresentationTitleParagraph(string text)
+        => CreateParagraph(text, 2800, DefaultTitleTextColorHex, true, lineSpacingPercent: 100000, spaceAfterPoints: 700);
+
+    private static A.Paragraph CreatePresentationSubtitleParagraph(string text)
+        => CreateParagraph(text, 1500, DefaultSecondaryTextColorHex, false, lineSpacingPercent: 112000);
+
+    private static A.Paragraph CreateSectionTitleParagraph(string text)
+        => CreateParagraph(text, 2200, DefaultTitleTextColorHex, true, lineSpacingPercent: 100000);
+
+    private static A.Paragraph CreateBodyParagraph(string text)
+        => CreateParagraph(text, 1600, DefaultTextColorHex, false, lineSpacingPercent: 118000, spaceAfterPoints: 800);
+
+    private static A.Paragraph CreateBulletParagraph(string text, bool addTopSpacing = false)
+        => CreateParagraph(text, 1600, DefaultTextColorHex, false, useBullet: true, leftMargin: ToTextUnits(0.36), indent: -ToTextUnits(0.18), lineSpacingPercent: 115000, spaceBeforePoints: addTopSpacing ? 250 : 0, spaceAfterPoints: 550);
+
+    private static A.Paragraph CreateFooterParagraph(string text, A.TextAlignmentTypeValues? alignment = null)
+        => CreateParagraph(text, 900, DefaultFooterColorHex, false, alignment, lineSpacingPercent: 100000);
+
+    private static A.Paragraph CreateParagraph(string text, int fontSize, string colorHex, bool bold, A.TextAlignmentTypeValues? alignment = null, bool useBullet = false, int leftMargin = 0, int indent = 0, int lineSpacingPercent = 110000, int spaceBeforePoints = 0, int spaceAfterPoints = 0)
     {
         var paragraph = new A.Paragraph();
+        var paragraphProperties = new A.ParagraphProperties();
         if (alignment.HasValue)
         {
-            paragraph.ParagraphProperties = new A.ParagraphProperties
-            {
-                Alignment = alignment.Value
-            };
+            paragraphProperties.Alignment = alignment.Value;
         }
+        if (leftMargin != 0)
+        {
+            paragraphProperties.LeftMargin = leftMargin;
+        }
+        if (indent != 0)
+        {
+            paragraphProperties.Indent = indent;
+        }
+
+        paragraphProperties.LineSpacing = new A.LineSpacing(new A.SpacingPercent
+        {
+            Val = lineSpacingPercent
+        });
+
+        if (spaceBeforePoints > 0)
+        {
+            paragraphProperties.SpaceBefore = new A.SpaceBefore(new A.SpacingPoints
+            {
+                Val = spaceBeforePoints
+            });
+        }
+
+        if (spaceAfterPoints > 0)
+        {
+            paragraphProperties.SpaceAfter = new A.SpaceAfter(new A.SpacingPoints
+            {
+                Val = spaceAfterPoints
+            });
+        }
+
+        if (useBullet)
+        {
+            paragraphProperties.Append(
+                new A.BulletFont
+                {
+                    Typeface = DefaultEastAsianTypeface
+                },
+                new A.CharacterBullet
+                {
+                    Char = "•"
+                });
+        }
+        else
+        {
+            paragraphProperties.Append(new A.NoBullet());
+        }
+
+        paragraph.ParagraphProperties = paragraphProperties;
 
         var runProperties = new A.RunProperties
         {
@@ -654,28 +780,28 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
                 new A.MajorFont(
                     new A.LatinFont
                     {
-                        Typeface = "Aptos"
+                        Typeface = DefaultLatinTypeface
                     },
                     new A.EastAsianFont
                     {
-                        Typeface = string.Empty
+                        Typeface = DefaultEastAsianTypeface
                     },
                     new A.ComplexScriptFont
                     {
-                        Typeface = string.Empty
+                        Typeface = DefaultComplexScriptTypeface
                     }),
                 new A.MinorFont(
                     new A.LatinFont
                     {
-                        Typeface = "Aptos"
+                        Typeface = DefaultLatinTypeface
                     },
                     new A.EastAsianFont
                     {
-                        Typeface = string.Empty
+                        Typeface = DefaultEastAsianTypeface
                     },
                     new A.ComplexScriptFont
                     {
-                        Typeface = string.Empty
+                        Typeface = DefaultComplexScriptTypeface
                     }))
             {
                 Name = "Office"
@@ -686,9 +812,14 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
                     {
                         Val = A.SchemeColorValues.PhColor
                     }),
-                    new A.NoFill(),
-                    new A.PatternFill(),
-                    new A.GroupFill()),
+                    new A.SolidFill(new A.SchemeColor
+                    {
+                        Val = A.SchemeColorValues.Accent1
+                    }),
+                    new A.SolidFill(new A.SchemeColor
+                    {
+                        Val = A.SchemeColorValues.Accent2
+                    })),
                 new A.LineStyleList(
                     new A.Outline(
                         new A.SolidFill(new A.SchemeColor
@@ -704,8 +835,41 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
                         CapType = A.LineCapValues.Flat,
                         CompoundLineType = A.CompoundLineValues.Single,
                         Alignment = A.PenAlignmentValues.Center
+                    },
+                    new A.Outline(
+                        new A.SolidFill(new A.SchemeColor
+                        {
+                            Val = A.SchemeColorValues.Accent1
+                        }),
+                        new A.PresetDash
+                        {
+                            Val = A.PresetLineDashValues.Solid
+                        })
+                    {
+                        Width = 25400,
+                        CapType = A.LineCapValues.Flat,
+                        CompoundLineType = A.CompoundLineValues.Single,
+                        Alignment = A.PenAlignmentValues.Center
+                    },
+                    new A.Outline(
+                        new A.SolidFill(new A.SchemeColor
+                        {
+                            Val = A.SchemeColorValues.Accent2
+                        }),
+                        new A.PresetDash
+                        {
+                            Val = A.PresetLineDashValues.Solid
+                        })
+                    {
+                        Width = 38100,
+                        CapType = A.LineCapValues.Flat,
+                        CompoundLineType = A.CompoundLineValues.Single,
+                        Alignment = A.PenAlignmentValues.Center
                     }),
-                new A.EffectStyleList(new A.EffectStyle(new A.EffectList())),
+                new A.EffectStyleList(
+                    new A.EffectStyle(new A.EffectList()),
+                    new A.EffectStyle(new A.EffectList()),
+                    new A.EffectStyle(new A.EffectList())),
                 new A.BackgroundFillStyleList(
                     new A.SolidFill(new A.SchemeColor
                     {
@@ -714,6 +878,10 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
                     new A.SolidFill(new A.RgbColorModelHex
                     {
                         Val = "FFFFFF"
+                    }),
+                    new A.SolidFill(new A.SchemeColor
+                    {
+                        Val = A.SchemeColorValues.Accent6
                     })))
             {
                 Name = "Office"
@@ -729,6 +897,8 @@ public class PptxPresentationService(IGeneratedAttachmentStore generatedAttachme
     }
 
     private static long ToEmu(double inches) => (long)Math.Round(inches * 914400d);
+
+    private static int ToTextUnits(double inches) => checked((int)ToEmu(inches));
 
     private static string FormatBinarySize(int sizeInBytes)
     {

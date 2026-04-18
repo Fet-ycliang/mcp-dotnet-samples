@@ -3,13 +3,22 @@
     {
       "type": "promptString",
       "id": "acaapp-server-fqdn",
-      "description": "Azure Container Apps FQDN"
+      "description": "DEBUG ONLY: direct Azure Container Apps ingress FQDN (bypasses APIM)"
+    },
+    {
+      "type": "promptString",
+      "id": "acaapp-access-token",
+      "description": "DEBUG ONLY: bearer token for the same MCP OAuth resource/scope used by APIM",
+      "password": true
     }
   ],
   "servers": {
     "outlook-email": {
       "type": "http",
-      "url": "https://${input:acaapp-server-fqdn}/mcp"
+      "url": "https://${input:acaapp-server-fqdn}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${input:acaapp-access-token}"
+      }
     }
   }
 }

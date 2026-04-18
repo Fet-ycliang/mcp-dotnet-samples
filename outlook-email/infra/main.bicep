@@ -124,6 +124,9 @@ param apimSku string = 'Basicv2'
 @description('Whether to configure the MCP API facade and OAuth app objects inside APIM. Set false to deploy APIM networking/private DNS first and defer OAuth later.')
 param deployApimMcpApi bool = true
 
+@description('Optional. Existing Container App name that the APIM MCP facade should forward to. Leave empty to keep the Function App backend.')
+param apimBackendContainerAppName string = ''
+
 @maxLength(50)
 @description('Optional explicit API Management service name. Must use a valid APIM service name and is ignored when deployApim is false. Leave empty to use the standard derived APIM naming pattern.')
 param apimNameOverride string = ''
@@ -204,6 +207,7 @@ module resources 'resources.bicep' = {
     deployApim: deployApim
     apimSku: apimSku
     deployApimMcpApi: deployApimMcpApi
+    apimBackendContainerAppName: apimBackendContainerAppName
     apimNameOverride: apimNameOverride
     apimInternalVirtualNetwork: apimInternalVirtualNetwork
     apimSubnetName: apimSubnetName
@@ -224,4 +228,5 @@ output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = resources.outputs.AZURE_RE
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN
 output AZURE_RESOURCE_GROUP string = targetResourceGroupName

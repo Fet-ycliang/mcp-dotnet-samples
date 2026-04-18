@@ -98,6 +98,9 @@
       "deployApimMcpApi": {
         "value": "${AZURE_DEPLOY_APIM_MCP_API=true}"
       },
+      "apimBackendContainerAppName": {
+        "value": "${AZURE_APIM_BACKEND_CONTAINER_APP_NAME=}"
+      },
       "apimNameOverride": {
         "value": "${AZURE_APIM_NAME=}"
       },

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "6215934667323794435"
+      "templateHash": "1298424914285415656"
     }
   },
   "parameters": {
@@ -254,6 +254,13 @@
         "description": "Whether to configure the MCP API facade and OAuth app objects inside APIM. Set false to deploy APIM networking/private DNS first and defer OAuth later."
       }
     },
+    "apimBackendContainerAppName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional. Existing Container App name that the APIM MCP facade should forward to. Leave empty to keep the Function App backend."
+      }
+    },
     "apimNameOverride": {
       "type": "string",
       "defaultValue": "",
@@ -421,6 +428,9 @@
           "deployApimMcpApi": {
             "value": "[parameters('deployApimMcpApi')]"
           },
+          "apimBackendContainerAppName": {
+            "value": "[parameters('apimBackendContainerAppName')]"
+          },
           "apimNameOverride": {
             "value": "[parameters('apimNameOverride')]"
           },
@@ -451,7 +461,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "18192197130516088969"
+              "templateHash": "1775944563397766825"
             }
           },
           "parameters": {
@@ -634,6 +644,13 @@
               "defaultValue": true,
               "metadata": {
                 "description": "Whether to configure the MCP API facade and OAuth app objects inside APIM. Set false to deploy APIM networking/private DNS first and defer OAuth later."
+              }
+            },
+            "apimBackendContainerAppName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional. Existing Container App name that the APIM MCP facade should forward to. Leave empty to keep the Function App backend."
               }
             },
             "apimNameOverride": {
@@ -901,6 +918,13 @@
               "type": "Microsoft.Network/virtualNetworks",
               "apiVersion": "2024-05-01",
               "name": "[variables('virtualNetworkName')]"
+            },
+            "apimBackendContainerApp": {
+              "condition": "[not(empty(parameters('apimBackendContainerAppName')))]",
+              "existing": true,
+              "type": "Microsoft.App/containerApps",
+              "apiVersion": "2023-05-02-preview",
+              "name": "[parameters('apimBackendContainerAppName')]"
             },
             "sharedFunctionAppPrivateDnsZone": {
               "condition": "[and(and(variables('useSharedPrivateDnsZones'), parameters('deployFunctionAppPrivateEndpoint')), variables('canDeployPrivateEndpoints'))]",
@@ -7235,6 +7259,7 @@
                   "functionAppName": {
                     "value": "[variables('functionAppName')]"
                   },
+                  "backendUrl": "[if(not(empty(parameters('apimBackendContainerAppName'))), createObject('value', format('https://{0}/', if(not(empty(parameters('apimBackendContainerAppName'))), reference('apimBackendContainerApp').configuration.ingress.fqdn, reference('fncapp').outputs.fqdn.value))), createObject('value', ''))]",
                   "mcpAppId": "[if(variables('reuseExistingMcpOauthApp'), createObject('value', parameters('existingMcpOauthClientId')), createObject('value', reference('mcpEntraApp').outputs.mcpAppId.value))]",
                   "mcpAppTenantId": "[if(variables('reuseExistingMcpOauthApp'), createObject('value', parameters('existingMcpOauthTenantId')), createObject('value', reference('mcpEntraApp').outputs.mcpAppTenantId.value))]",
                   "backendManagedIdentityClientId": {
@@ -7248,7 +7273,7 @@
                     "_generator": {
                       "name": "bicep",
                       "version": "0.39.26.7824",
-                      "templateHash": "15894377363519659383"
+                      "templateHash": "3727907341381031113"
                     }
                   },
                   "parameters": {
@@ -7262,6 +7287,13 @@
                       "type": "string",
                       "metadata": {
                         "description": "The name of the App Service hosting the MCP endpoints"
+                      }
+                    },
+                    "backendUrl": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Optional explicit backend base URL for the MCP API facade. When provided, APIM forwards to this URL instead of the Function App hostname."
                       }
                     },
                     "mcpAppId": {
@@ -7340,7 +7372,7 @@
                         "protocols": [
                           "https"
                         ],
-                        "serviceUrl": "[format('https://{0}/', reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-12-01').defaultHostName)]"
+                        "serviceUrl": "[if(empty(parameters('backendUrl')), format('https://{0}/', reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-12-01').defaultHostName), parameters('backendUrl'))]"
                       }
                     },
                     {
@@ -7429,11 +7461,16 @@
                     "mcpAppTenantId": {
                       "type": "string",
                       "value": "[parameters('mcpAppTenantId')]"
+                    },
+                    "backendUrl": {
+                      "type": "string",
+                      "value": "[if(empty(parameters('backendUrl')), format('https://{0}/', reference(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '2023-12-01').defaultHostName), parameters('backendUrl'))]"
                     }
                   }
                 }
               },
               "dependsOn": [
+                "apimBackendContainerApp",
                 "apimGatewayAppRoleAssignment",
                 "apimService",
                 "fncapp",
@@ -35337,6 +35374,10 @@
             "AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN": {
               "type": "string",
               "value": "[if(parameters('deployApim'), replace(reference('apimService').outputs.gatewayUrl.value, 'https://', ''), '')]"
+            },
+            "AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN": {
+              "type": "string",
+              "value": "[if(variables('deployApimFacade'), if(not(empty(parameters('apimBackendContainerAppName'))), reference('apimBackendContainerApp').configuration.ingress.fqdn, reference('fncapp').outputs.fqdn.value), '')]"
             }
           }
         }
@@ -35370,6 +35411,10 @@
     "AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN": {
       "type": "string",
       "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('targetResourceGroupName')), 'Microsoft.Resources/deployments', 'resources'), '2025-04-01').outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN.value]"
+    },
+    "AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('targetResourceGroupName')), 'Microsoft.Resources/deployments', 'resources'), '2025-04-01').outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN.value]"
     },
     "AZURE_RESOURCE_GROUP": {
       "type": "string",
