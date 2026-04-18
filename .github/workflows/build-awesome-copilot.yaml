@@ -7,6 +7,8 @@ on:
 
 jobs:
   build-and-push-image-stdio:
+    # GitHub cannot scope on.schedule by repository in YAML, so forks get a skipped run unless manually dispatched.
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'microsoft/mcp-dotnet-samples'
     uses: ./.github/workflows/build-container.yaml
 
     strategy:
