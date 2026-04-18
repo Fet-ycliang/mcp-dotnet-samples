@@ -2,7 +2,7 @@
 name: outlook-email-mcp-host-setup
 description: |
   outlook-email 的 MCP host/client 設定與排錯指引。用於 Claude Code、Copilot CLI、VS Code 連到 APIM-backed remote MCP server；目前正式路徑以 APIM inbound OAuth、Bearer token、NO_PROXY 與 SSE 除錯為主，stdio / localhost 配置只保留做 UT 與開發參考。
-  觸發詞："Claude Code", "Copilot CLI", ".claude/mcp.json", "mcp-config.json", "Bearer token", "Authorization", "NO_PROXY", "Connecting", "remote MCP", "APIM"。
+  觸發詞："Claude Code", "Copilot CLI", ".mcp.json", ".claude/mcp.json", "mcp-config.json", "Bearer token", "Authorization", "NO_PROXY", "Connecting", "remote MCP", "APIM"。
 ---
 
 # Outlook Email MCP host/client 設定與排錯
@@ -15,17 +15,21 @@ description: |
 | --- | --- |
 | `README.md` | 人類操作主文件，包含 MCP host/client 的入口說明與踩雷紀錄 |
 | `.vscode\mcp*.json` | VS Code / Agent Mode 連線模板 |
-| `.claude\mcp.json` | Claude Code 使用的正式 APIM remote MCP 設定（手動 Bearer header） |
+| `.mcp.json` | Claude Code 使用的**本地** project-level MCP 設定（不進版控）；這個 repo 的 project code 是 `y94` |
+| `.claude\mcp.json` | APIM remote header 參考範例（手動 Bearer header）；不是目前 Claude Code 的 project-level 載入入口 |
 | `~\.copilot\mcp-config.json` | Copilot CLI 使用的 MCP 設定（不在 repo 內） |
 
 ## 設定原則
 
 1. **VS Code**：APIM 路徑優先使用 `.vscode\mcp.http.remote-apim.json`
-2. **Claude Code**：正式使用 `outlook-email\.claude\mcp.json` 內的 `outlook-email`
-3. **Copilot CLI**：正式使用 `~/.copilot/mcp-config.json` 內的 `outlook-email`
-4. localhost / UT 參考改看 `.vscode\mcp.http.local-func.json`、`.vscode\mcp.stdio.local.json`，不是 `.claude\mcp.json` 的預設遠端路徑
+2. **Claude Code**：正式使用 repo 根目錄的本地 `.\.mcp.json` 內的 `mcpServers`；這個 repo 的 project code 是 `y94`
+3. 若要在 Claude Code 新增或調整 project-level MCP server（例如 `databricks-genie`），請直接改你本地的 `.\.mcp.json`
+4. `.\.mcp.json` 的變更不會在既有 Claude Code session 內熱載入；改完後請重開該 repo 的 Claude Code project / session（`y94`）
+5. **Copilot CLI**：正式使用 `~\.copilot\mcp-config.json` 內的 `outlook-email`
+6. localhost / UT 參考改看 `.vscode\mcp.http.local-func.json`、`.vscode\mcp.stdio.local.json`，不是 `.\.mcp.json` 的正式遠端路徑
+7. `.claude\mcp.json` 目前保留作 APIM remote header 參考範例，不是 Claude Code 現在的 project-level 載入入口
 
-> 目前 repo 內的 `.claude\mcp.json` 以 live APIM `https://apim-fet-outlook-email.azure-api.net/mcp` 當預設例子；換環境時請改成對應 `https://<apim-fqdn>/mcp`。
+> 目前 repo 內的 `.claude\mcp.json` 以 live APIM `https://apim-fet-outlook-email.azure-api.net/mcp` 當預設例子；換環境時請改成對應 `https://<apim-fqdn>/mcp`。若你是在維護 Claude Code project-level server 清單，請改你本地的 `.\.mcp.json`，而且這份檔案不進版控。
 
 ## APIM remote MCP 連線必要條件
 
@@ -33,7 +37,7 @@ description: |
 
 若設定檔使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`，請在**啟動 Claude Code / Copilot CLI 的同一個 shell** 先刷新 token。
 
-目前 repo 內的 `.claude\mcp.json` 維持手動 Bearer header，因此 Claude Code 啟動前也需要先刷新這個 token。
+目前 repo 內的 `.claude\mcp.json` 是這類手動 Bearer header 的 APIM 範例；若你在 `.\.mcp.json` 內也採用相同做法，Claude Code 啟動前同樣需要先刷新這個 token。
 
 ```powershell
 $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
@@ -120,7 +124,7 @@ curl.exe --noproxy '*' -i -sS `
 
 ## 何時用這個技能
 
-- 設定 Claude Code 的 `.claude\mcp.json`
+- 設定 Claude Code 的 `.\.mcp.json`
 - 設定 Copilot CLI 的 `mcp-config.json`
 - 遇到 MCP server 一直顯示 `Connecting`
 - 排查 private endpoint / proxy / Bearer token 問題

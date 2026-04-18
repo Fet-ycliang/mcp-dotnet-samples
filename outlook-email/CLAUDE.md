@@ -33,6 +33,8 @@
 | `infra\rebuild-apim.bicep` / `infra\rebuild-apim.parameters.json` | 手動重建 APIM 用（`az deployment group create`）|
 | `..\.github\workflows\build.yaml` / `..\.github\workflows\build-container.yaml` | repo-level GitHub Actions matrix build、GHCR tag 組法與 fail-fast 設定 |
 | `.vscode\mcp*.json` | STDIO / HTTP / Functions / remote MCP 連線模板 |
+| `.mcp.json` | Claude Code 使用的**本地** project-level MCP 設定（不進版控）；這個 repo 的 project code 是 `y94` |
+| `.claude\mcp.json` | APIM remote header 參考範例；不是目前 Claude Code 的 project-level 載入入口 |
 
 ## 常用指令
 
@@ -68,7 +70,9 @@
 - `.vscode\mcp.http.container.json` / `mcp.stdio.container.json`：本機容器
 - `.vscode\mcp.http.remote-func.json`：遠端 Functions
 - `.vscode\mcp.http.remote-apim.json`：遠端 APIM
-- `.claude\mcp.json`：Claude Code 使用的正式 APIM remote MCP 設定（目前以 live APIM `https://apim-fet-outlook-email.azure-api.net/mcp` 當預設例子；換環境時改成對應 `https://<apim-fqdn>/mcp`，手動 Bearer header）
+- `.mcp.json`：Claude Code 使用的**本地** project-level MCP 設定（不進版控）；若要加 project-level server（例如 `databricks-genie`）請改這裡；這個 repo 的 project code 是 `y94`
+- `.mcp.json` 改完後，既有 Claude Code session 不會熱載入；要看新的 server 清單需重開該 repo 的 project / session（`y94`）
+- `.claude\mcp.json`：APIM remote header 參考範例（目前以 live APIM `https://apim-fet-outlook-email.azure-api.net/mcp` 當預設例子）；不是目前 Claude Code 的 project-level 載入入口
 - `~\.copilot\mcp-config.json`：Copilot CLI 使用的 MCP 設定（不在 repo 內）
 
 ## 修改時的工作原則
@@ -105,7 +109,7 @@
 - 目前這個 sample 沒有專屬測試專案；預設驗證基線是 `dotnet build .\McpOutlookEmail.sln`，必要時再補跑 `dotnet run` 或 `func start`。
 - 如果只改程式碼卻沒同步 README、設定範本或腳本，後續本機啟動與部署文件很容易失真。
 - private Function App / SCM 在有公司 proxy 的環境下，通常要補 `NO_PROXY`；否則看起來像是 server 壞了，其實是流量被送去公網。
-- APIM remote MCP 目前使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`；啟動 Claude Code / Copilot CLI 前，先在同一個 shell 刷新 access token。
+- 若 APIM remote MCP 使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`（例如 `.claude\mcp.json` 內的範例），啟動 Claude Code / Copilot CLI 前，先在同一個 shell 刷新 access token。
 - `generate_pptx_attachment` 的建議流程是：先產出 `generatedAttachmentId`，再交給 `send_email.generatedAttachmentIds`；不要在遠端 APIM 路徑搬整份 `.pptx` Base64。
 - `generate_xlsx_attachment` 與 `generate_pptx_attachment` 共用 `send_email.generatedAttachmentIds`；若附件是伺服器端生成，優先傳 `generatedAttachmentId`，不要把整份 `.xlsx` Base64 搬進 remote MCP payload。
 - `generate_xlsx_attachment` 目前是 **chart-first**：`tables[].rows` 每格值都用字串輸入，再依 `columns[].type` 解析；圖表的 `valueColumns` 必須指向 `number` 欄位，且 `pie` 只能指定一個 value column。
