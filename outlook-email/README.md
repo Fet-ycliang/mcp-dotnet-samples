@@ -26,6 +26,7 @@
 
   | 組成元件 | 名稱 | 說明 | 用法 |
   |----------|------|------|------|
+  | Tools | `generate_pptx_attachment` | 根據結構化投影片內容產生 `.pptx` 附件，並回傳可供 `send_email` 使用的附件識別碼。 | `#generate_pptx_attachment` |
   | Tools | `send_email` | 將電子郵件寄送給收件者，並可選擇加入 reply-to 位址與附件。 | `#send_email` |
 
 `send_email` 也接受選用的 `attachments`。每個附件項目應包含：
@@ -45,6 +46,12 @@
 - 每個附件最大 **3 MiB**
 
 若需要更大的附件，必須另外實作大型附件上傳流程；目前 `send_email` 不包含 upload session。
+
+除了直接提供 `attachments` 之外，`send_email` 也支援 `generatedAttachmentIds`。這個欄位用來接收 `generate_pptx_attachment` 產生並暫存在伺服器端的附件識別碼。
+
+- 如果你的流程是 **Databricks Genie 查詢結果 -> LLM / 專業 skill 整理內容 -> 產生 PPTX -> 寄信**，建議優先用這條路徑。
+- 這樣可以避免把整個 `.pptx` 的 Base64 內容放回模型上下文中搬來搬去。
+- `generatedAttachmentIds` 與 `attachments` 可以同時提供，寄信前會合併計算附件總數與大小限制。
 
 範例：
 
@@ -85,6 +92,77 @@
 ```
 
 > 若有設定 `AllowedSenders`，`sender` 必須位於允許清單中。若有設定 `AllowedReplyTo`，`replyTo` 也必須位於允許清單中。
+
+### 建議流程：先產生 PPTX，再用 `send_email` 寄出
+
+對於 **Genie -> LLM -> PPTX -> Email** 這類 workflow，建議將責任切成三段：
+
+1. **資料取得與整理**：先由 Databricks Genie 取回資料，再由 LLM 或專業 skill 整理成 deck outline / slide spec。
+2. **簡報渲染**：呼叫 `generate_pptx_attachment`，只負責把結構化內容轉成 `.pptx`。
+3. **寄送**：把前一步回傳的 `generatedAttachmentId` 放進 `send_email.generatedAttachmentIds`。
+
+`generate_pptx_attachment` 本身不負責推論商業內容，也不會替你補齊分析結論；它應該吃的是**已經整理好的投影片結構**。
+
+#### `generate_pptx_attachment` 輸入重點
+
+- `slides`：必要欄位，陣列中的每一項代表一張投影片。
+- `kind`：目前支援 `title` 與 `content`。
+- `title`：每張投影片都需要。
+- `subtitle`：只用於 `title` 頁。
+- `body`：內容頁內文，可用換行切成多段。
+- `bullets`：內容頁條列項目。
+- `fileName`：選填，若未提供 `.pptx` 副檔名會自動補上。
+- `themeColorHex`：選填，6 位十六進位色碼，例如 `2F5597`。
+
+#### `generate_pptx_attachment` 範例 payload
+
+```json
+{
+  "fileName": "genie-summary",
+  "themeColorHex": "2F5597",
+  "slides": [
+    {
+      "kind": "title",
+      "title": "Q2 業務摘要",
+      "subtitle": "依據 Genie 查詢結果整理"
+    },
+    {
+      "kind": "content",
+      "title": "關鍵發現",
+      "bullets": [
+        "營收年增 12%",
+        "APAC 是最高成長區域",
+        "庫存老化風險需要持續追蹤"
+      ]
+    }
+  ]
+}
+```
+
+成功時會回傳：
+
+- `generatedAttachmentId`
+- `name`
+- `contentType`
+- `slideCount`
+- `sizeBytes`
+- `expiresInMinutes`
+
+#### 搭配 `send_email` 的範例 payload
+
+```json
+{
+  "title": "Q2 業務摘要簡報",
+  "body": "請參考附件中的 Genie 摘要簡報。",
+  "sender": "shared-mailbox@contoso.com",
+  "recipients": "alice@contoso.com; bob@contoso.com",
+  "generatedAttachmentIds": [
+    "272c74fbe1644522b85711c6672f7420"
+  ]
+}
+```
+
+> `generatedAttachmentId` 只會在伺服器端暫存一段時間。若已過期，請重新呼叫 `generate_pptx_attachment`。
 
 <a id="getting-started"></a>
 ## 開始使用
@@ -302,10 +380,77 @@
     docker run -i --rm -p 8080:8080 outlook-email:latest --http -t "{{TENANT_ID}}" -c "{{CLIENT_ID}}" -s "{{CLIENT_SECRET}}"
     ```
 
-    ```bash
-    # 使用容器登錄中的容器映像
-    docker run -i --rm -p 8080:8080 ghcr.io/microsoft/mcp-dotnet-samples/outlook-email:latest --http -t "{{TENANT_ID}}" -c "{{CLIENT_ID}}" -s "{{CLIENT_SECRET}}"
-    ```
+     ```bash
+     # 使用容器登錄中的容器映像
+     docker run -i --rm -p 8080:8080 ghcr.io/microsoft/mcp-dotnet-samples/outlook-email:latest --http -t "{{TENANT_ID}}" -c "{{CLIENT_ID}}" -s "{{CLIENT_SECRET}}"
+     ```
+
+##### 推送到 ACR 的建議命名規則
+
+若你要把這個 sample 的容器映像推到 **Azure Container Registry (ACR)**，建議使用下列格式：
+
+`<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`
+
+- `fet-mcp-server-dotnet`：固定 repository root
+- `branch-path`：用 repository path 模擬 branch 分目錄，例如 `main`、`develop`、`feature/pptx-mailer`
+- `utc-timestamp`：建議使用 UTC `yyyyMMdd-HHmmss`，例如 `20260418-101011`
+
+> ACR / OCI tag 是平的；若要做 branch 分目錄，請把 branch 放在 **repository path**，不要塞進 tag。
+
+| Branch | 完整 image ref 範例 |
+| --- | --- |
+| `main` | `myacr.azurecr.io/fet-mcp-server-dotnet/main:20260418-101011` |
+| `develop` | `myacr.azurecr.io/fet-mcp-server-dotnet/develop:20260418-101011` |
+| `feature/pptx-mailer` | `myacr.azurecr.io/fet-mcp-server-dotnet/feature/pptx-mailer:20260418-101011` |
+| `release/2026-04` | `myacr.azurecr.io/fet-mcp-server-dotnet/release/2026-04:20260418-101011` |
+
+```bash
+# bash / zsh
+ACR_LOGIN_SERVER="myacr.azurecr.io"
+IMAGE_NAME="fet-mcp-server-dotnet"
+BRANCH_NAME="${GITHUB_REF_NAME:-main}"
+
+BRANCH_PATH=$(echo "$BRANCH_NAME" \
+  | tr '[:upper:]' '[:lower:]' \
+  | sed 's#^refs/heads/##' \
+  | sed 's#[^a-z0-9/_\.-]#-#g' \
+  | sed 's#//*#/#g' \
+  | sed 's#^/*##; s#/*$##')
+
+TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
+IMAGE_REF="${ACR_LOGIN_SERVER}/${IMAGE_NAME}/${BRANCH_PATH}:${TIMESTAMP}"
+
+docker build -t "$IMAGE_REF" -f Dockerfile.outlook-email .
+docker push "$IMAGE_REF"
+```
+
+```powershell
+# PowerShell
+$acrLoginServer = "myacr.azurecr.io"
+$imageName = "fet-mcp-server-dotnet"
+$branchName = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "main" }
+
+$branchPath = $branchName.ToLower()
+$branchPath = $branchPath -replace "^refs/heads/", ""
+$branchPath = [regex]::Replace($branchPath, "[^a-z0-9/_\.-]", "-")
+$branchPath = [regex]::Replace($branchPath, "/+", "/").Trim("/")
+
+$timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmss")
+$imageRef = "$acrLoginServer/$imageName/$branchPath`:$timestamp"
+
+docker build -t $imageRef -f Dockerfile.outlook-email .
+docker push $imageRef
+```
+
+##### ACR 命名這段常見踩雷
+
+| 踩雷點 | 常見症狀 | 建議做法 |
+| --- | --- | --- |
+| 把 branch 塞進 tag | `docker build -t ...` / `docker push` 出現 `invalid reference format` | branch 分目錄放在 repository path，例如 `fet-mcp-server-dotnet/feature/pptx-mailer:20260418-101011` |
+| 直接拿 Git branch 名稱組 image ref | `refs/heads/main`、大寫、空白、`#`、中文等字元造成 ref 非法或不一致 | 先轉小寫、移除 `refs/heads/`，其餘不安全字元轉成 `-` |
+| 用本地時區當 tag | 跨時區比對版本時很難對帳 | tag 一律用 UTC `yyyyMMdd-HHmmss` |
+| 同一秒內產出多個映像 | 後推的映像覆蓋前一個 tag | 若 CI 有高併發需求，可改成 `yyyyMMdd-HHmmss-<short-sha>` |
+| 把 `azd up` 當成 ACR build/push 流程 | 以為目前 sample 會自動產出自訂 ACR image | 這個 sample 的 `azure.yaml` 目前是 `host: function`；若要控制 ACR image naming，請改走手動 `docker build/push` 或 CI pipeline |
 
 <a id="on-azure"></a>
 #### 在 Azure 上
@@ -341,6 +486,8 @@
 
     在佈建與部署過程中，系統會要求提供 subscription ID、location 與 環境名稱。
 
+    > 目前 `azure.yaml` 仍以 `host: function` 為主，所以 `azd up` / `azd deploy` 走的是 Azure Functions 佈建與部署流程，不會自動幫你推 `fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>` 到 ACR。若你要採用上面的 ACR 命名規則，請改走手動 `docker build` / `docker push` 或你自己的 CI pipeline。
+
 ##### 上版後自動驗證（Asia/Taipei）
 
 - `azure.yaml` 已替 `outlook-email` service 掛上 **`postdeploy` hook**：`src/McpSamples.OutlookEmail.HybridApp/hooks/postdeploy-validate-mcp.ps1`
@@ -353,8 +500,8 @@
 | --- | --- | --- | --- |
 | MCP metadata | `GET /.well-known/oauth-protected-resource` | `200`，且 resource host 等於 Function App host | 是 |
 | MCP transport | `POST /mcp` with `initialize` | `200` | 是 |
-| MCP discovery | `POST /mcp` with `tools/list` | `200`，且包含 `send_email` | 是 |
-| Tool existence | `send_email` 是否可被列出 | `tools/list` 內可見 | 是 |
+| MCP discovery | `POST /mcp` with `tools/list` | `200`，且包含 `send_email` 與 `generate_pptx_attachment` | 是 |
+| Tool existence | `send_email` / `generate_pptx_attachment` 是否可被列出 | `tools/list` 內可見 | 是 |
 | 業務破壞性測試 | `send_email` 真實寄信 | 成功或依測試案例失敗 | 否，建議在受控信箱做 |
 
 驗證 hook 取 token 的優先順序：
@@ -1073,11 +1220,13 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | 自動 smoke test | direct Function `/.well-known/oauth-protected-resource` | `200` | `azd deploy` / `azd up` 後由 `postdeploy` hook 自動執行 |
 | 自動 smoke test | direct Function `initialize` | `200` | 同上 |
-| 自動 smoke test | direct Function `tools/list` | `200` 且包含 `send_email` | 同上 |
+| 自動 smoke test | direct Function `tools/list` | `200` 且包含 `send_email` 與 `generate_pptx_attachment` | 同上 |
 | 手動安全測試 | `sender` 不在 allowlist | 應被拒絕 | 受控環境手動測 |
 | 手動安全測試 | `replyTo` 不在 allowlist | 應被拒絕 | 受控環境手動測 |
 | 手動資料驗證 | 附件 Base64 非法 | 應被拒絕 | 受控環境手動測 |
+| 手動資料驗證 | `generatedAttachmentId` 不存在或已過期 | 應被拒絕 | 受控環境手動測 |
 | 手動正向 E2E | 允許的 `sender` + `replyTo` + CSV/XLSX 附件 | 成功寄送 | 受控信箱手動測 |
+| 手動正向 E2E | `generate_pptx_attachment` + `send_email.generatedAttachmentIds` | 成功寄送含 `.pptx` 的郵件 | 受控信箱手動測 |
 | 手動網路驗證 | retained APIM `/.well-known` / `initialize` / `tools/list` | `200` | 僅在 APIM control-plane / DNS / proxy 路徑已健康時執行 |
 
 #### Databricks external MCP 對 internal/private APIM 的目前判讀（2026-04）

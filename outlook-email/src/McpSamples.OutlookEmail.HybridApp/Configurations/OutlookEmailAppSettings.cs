@@ -24,7 +24,7 @@ public class OutlookEmailAppSettings : AppSettings
     {
         Title = "MCP Outlook Email",
         Version = "1.0.0",
-        Description = "用於透過 Outlook 傳送電子郵件的簡易 MCP 伺服器。"
+        Description = "用於透過 Outlook 傳送電子郵件，並可產生供寄送使用的 PowerPoint 簡報附件的簡易 MCP 伺服器。"
     };
 
     /// <summary>
