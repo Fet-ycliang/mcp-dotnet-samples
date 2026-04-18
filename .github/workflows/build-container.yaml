@@ -44,14 +44,31 @@ jobs:
           echo "repository=$repository" >> "$GITHUB_OUTPUT"
           echo "name=${REGISTRY}/${repository}/${{ inputs.image_name }}" >> "$GITHUB_OUTPUT"
 
-      - name: Pull the latest metadata.json
+      - name: Determine awesome-copilot workflow mode
         if: inputs.image_name == 'awesome-copilot'
+        id: awesome
+        shell: bash
+        run: |
+          if [ "${GITHUB_REPOSITORY}" = "microsoft/mcp-dotnet-samples" ]; then
+            echo "official=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "official=false" >> "$GITHUB_OUTPUT"
+            # Forks can still build/push their own GHCR image, but upstream sync/publish must stay on the official repo.
+            echo "Skipping upstream-only awesome-copilot sync and publish steps for ${GITHUB_REPOSITORY}."
+          fi
+
+      - name: Pull the latest metadata.json
+        if: |
+          inputs.image_name == 'awesome-copilot' &&
+          steps.awesome.outputs.official == 'true'
         shell: bash
         run: |
           git pull origin main
 
       - name: Checkout repository - Awesome Copilot
-        if: inputs.image_name == 'awesome-copilot'
+        if: |
+          inputs.image_name == 'awesome-copilot' &&
+          steps.awesome.outputs.official == 'true'
         uses: actions/checkout@v4
         with:
           repository: github/awesome-copilot
@@ -59,7 +76,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update metadata.json
-        if: inputs.image_name == 'awesome-copilot'
+        if: |
+          inputs.image_name == 'awesome-copilot' &&
+          steps.awesome.outputs.official == 'true'
         shell: bash
         run: |
           pushd awesome-copilot
@@ -69,7 +88,9 @@ jobs:
           popd
 
       - name: Push metadata.json
-        if: inputs.image_name == 'awesome-copilot'
+        if: |
+          inputs.image_name == 'awesome-copilot' &&
+          steps.awesome.outputs.official == 'true'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -87,7 +108,7 @@ jobs:
             git push origin main
           fi
 
-      - name: Get registry version
+      - name: Get awesome-copilot version
         if: |
           (env.BUILD_IMAGE == 'true' || inputs.force == true) &&
           inputs.image_name == 'awesome-copilot'
@@ -102,9 +123,14 @@ jobs:
 
           $revised = "$([string]::Join(".", $version[0..1])).$release"
 
-          $server.version = $revised
-          $server.packages[0].identifier = $server.packages[0].identifier -replace ":latest", ":$revised"
-          $server | ConvertTo-Json -Depth 10 | Out-File -FilePath ./server.json -Encoding utf8 -Force
+          if ("${{ steps.awesome.outputs.official }}" -eq "true") {
+            $server.version = $revised
+            $server.packages[0].identifier = $server.packages[0].identifier -replace ":latest", ":$revised"
+            $server | ConvertTo-Json -Depth 10 | Out-File -FilePath ./server.json -Encoding utf8 -Force
+          }
+          else {
+            Write-Host "Skipping server.json rewrite outside microsoft/mcp-dotnet-samples."
+          }
 
           echo "version=$revised" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
@@ -219,7 +245,8 @@ jobs:
         if: |
           (env.BUILD_IMAGE == 'true' || inputs.force == true) &&
           steps.dockerfile.outputs.exists == 'true' &&
-          inputs.image_name == 'awesome-copilot'
+          inputs.image_name == 'awesome-copilot' &&
+          steps.awesome.outputs.official == 'true'
         shell: bash
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
@@ -228,7 +255,8 @@ jobs:
         if: |
           (env.BUILD_IMAGE == 'true' || inputs.force == true) &&
           steps.dockerfile.outputs.exists == 'true' &&
-          inputs.image_name == 'awesome-copilot'
+          inputs.image_name == 'awesome-copilot' &&
+          steps.awesome.outputs.official == 'true'
         shell: bash
         run: |
           ./mcp-publisher login github-oidc
@@ -237,7 +265,8 @@ jobs:
         if: |
           (env.BUILD_IMAGE == 'true' || inputs.force == true) &&
           steps.dockerfile.outputs.exists == 'true' &&
-          inputs.image_name == 'awesome-copilot'
+          inputs.image_name == 'awesome-copilot' &&
+          steps.awesome.outputs.official == 'true'
         shell: bash
         run: |
           ./mcp-publisher publish ./awesome-copilot/server.json

@@ -232,6 +232,30 @@ ERROR: failed to build: invalid tag "ghcr.io/Fet-ycliang/mcp-dotnet-samples/todo
 - `metadata-action` 已經小寫，但手動追加的 `latest` / version tag 還在用原始值
 - 同一條 pipeline 的 image name / attestation subject 來源不一致
 
+### 9. MCP Registry publish 403（fork 發佈 upstream namespace）
+
+**模式識別**:
+```regex
+publish failed: server returned status 403|You do not have permission to publish this server|Attempting to publish: io\.github\.
+```
+
+**範例日誌**:
+```
+Error: publish failed: server returned status 403: {"detail":"You do not have permission to publish this server. You have permission to publish: io.github.Fet-ycliang/*. Attempting to publish: io.github.microsoft/awesome-copilot."}
+```
+
+**診斷步驟**:
+1. 先看 `server.json` 的 `name`，確認實際要 publish 的 MCP Registry namespace
+2. 比對目前 repo 是否為官方來源；fork repo 通常只有 `io.github.<fork-owner>/*` 權限
+3. 檢查 workflow 是否把 `mcp-publisher login/publish`、metadata sync、server.json rewrite 這類 upstream-only 步驟限制在官方 repo
+4. 若是 fork，只保留 build/push GHCR image；不要自動 publish 到 upstream namespace，也不要讓 hourly schedule 持續重跑這類步驟
+
+**常見原因**:
+- `awesome-copilot/server.json` 指向 upstream namespace（例如 `io.github.microsoft/awesome-copilot`）
+- fork 沒有該 namespace 的 MCP Registry publish 權限
+- reusable workflow 沒有區分官方 repo 與 fork repo
+- schedule workflow 在 fork 上照常執行，反覆撞同一個 403
+
 ## 📊 日誌分析技巧
 
 ### 1. 快速定位錯誤
