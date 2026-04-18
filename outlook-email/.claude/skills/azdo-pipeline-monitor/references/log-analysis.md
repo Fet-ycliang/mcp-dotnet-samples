@@ -184,6 +184,54 @@ Out of memory|OOM|Disk.*full|No space left
 - 快取累積
 - Agent 資源配置不足
 
+### 7. Matrix job 被連帶取消
+
+**模式識別**:
+```regex
+The operation was canceled|Operation canceled|conclusion\": \"cancelled\"
+```
+
+**範例日誌**:
+```
+##[error]The operation was canceled.
+```
+
+**診斷步驟**:
+1. 不要把 `cancelled` job 當成第一現場；先回頭找同一個 run 裡最早的 `failure` job
+2. 若是 matrix workflow，檢查是否開了 `strategy.fail-fast`
+3. 比對同一時間其他 sibling jobs，找出誰先失敗
+4. 若是 GitHub Actions，也檢查是否有 `concurrency.cancel-in-progress`、手動取消或 environment approval 被中止
+
+**常見原因**:
+- matrix 其中一個 job 先失敗，觸發 fail-fast
+- 有人手動取消 run
+- concurrency policy 把舊 run 中止
+- 等待 approval / environment gate 時被終止
+
+### 8. Container image ref 大小寫或命名非法
+
+**模式識別**:
+```regex
+invalid tag|invalid reference format|repository name must be lowercase
+```
+
+**範例日誌**:
+```
+ERROR: failed to build: invalid tag "ghcr.io/Fet-ycliang/mcp-dotnet-samples/todo-list:latest": repository name must be lowercase
+```
+
+**診斷步驟**:
+1. 檢查 image ref 是否混入大寫 owner / repo、`refs/heads/*`、空白或特殊字元
+2. 比對 `docker/metadata-action` 產出的 tag 與後面手動補的 `latest` / version tag，確認是否使用了不同來源
+3. 若 workflow 同時做 attestation，確認 `subject-name` 也沿用同一個 normalized image name
+4. 對 GitHub Actions / GHCR，避免直接用原始 `${{ github.repository }}` 組最終 image ref；先轉小寫一次再重複使用
+
+**常見原因**:
+- `${{ github.repository }}` 保留原始大小寫
+- branch 名稱未先正規化就直接拿來組 tag
+- `metadata-action` 已經小寫，但手動追加的 `latest` / version tag 還在用原始值
+- 同一條 pipeline 的 image name / attestation subject 來源不一致
+
 ## 📊 日誌分析技巧
 
 ### 1. 快速定位錯誤

@@ -468,16 +468,18 @@ docker build -t $imageRef -f Dockerfile.outlook-email-azure .
 docker push $imageRef
 ```
 
-##### ACR 命名這段常見踩雷
+##### 容器 image naming / CI 常見踩雷
 
 | 踩雷點 | 常見症狀 | 建議做法 |
 | --- | --- | --- |
 | 把 branch 塞進 tag | `docker build -t ...` / `docker push` 出現 `invalid reference format` | branch 分目錄放在 repository path，例如 `fet-mcp-server-dotnet/feature/pptx-mailer:20260418-101011` |
 | 直接拿 Git branch 名稱組 image ref | `refs/heads/main`、大寫、空白、`#`、中文等字元造成 ref 非法或不一致 | 先轉小寫、移除 `refs/heads/`，其餘不安全字元轉成 `-` |
+| GitHub Actions / GHCR 直接用 `${{ github.repository }}` 組 image ref | `docker buildx build` 報 `repository name must be lowercase`，常見例子是 `ghcr.io/Fet-ycliang/...:latest` | 先把 owner / repo 全轉小寫，再用同一個 normalized name 產生 `metadata-action` images、手動 `latest` / version tags，以及 attestation subject |
 | 用本地時區當 tag | 跨時區比對版本時很難對帳 | tag 一律用 UTC `yyyyMMdd-HHmmss` |
 | 同一秒內產出多個映像 | 後推的映像覆蓋前一個 tag | 若 CI 有高併發需求，可改成 `yyyyMMdd-HHmmss-<short-sha>` |
 | 用 `Dockerfile.outlook-email` 建 ACR / ACA 映像 | `az acr build` / ACR Task 卡在 dependency scanner，常見訊息是 `unable to understand line FROM --platform=$BUILDPLATFORM ...` | ACA / ACR 路線固定改用 `Dockerfile.outlook-email-azure` |
 | 把 `azd up` 當成 ACR build/push 流程 | 以為目前 sample 會自動產出自訂 ACR image | 這個 sample 的 `azure.yaml` 目前是 `host: function`；若要控制 ACR image naming，請改走手動 `docker build/push` 或 CI pipeline |
+| workflow matrix 沒留意 `fail-fast` | 同一個 run 只有一個 image 真失敗，其餘 job 卻顯示 `cancelled` / `The operation was canceled.` | 先找第一個 `failure` job 當根因；若要保留每個 image 的完整結果、不要讓其他 image 被連帶取消，請設定 `strategy.fail-fast: false` |
 
 <a id="on-azure"></a>
 #### 在 Azure 上
