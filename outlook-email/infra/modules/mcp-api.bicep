@@ -4,6 +4,9 @@ param apimServiceName string
 @description('The name of the App Service hosting the MCP endpoints')
 param functionAppName string
 
+@description('Optional explicit backend base URL for the MCP API facade. When provided, APIM forwards to this URL instead of the Function App hostname.')
+param backendUrl string = ''
+
 @description('The ID of the MCP Entra application')
 param mcpAppId string
 
@@ -79,7 +82,7 @@ resource mcpApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
     protocols: [
       'https'
     ]
-    serviceUrl: 'https://${functionApp.properties.defaultHostName}/'
+    serviceUrl: empty(backendUrl) ? 'https://${functionApp.properties.defaultHostName}/' : backendUrl
   }
 }
 
@@ -153,3 +156,4 @@ resource mcpPrmPolicy 'Microsoft.ApiManagement/service/apis/operations/policies@
 output apiId string = mcpApi.id
 output mcpAppId string = mcpAppId
 output mcpAppTenantId string = mcpAppTenantId
+output backendUrl string = empty(backendUrl) ? 'https://${functionApp.properties.defaultHostName}/' : backendUrl

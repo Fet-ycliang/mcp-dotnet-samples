@@ -118,12 +118,16 @@ azd up
 - 保持 `AZURE_DEPLOY_APIM=true`
 - 開發 / 測試若想先控制固定成本，可設 `AZURE_APIM_SKU=Developer`
 - 若要精準固定 APIM 名稱，可設 `AZURE_APIM_NAME=fet-mcp-apim-bst`
+- 若 APIM retained path 目前要前轉到既有 ACA，而不是 fallback 到 Function App，可再設 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca`
 - 若要把 APIM 放進 internal/private VNet mode，可再設 `AZURE_APIM_INTERNAL_VNET=true` 與 `AZURE_APIM_SUBNET_NAME=apim-subnet`
 - 若只要先落地 APIM internal/private 基礎設施，可加 `AZURE_DEPLOY_APIM_MCP_API=false`，先跳過 MCP API facade 與 OAuth app
 - 若未設定 `AZURE_APIM_SKU`，目前預設仍是 `Basicv2`
 - 若這次部署採 `AZURE_DEPLOY_APIM=false`，`AZURE_APIM_SKU` 會被忽略
 - 若這次部署採 `AZURE_DEPLOY_APIM=false`，`AZURE_APIM_NAME` 也會被忽略
 - 若未設定 `AZURE_APIM_NAME`，APIM 仍會沿用標準衍生命名
+- 若已設定 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME`，`mcp-api` module 會直接讀既有 ACA ingress FQDN 當作 APIM `serviceUrl`；未設定時才會回退到 Function App hostname
+- `AZURE_APIM_BACKEND_CONTAINER_APP_NAME` 目前假設目標 ACA 與本次部署在**同一個 resource group**，而且已啟用 ingress 並有有效 FQDN；若不符合，需先擴充 template
+- `AZURE_APIM_BACKEND_CONTAINER_APP_NAME` **不會**順手替既有 ACA 補 auth / network hardening；若 retained path 要正式 front APIM，需自行確保該 ACA 不會變成繞過 APIM 的入口
 - internal/private APIM 目前假設重用既有 VNet / subnet，且會在 `AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME` 建立 / 更新 APIM 預設 hostname 的 private DNS zone 與 A records
 - APIM subnet 的 NSG 至少要先有：
   - Inbound `ApiManagement` -> `VirtualNetwork` TCP `3443`
@@ -140,7 +144,7 @@ azd up
 - 若呼叫端是 **Copilot CLI / Claude Code**，通常走 delegated `user_impersonation`
 - 若呼叫端是 **Databricks / job / daemon / 外部平台**，應走 **OAuth Machine to Machine**，並以 `api://<MCP_OAUTH_CLIENT_ID>/.default` 取得 app-only token
 - 外部平台 UI 若出現 **Host / Port / Client ID / Client secret / OAuth scope**：
-  - Host = APIM gateway base URL（例如 `https://fet-mcp-apim-bst.azure-api.net`），不是 Entra token endpoint
+  - Host = APIM gateway base URL（例如 `https://apim-fet-outlook-email.azure-api.net`），不是 Entra token endpoint
   - Port = `443`
   - Client ID / secret = **caller client app**，不是 resource app
   - OAuth scope = resource app 的 `.default`，不是 delegated `user_impersonation`

@@ -47,8 +47,9 @@
 - **ACA / ACR 這條線固定使用 `Dockerfile.outlook-email-azure`**；不要再把 `Dockerfile.outlook-email` 丟給 `az acr build` / ACR Task，否則容易在 dependency scanner 卡在 `FROM --platform=$BUILDPLATFORM ...`。
 - Azure 命名與 tag 基線目前以 **`fet-outlook-email-bst`** 為核心 stem；實際覆寫方式看 `infra\main.bicep`、`infra\main.parameters.json` 與 `README.md` 的 Azure 部署段落。
 - **目前 live APIM resource 名稱**是 `apim-fet-outlook-email`；`AZURE_APIM_NAME` 或 README 內的 `fet-mcp-apim-bst` 只應視為 env / 範例值，不要直接當成已落地資源名稱。
+- **目前 live APIM retained path backend** 是 ACA `fet-outlook-email-ca`，不是 Function App；若要讓 IaC 跟上這個現況，請設定 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca`，讓 `mcp-api` module 直接取 ACA ingress FQDN。這個參數目前假設 ACA 與本次部署在**同一個 resource group**，而且該 ACA 已啟用 ingress 並有可用 FQDN。注意：template **不會**順手替既有 ACA 補 auth / network 鎖定，你必須自己確保 ACA 不會變成繞過 APIM 的入口。
 - **目前 live frontend 已是 private-only ingress**：Function App 走 **Private Link / private endpoint**，且 `publicNetworkAccess=Disabled`；APIM gateway 走 **Internal VNet + private DNS**。若有人說「frontend 都走 private link」，要先確認他是泛指私網入口，還是嚴格要求 **APIM 也必須是 Azure Private Link**。
-- **注意這不是 template 預設值**：目前合規是因為這個 azd env 已把 `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true` 與 `AZURE_APIM_INTERNAL_VNET=true` 打開；`main.parameters.json` 的預設仍是 `false`。
+- **注意這不是 template 預設值**：目前合規是因為這個 azd env 已把 `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true`、`AZURE_APIM_INTERNAL_VNET=true` 與 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca` 打開；`main.parameters.json` 的預設仍是空字串或 `false`。
 - **APIM subnet**：`apim-subnet`，`172.18.78.0/28`，位於 `apim-bst-vnet`，NSG `172.18.78.0_24_APIM` 與 Route Table `DG-Route-APIM` 已就位，重建 APIM 時 subnet 本身不需異動。
 - Graph 認證模式的優先序是：`EntraId__UseManagedIdentity` 明確值 > 明確提供的 `EntraId__TenantId` / `ClientId` / `ClientSecret` > `AZURE_CLIENT_ID` fallback。不要只看 `AZURE_CLIENT_ID` 來判斷目前是否一定走 managed identity。
 - `send_email` 的責任分層是：
@@ -64,7 +65,7 @@
 - `.vscode\mcp.http.container.json` / `mcp.stdio.container.json`：本機容器
 - `.vscode\mcp.http.remote-func.json`：遠端 Functions
 - `.vscode\mcp.http.remote-apim.json`：遠端 APIM
-- `.claude\mcp.json`：Claude Code 使用的正式 APIM remote MCP 設定（手動 Bearer header）
+- `.claude\mcp.json`：Claude Code 使用的正式 APIM remote MCP 設定（目前以 live APIM `https://apim-fet-outlook-email.azure-api.net/mcp` 當預設例子；換環境時改成對應 `https://<apim-fqdn>/mcp`，手動 Bearer header）
 - `~\.copilot\mcp-config.json`：Copilot CLI 使用的 MCP 設定（不在 repo 內）
 
 ## 修改時的工作原則
@@ -102,12 +103,19 @@
 - 如果只改程式碼卻沒同步 README、設定範本或腳本，後續本機啟動與部署文件很容易失真。
 - private Function App / SCM 在有公司 proxy 的環境下，通常要補 `NO_PROXY`；否則看起來像是 server 壞了，其實是流量被送去公網。
 - APIM remote MCP 目前使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`；啟動 Claude Code / Copilot CLI 前，先在同一個 shell 刷新 access token。
+- `generate_pptx_attachment` 的建議流程是：先產出 `generatedAttachmentId`，再交給 `send_email.generatedAttachmentIds`；不要在遠端 APIM 路徑搬整份 `.pptx` Base64。
 - Databricks external MCP 若要打 internal/private APIM，M2M 欄位就算填對，仍可能因 private DNS / reachability 卡在 `tools/list`；若同一組 caller app 直打 APIM `/mcp initialize` / `/mcp tools/list` 成功，先把問題歸在 Databricks 到 private APIM 的可達性，而不是 tool 定義本身。
 - 遠端 `/mcp` 目前是 SSE 回應；若用 `curl` / PowerShell 除錯，記得解析 `data:` 行。
+- 但 `initialize` 也可能直接回一般 JSON；remote MCP parser 不要只假設一種 response shape。
+- `tools/call` 的結果在某些 remote path 下可能被包在 `result.content[0].text`，不要只讀 `structuredContent`。
+- Windows PowerShell 若直接用 `curl.exe --data-raw` 送中文 JSON，主旨 / 內文 / slide text 可能變亂碼；改用 **UTF-8 檔案 + `--data-binary`**。
 - 若 Azure 走 managed identity，就不要同時把 `MCP_ENTRA_*` service principal 值留在 app settings；走 service principal 時則優先使用 Key Vault reference。
 - ACR tag 不是資料夾；若要做 branch 分目錄，請把 branch 放在 repository path（例如 `fet-mcp-server-dotnet/feature/pptx-mailer:20260418-101011`），不要放進 tag。
 - branch 名稱若直接拿 `refs/heads/*`、大寫或特殊字元組 image ref，常會踩到非法名稱；先轉小寫、去掉 `refs/heads/`，其餘不安全字元改成 `-`。
 - 若要建 ACA / ACR 映像，請固定用 `Dockerfile.outlook-email-azure`；`Dockerfile.outlook-email` 只要進 ACR scanner，就可能卡在 `FROM --platform=$BUILDPLATFORM ...`。
+- `PptxPresentationService` 若再動到 Open XML packaging，**不要**把 `ThemePart` 再掛回 `PresentationPart`，也不要自己手寫 slide relationship ID；交給 SDK 指派，否則 deck 在 4+ slides 可能壞掉。
+- `generate_pptx_attachment` 目前刻意讓 **封面頁不帶 footer**、內容頁才帶 deck title + page number；若你再改模板，README / skills 也要一起同步。
+- 若調整內容框大小或文字上限，記得保留 auto-fit 或同步收緊 validation；不然 deck 雖然能開，但長標題 / 長 bullets 會被裁掉。
 
 ### APIM 維運相關陷阱
 - **APIM 刪除是長時間操作**（實測約 10 分鐘），不要中途 Ctrl+C；中斷後資源狀態會卡在 Deleting，需在 Portal 確認完成。

@@ -114,6 +114,27 @@
 - `fileName`：選填，若未提供 `.pptx` 副檔名會自動補上。
 - `themeColorHex`：選填，6 位十六進位色碼，例如 `2F5597`。
 
+#### 預設輸出模板（商務簡報 baseline）
+
+- **封面頁**：使用獨立 hero panel，適合放主題與副標。
+- **內容頁**：使用 section title + card panel，讓重點區塊更像正式簡報而不是純文字頁。
+- **條列**：`bullets` 會轉成真正的 paragraph bullet 與縮排，不再只是把 `•` 字元硬塞進文字。
+- **字型與層次**：預設使用 `Aptos` + `Microsoft JhengHei`，並加入較穩定的行距、段落間距與 footer。
+- **頁腳**：內容頁會帶 deck title 與頁碼，讓輸出更接近會議簡報格式。
+
+#### 呼叫端建議：先整理成商務簡報語氣
+
+`generate_pptx_attachment` 會負責**排版與渲染**，但不會自動把原始資料、除錯訊息或技術驗證文字潤成主管看的商務簡報。建議在呼叫前先做一層 outline 整理：
+
+1. **一頁一個結論**：不要把一頁寫成流水帳；每張內容頁只放一個核心訊息。
+2. **標題寫成結論句**：例如「APAC 成為本季成長主引擎」，不要寫成「Q2 觀察 1」或「驗證結果」。
+3. **副標只放範圍資訊**：期間、資料來源、產品線或區域，不要重複標題。
+4. **內文先做高階摘要**：`body` 建議 1-2 句 executive summary，交代整體情境與判讀。
+5. **條列放觀察 / 影響 / 建議**：`bullets` 建議 3-5 點，每點盡量短，且能對應商業意義或下一步。
+6. **結尾頁優先放 next steps / risks**：讓簡報更像決策材料，而不是單純資料輸出。
+
+> 若當前任務是測試、除錯或驗證工具，請不要直接把 `validator 0 errors`、`E2E 成功` 這類工程語氣原樣丟給 `generate_pptx_attachment`；先改寫成符合受眾的商務敘述。
+
 #### `generate_pptx_attachment` 範例 payload
 
 ```json
@@ -123,16 +144,17 @@
   "slides": [
     {
       "kind": "title",
-      "title": "Q2 業務摘要",
-      "subtitle": "依據 Genie 查詢結果整理"
+      "title": "2026 Q2 業務摘要",
+      "subtitle": "依 4-6 月營運與銷售資料整理"
     },
     {
       "kind": "content",
-      "title": "關鍵發現",
+      "title": "APAC 成為本季成長主引擎",
+      "body": "本季整體營收與高毛利產品組合持續改善，區域成長動能主要集中在 APAC 與企業方案。",
       "bullets": [
-        "營收年增 12%",
-        "APAC 是最高成長區域",
-        "庫存老化風險需要持續追蹤"
+        "APAC 營收年增 12%，成長速度高於其他主要市場",
+        "企業客戶續約率提升，帶動高毛利方案占比上升",
+        "庫存老化集中在兩個品類，建議下季優先啟動去化"
       ]
     }
   ]
@@ -582,6 +604,22 @@ docker push $imageRef
      >
      > `AZURE_APIM_NAME` 只在 `AZURE_DEPLOY_APIM=true` 時有意義；若這次是 Function App-only 部署，這個值會被忽略。
 
+1. 若目前 APIM retained path 應該要**前轉到既有 ACA**，而不是回退到 Function App，可再設定：
+
+    ```bash
+    azd env set AZURE_APIM_BACKEND_CONTAINER_APP_NAME "fet-outlook-email-ca"
+    ```
+
+     > 這個值會讓 `infra\modules\mcp-api.bicep` 直接讀既有 ACA resource 的 ingress FQDN，並把 APIM `mcp` API 的 `serviceUrl` 對準 ACA。
+     >
+     > 若未設定 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME`，template 仍會 fallback 到 Function App hostname。這適合 sample 預設路徑，但**不符合目前這個環境的 live retained path**。
+     >
+     > 目前 template 假設這個 ACA 與本次 deployment 在**同一個 resource group**，而且已啟用 ingress 並有有效 FQDN；若 ACA 在其他 RG / subscription，或根本沒有 ingress，請先擴充 template 再部署。
+     >
+     > 這個參數只會把 APIM backend 指到既有 ACA，**不會自動幫既有 ACA 補 auth / network hardening**。若你要保留 APIM 作為正式入口，請自行確保該 ACA 不會變成繞過 APIM 的公開或未受控入口。
+     >
+     > 目前這輪已核對的 retained path backend 是 **`fet-outlook-email-ca`**，也就是 `https://fet-outlook-email-ca.proudpebble-d0c3559f.eastus2.azurecontainerapps.io`。
+
 1. 若你要把 **APIM 也放進 internal/private VNet mode**，可再設定：
 
      ```bash
@@ -977,13 +1015,11 @@ docker push $imageRef
 
 1. 在 Windows 按 `F1` 或 `Ctrl`+`Shift`+`P`、在 macOS 按 `Cmd`+`Shift`+`P` 開啟 Command Palette，然後搜尋 `MCP: List Servers`。
 1. 選取 `outlook-email`，然後按一下 `Start Server`。
-1. 系統提示時，請輸入下列值：
-   - `McpSamples.OutlookEmail.HybridApp` 專案的絕對目錄路徑。
-   - Azure Container Apps 的 FQDN。
-   - Azure Functions Apps 的 FQDN。
-   - Tenant ID。
-   - Client ID。
-   - Client secret。
+1. 系統提示時，請依你剛剛複製的 `.vscode\mcp.json` 範本輸入對應值：
+   - `.vscode\mcp.http.remote-apim.json`：APIM FQDN 與 APIM access token
+   - `.vscode\mcp.http.remote-func.json`：Function App FQDN 與 Function access token
+   - `.vscode\mcp.http.remote.json`：**debug-only** 的 direct ACA FQDN 與 ACA access token
+   - 本機 / STDIO 範本：不會要求遠端 FQDN
 1. 輸入如下提示：
 
     ```text
@@ -999,6 +1035,7 @@ docker push $imageRef
 - **Claude Code**：正式使用 `outlook-email\.claude\mcp.json` 內的 `outlook-email`
 - **Copilot CLI**：正式使用 `~/.copilot/mcp-config.json` 內的 `outlook-email`
 - VS Code 遠端 APIM 範本請使用 `.vscode\mcp.http.remote-apim.json`
+- 目前 repo 內的 `.claude\mcp.json` 以 live APIM `https://apim-fet-outlook-email.azure-api.net/mcp` 當預設例子；換環境時請改成對應 `https://<apim-fqdn>/mcp`
 - Claude Code 目前維持 **手動 Bearer header** 模式；localhost / UT 參考請改看 `.vscode\mcp.http.local-func.json`、`.vscode\mcp.stdio.local.json`
 
 若設定檔使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`（例如目前的 Claude Code 設定），啟動前請先在**同一個 shell** 刷新 token：
@@ -1008,6 +1045,29 @@ $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
   --scope "api://87123f9d-6cf0-4672-9003-c8eba016749d/user_impersonation" `
   --query accessToken -o tsv
 ```
+
+若你要先做一輪最小正向驗證，建議順序是：
+
+1. `initialize`
+2. `tools/list`，確認至少看得到 `send_email` 與 `generate_pptx_attachment`
+3. 若要測試簡報附件流程，先呼叫 `generate_pptx_attachment`
+4. 再把回傳的 `generatedAttachmentId` 放進 `send_email.generatedAttachmentIds`
+
+> APIM retained path 下，若附件原本就是要從投影片內容產生，**優先走 `generate_pptx_attachment -> generatedAttachmentIds`**，不要把整份 `.pptx` Base64 搬進 remote MCP payload。
+
+##### direct ACA debug path（只限可達 ACA ingress 的環境）
+
+- `.vscode\mcp.http.remote.json` 只建議當 **direct ACA 除錯範本**，不是標準日常入口。
+- 這條路會**繞過 APIM** 的 inbound OAuth / policy facade，所以只有在你明確要排查 backend、且 ACA 自身 auth / network 已經鎖好的情況才用。
+- 它使用的仍是同一顆 MCP OAuth resource app；若要手動取 token，可在同一個 shell 先設：
+
+```powershell
+$env:OUTLOOK_EMAIL_ACA_ACCESS_TOKEN = az account get-access-token `
+  --scope "api://87123f9d-6cf0-4672-9003-c8eba016749d/user_impersonation" `
+  --query accessToken -o tsv
+```
+
+- 一般筆電若沒有 private DNS / VNet reachability，對 `*.internal.proudpebble-...azurecontainerapps.io` 通常**不能直接做 E2E**；這類驗證改走 APIM retained path，或改在同 VNet / peered network 的 jumpbox、自架 agent、VM 上執行。
 
 ##### Databricks / 外部平台直連 Function App（NCC + private endpoint）
 
@@ -1034,8 +1094,8 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 | Databricks external MCP / Genie | **direct Function** | `https://<function-app>.azurewebsites.net/mcp` | OAuth M2M 或 Bearer | Databricks connection UI 的 Host / Port / Client ID / Client secret / scope | 若有 NCC，優先走這條；Host 要填 Function App private endpoint，不是 APIM |
 | Copilot CLI | **APIM retained path** | `https://<apim-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}` | `~/.copilot/mcp-config.json` 的 `mcpServers` | 適合現有人員操作；若 APIM 走 private route，記得補 `NO_PROXY` |
 | Copilot CLI | **direct Function** | `https://<function-app-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN}` | `~/.copilot/mcp-config.json` 的 `mcpServers` | 若有 direct caller allowlist，manual CLI 的 caller app 也要被放行 |
-| Claude Code | **APIM retained path** | `https://<apim-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}` | `outlook-email/.claude/mcp.json` | 目前正式範本維持這條 |
-| VS Code Agent Mode | 本機或遠端範本皆可 | 依 `.vscode/mcp.*.json` | 依範本 | `.vscode/mcp.http.remote-apim.json`、`.vscode/mcp.http.remote-func.json` | 適合本機或示範環境 |
+| Claude Code | **APIM retained path** | `https://<apim-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}` | `outlook-email/.claude/mcp.json` | 目前 live 例子是 `https://apim-fet-outlook-email.azure-api.net/mcp` |
+| VS Code Agent Mode | 本機或遠端範本皆可 | 依 `.vscode/mcp.*.json` | 依範本 | `.vscode/mcp.http.remote-apim.json`、`.vscode/mcp.http.remote-func.json`、`.vscode/mcp.http.remote.json` | `.vscode/mcp.http.remote.json` 僅限 direct ACA 除錯，不是標準日常入口 |
 
 > **原則**：Databricks 優先看 **Function App direct path**；Copilot CLI / Claude Code 優先看 **APIM retained path**。兩條路共用同一顆 `MCP_OAUTH_*` resource app，只是 Host 不同。
 
@@ -1057,7 +1117,7 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 
 | UI 欄位 | 要填什麼 | 這次環境應填值 / 說明 |
 | --- | --- | --- |
-| Host | **APIM gateway base URL**，不要填 Entra token endpoint；這欄通常也**不要先帶 `/mcp`**，除非該 UI 完全沒有 path 欄位 | `https://fet-mcp-apim-bst.azure-api.net` |
+| Host | **APIM gateway base URL**，不要填 Entra token endpoint；這欄通常也**不要先帶 `/mcp`**，除非該 UI 完全沒有 path 欄位 | `https://<apim-fqdn>`（目前 live 例子：`https://apim-fet-outlook-email.azure-api.net`） |
 | Port | HTTPS port | `443` |
 | Client ID | **呼叫端 client app** 的 Application (client) ID。這裡填的是 caller，不是 resource app | 請填你的 Databricks / 外部平台專用 client app ID |
 | Client secret | 上面同一顆 **呼叫端 client app** 的 secret | 請填該 client app 對應的 secret |
@@ -1068,7 +1128,7 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 - 若 UI 另外有 **Token endpoint / Issuer** 欄位，請填：`https://login.microsoftonline.com/bb5ad653-221f-4b94-9c26-f815e04eef40/oauth2/v2.0/token`
 - 若 UI 另外有 **Is mcp connection** 這類 checkbox，請 **勾選**
 - 若 UI 另外有 **Path / Base path** 欄位，請填：`/mcp`
-- 若你前一頁的 Host 已經誤填成 `https://fet-mcp-apim-bst.azure-api.net/mcp`，那這一頁的 Base path 請改回 `/`，避免重複變成 `/mcp/mcp`
+- 若你前一頁的 Host 已經誤填成 `https://apim-fet-outlook-email.azure-api.net/mcp`，那這一頁的 Base path 請改回 `/`，避免重複變成 `/mcp/mcp`
 - direct Function 或 APIM retained path 都一樣：caller client app **必須先被指派**到 resource app 的 `access_as_application` app role；不然 token 可能拿得到，但 resource app / APIM 仍會回 `403`
 - **建議為 Databricks / 外部平台建立 dedicated client app**，只給它 `access_as_application`；不要直接重用 Function App 出站打 Graph 的 `MCP_ENTRA_*` app，避免把外部 caller 與 Graph `Mail.Send` 權限綁在同一顆 app 上
 
@@ -1095,16 +1155,18 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 ```powershell
 $existing = [Environment]::GetEnvironmentVariable('NO_PROXY', 'User')
 $extra = @(
-  'fet-mcp-apim-bst.azure-api.net',
+  'apim-fet-outlook-email.azure-api.net',
   '.azure-api.net'
 )
 $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Object -Unique) -join ','
 [Environment]::SetEnvironmentVariable('NO_PROXY', $combined, 'User')
 ```
 
-> 這個 sample 的遠端 `/mcp` 目前回的是 **`text/event-stream` (SSE)**。若你用 `curl` / PowerShell 直接除錯，不要把整個回應當成純 JSON；應改抓 `data:` 那一行再解析。
+> 這個 sample 的遠端 `/mcp` **不保證每個方法都只回同一種包裝**：`tools/list` / `tools/call` 常見是 **`text/event-stream` (SSE)**，但 `initialize` 也可能直接回一般 JSON。若你用 `curl` / PowerShell 直接除錯，不要假設整個回應一定是純 JSON 或一定是 SSE；應先看 `Content-Type` 與 body 形狀，再決定是直接 parse JSON，還是先抓 `data:` 行。
 
 > backend 也要求 client `Accept` 同時包含 **`application/json`** 與 **`text/event-stream`**。APIM retained path 目前會由 `mcp` policy 主動補這組 header；若你 direct 打 Function App，也請確認 caller 端沒有把 `text/event-stream` 拿掉。
+
+> 若在 **Windows PowerShell** 下用 `curl.exe` 送中文 JSON，**不要直接用 `--data-raw`**。這次實測最穩定的方式是：先把 request body 寫成 **UTF-8 檔案**，再用 `curl.exe --data-binary @body.json`；否則很容易在主旨 / 內文 / slide text 上看到亂碼。
 
 <a id="common-troubleshooting"></a>
 ## 常見陷阱與排錯入口
@@ -1117,11 +1179,13 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | `replyTo` 被拒絕 | 提示 replyTo 位址不在允許清單中 | 檢查 `AllowedReplyTo`、`AllowedReplyTo__0`、`AllowedReplyTo__1` 等設定是否包含該地址 |
 | 附件被拒絕 | 提示 Base64、MIME、大小或數量錯誤 | 檢查 `contentType` 是否正確、`contentBytesBase64` 是否有效、單檔是否超過 **3 MiB**、附件總數是否超過 **10** |
 | local / Azure 設定看起來正確，但認證模式不如預期 | 誤以為程式一定會跟著 `AZURE_CLIENT_ID` 或一定會跟著 client secret 走 | 先看 `EntraId__UseManagedIdentity`；若未明確設定，程式會優先採用已提供的 tenant / client / secret，只有在這些都不存在時才回退到 `AZURE_CLIENT_ID` |
-| Copilot CLI / Claude Code 一直顯示 `Connecting` | 遠端 MCP server 遲遲連不上 | 先確認 `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN` 已在當前 shell 刷新，再確認 `NO_PROXY` 是否包含 `fet-mcp-apim-bst.azure-api.net` 或 `.azure-api.net` |
+| Copilot CLI / Claude Code 一直顯示 `Connecting` | 遠端 MCP server 遲遲連不上 | 先確認 `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN` 已在當前 shell 刷新，再確認 `NO_PROXY` 是否包含 `apim-fet-outlook-email.azure-api.net` 或 `.azure-api.net` |
 | Databricks external MCP 欄位看起來都對，但 `tools/list` 還是失敗 | connection overview 已顯示 token expiration，卻仍回 `Failed to list tools` / generic `400` | 先用 **Function App private FQDN** 驗證 direct path 的 `/mcp initialize` / `/mcp tools/list`；若 direct path 正常，再回頭檢查 Databricks NCC workspace binding、private DNS 與 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是否包含實際 caller app |
 | private endpoint 明明存在，但 `curl` / CLI 還是連不上 | 看到 proxy 相關錯誤、`403 Ip Forbidden` 或 schannel revocation 錯誤 | 先檢查 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`；診斷時可用 `curl --noproxy '*' ...` 直接驗證私網路徑 |
+| Windows PowerShell 送中文 payload 後，email / PPTX 文字變亂碼 | 主旨、內文或 slide text 出現 mojibake | 不要直接用 `curl.exe --data-raw`；先把 request body 寫成 **UTF-8** 檔案，再改用 `curl.exe --data-binary @body.json` |
+| `initialize` / `tools/call` 的 response parser 時好時壞 | 有時 `ConvertFrom-Json` 失敗，有時拿不到 `generatedAttachmentId` | `initialize` 可能直接回 JSON；`tools/list` / `tools/call` 常是 SSE；某些 remote path 下 tool payload 也可能包在 `result.content[0].text`，不要只假設有 `structuredContent` |
 | `azd deploy` 成功，但 postdeploy validation 失敗 | hook 明明有跑，卻在 `initialize` 或 `tools/list` 回 `403` | 先檢查 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是否包含**真正執行驗證的 caller app**（Azure CLI 或 dedicated validation app） |
-| direct Function 正常，但 `azd provision` 更新 APIM API / policy 失敗 | `fet-mcp-apim-bst.management.azure-api.net:3443` 連不上 | 先檢查 `apim-subnet` 的 NSG 與 UDR；這通常是 internal APIM control-plane / firewall 路徑問題，不是 MCP tool 或 Function 本身故障 |
+| direct Function 正常，但 `azd provision` 更新 APIM API / policy 失敗 | `apim-fet-outlook-email.management.azure-api.net:3443` 連不上 | 先檢查 `apim-subnet` 的 NSG 與 UDR；這通常是 internal APIM control-plane / firewall 路徑問題，不是 MCP tool 或 Function 本身故障 |
 | 改了程式碼，但文件或範本沒跟著改 | 新加入的人照文件操作卻跑不起來 | 若你改了 `send_email`、認證流程、啟動方式或設定欄位，記得同步更新 `README.md`、`local.settings.sample.json` 與相關腳本 |
 
 ### 本輪踩雷與避坑紀錄（2026-04）
@@ -1132,7 +1196,9 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | Flex private deploy | Flex Consumption 不能直接用通用 Kudu zip publish | `/api/publish?type=zip` 失敗，或 private SCM 行為和預期不同 | 對 private SCM 使用 `POST /api/publish?RemoteBuild=<bool>&Deployer=az_cli`，並以 `Content-Type: application/zip` + Bearer token 發佈 |
 | 公司 proxy + private endpoint | 要求被公司 proxy 轉送到公網 | `403 Ip Forbidden`、proxy `CONNECT`、TLS / revocation 錯誤 | 把 Function App / SCM host 加進 `NO_PROXY`；診斷時可先用 `curl --noproxy '*'` |
 | Copilot CLI remote header 參照 | remote header 需要依賴 shell 內已存在的 access token | APIM-backed server 連線失敗或 token 過期 | 先在當前 shell 刷新 `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN`，再啟動 Copilot CLI / Claude Code；不要把短效 token 寫死在 JSON 設定裡 |
-| 遠端 `/mcp` 回應型態 | 直接把回應當純 JSON 解析 | `ConvertFrom-Json` 失敗 | 先把 SSE 的 `data:` 行取出，再解析 JSON |
+| 遠端 `/mcp` 回應型態 | 直接把回應當純 JSON 或純 SSE 解析 | `ConvertFrom-Json` 失敗，或同一套 parser 在 `initialize` 與 `tools/call` 間不穩定 | parser 要同時接受 **plain JSON** 與 **SSE `data:`**；不要先假設只有一種格式 |
+| 遠端 tool result 形狀 | 只讀 `result.structuredContent` | `generate_pptx_attachment` 明明成功，卻拿不到 `generatedAttachmentId` | 某些 remote path / client 下，tool payload 可能被包在 `result.content[0].text` 的 JSON 字串；diagnostic script 要有 fallback parse |
+| Windows PowerShell + `curl.exe` 中文 JSON | 主旨、內文或簡報內容變亂碼 | APIM E2E 看起來成功，但寄出的文字是 mojibake | request body 先落成 **UTF-8 檔案**，再用 `curl.exe --data-binary @body.json`；不要直接用 `--data-raw` 送中文 |
 | Graph auth 模式判斷 | 只用 `AZURE_CLIENT_ID` 判斷是否走 managed identity | 明明給了 tenant/client/secret，程式卻走錯認證模式 | 以 `EntraId__UseManagedIdentity` 明確值為第一優先；若未設定，才依是否有完整 SP 設定與 `AZURE_CLIENT_ID` fallback 判斷 |
 | Service principal 缺值 | 只填一部分 `tenant/client/secret` | 直到寄信時才發現 Graph 認證炸掉 | `UseManagedIdentity=false` 時，三個值要一次到位；目前程式已改成 fail-fast |
 | Credential hygiene | 走 managed identity 時仍把 SP secret 留在 app settings | 部署雖然能跑，但把不必要的 secret 長期留在 Azure | 走 managed identity 就不要設定 `MCP_ENTRA_*`；走 service principal 則優先用 Key Vault reference |
@@ -1140,12 +1206,13 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | 既有 VNet / subnet 重用 | Flex integration subnet 名稱、delegation、既有關聯不符 | subnet 不能用、或更新時意外掉 NSG / route table 關聯 | integration subnet 名稱不要用 `_`，要用 `Microsoft.App/environments` delegation；若 Bicep 會更新 subnet，也要一併帶入 NSG / route table ID |
 | APIM subnet prefix 調整 | 直接把現有 `apim-subnet` 從 `/24` 縮到 `/25`，但該 subnet 上其實已有 APIM active allocations | Azure 直接回 `InUsePrefixCannotBeDeleted`，例如：`IpPrefix 172.18.78.0/24 on Subnet apim-subnet has active allocations and cannot be deleted.` | 先把這條路徑視為 **不可原地縮編**；若要 `/25`，改走 **新 subnet 建立 + APIM 遷移**。另外先區分「容量」和「縮編」：Azure 每個 subnet 先保留 5 個 IP；目前這條 classic Developer internal 路徑可把 **`/29 = 3 usable IP`** 視為理論最小值，`/25 ≈ 123 usable IP`、`/24 ≈ 251 usable IP`。這次失敗不是容量不足，而是舊 prefix 已 in use |
 | 既有 VNet 跨 RG | 目前 template 仍預設既有 VNet 與部署 RG 同一個 resource group | 跨 RG reuse 時找不到 VNet | 若要跨 RG 重用既有 VNet，先擴充 template，再部署；不要先假設目前版本支援 |
+| PPTX part relationship | 自己手寫 `PresentationPart` / `ThemePart` 的 relationship ID | 簡報在 4 張以上時可能壞檔或打不開 | 不要把 theme 掛回 `PresentationPart`，也不要自己保證 slide `rId`；改用 SDK 自動指派的 relationship ID |
 
 #### APIM retained + direct Function 實際落地架構（2026-04）
 
-> 本圖對應這次已核對的開發環境：Function App `func-fet-outlook-email-bst` 透過 **Private Link / private endpoint** 進站，且 `publicNetworkAccess=Disabled`；APIM `apim-fet-outlook-email` 透過 **Internal VNet + private DNS** 提供私網入口。若把「frontend 都走 private link」當成泛稱私網入口，這套架構已符合；若嚴格要求 **APIM 也必須是 Azure Private Link / private endpoint**，那是另一條尚未在這份 template 落地的路徑。
+> 本圖對應這次已核對的開發環境：Function App `func-fet-outlook-email-bst` 透過 **Private Link / private endpoint** 進站，且 `publicNetworkAccess=Disabled`；APIM `apim-fet-outlook-email` 透過 **Internal VNet + private DNS** 提供私網入口，而且 retained path 目前是**前轉到 ACA `fet-outlook-email-ca`**。若把「frontend 都走 private link」當成泛稱私網入口，這套架構已符合；若嚴格要求 **APIM 也必須是 Azure Private Link / private endpoint**，那是另一條尚未在這份 template 落地的路徑。
 >
-> **注意**：這是目前 live azd env 的結果，不是 repo 預設值；能成立是因為環境已把 `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true` 與 `AZURE_APIM_INTERNAL_VNET=true` 打開，而 `infra\main.parameters.json` 的預設仍是 `false`。
+> **注意**：這是目前 live azd env 的結果，不是 repo 預設值；能成立是因為環境已把 `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true`、`AZURE_APIM_INTERNAL_VNET=true` 與 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca` 打開，而 `infra\main.parameters.json` 的預設仍是空字串或 `false`。
 
 ```mermaid
 flowchart LR
@@ -1155,8 +1222,9 @@ flowchart LR
     APIM["APIM Developer (Internal)<br/>apim-fet-outlook-email<br/>private IP: 172.18.78.4"]
     Net["apim-bst-vnet / apim-subnet<br/>NSG + DG-Route-APIM"]
     InboundAuth["Shared MCP OAuth resource app<br/>Expose an API + user_impersonation + access_as_application"]
-    Func["Azure Function App backend<br/>func-fet-outlook-email-bst<br/>Private Endpoint: 172.18.79.118"]
-    OutboundAuth["Outbound Graph identity<br/>Managed identity or service principal"]
+    ACA["Azure Container App backend<br/>fet-outlook-email-ca"]
+    Func["Azure Function App direct path<br/>func-fet-outlook-email-bst<br/>Private Endpoint: 172.18.79.118"]
+    OutboundAuth["Outbound Graph identity<br/>ACA / Function 可各自採 managed identity 或 service principal"]
     Graph["Microsoft Graph<br/>Mail.Send"]
 
     Client -->|"resolve APIM default hostnames"| DNS
@@ -1164,9 +1232,10 @@ flowchart LR
     APIM --- Net
     APIM -->|"validate-azure-ad-token"| InboundAuth
     Databricks -->|"HTTPS /mcp + Bearer token"| Func
-    APIM -->|"managed identity token for MCP audience"| Func
+    APIM -->|"managed identity token for MCP audience"| ACA
+    ACA -->|"get Graph token"| OutboundAuth
     Func -->|"get Graph token"| OutboundAuth
-    Func -->|"sendMail"| Graph
+    OutboundAuth -->|"sendMail"| Graph
 ```
 
 #### APIM retained / send_email 資料流
@@ -1177,7 +1246,7 @@ sequenceDiagram
     participant DNS as Private DNS
     participant EntraIn as Entra ID (APIM inbound OAuth)
     participant APIM as APIM gateway
-    participant Func as Function App
+    participant ACA as Container App
     participant Graph as Microsoft Graph
 
     Client->>DNS: resolve apim-fet-outlook-email.azure-api.net
@@ -1186,16 +1255,19 @@ sequenceDiagram
     EntraIn-->>Client: access token
     Client->>APIM: POST /mcp with Authorization: Bearer
     APIM->>APIM: validate-azure-ad-token
-    APIM->>Func: forward /mcp with managed identity bearer token
-    Func-->>Client: initialize / tools/list / tool result
-    Client->>APIM: send_email tool call
-    APIM->>Func: forward send_email request
-    Func->>Graph: Mail.Send
-    Graph-->>Func: accepted / error
-    Func-->>Client: MCP response
+    APIM->>ACA: forward /mcp with managed identity bearer token
+    ACA-->>Client: initialize / tools/list / tool result
+    Client->>APIM: generate_pptx_attachment tool call
+    APIM->>ACA: forward generate_pptx_attachment
+    ACA-->>Client: generatedAttachmentId
+    Client->>APIM: send_email with generatedAttachmentIds
+    APIM->>ACA: forward send_email
+    ACA->>Graph: Mail.Send
+    Graph-->>ACA: accepted / error
+    ACA-->>Client: MCP response
 ```
 
-> **注意**：現在有三個認證責任面：**APIM inbound OAuth**、**direct Function Easy Auth**、**Function App 出站呼叫 Graph**。前兩者共用 `MCP_OAUTH_*` 這顆 MCP resource app；最後一條才看 `MCP_ENTRA_*` 或 managed identity。
+> **注意**：現在有四個實際責任面：**APIM inbound OAuth**、**APIM -> ACA backend token**、**direct Function Easy Auth**、**應用程式出站呼叫 Graph**。retained path 與 direct Function 會共用 `MCP_OAUTH_*` 這顆 MCP resource app；真正寄信時才看各自 backend 的 Graph credential。
 
 #### APIM internal / private 這輪 lesson learned
 

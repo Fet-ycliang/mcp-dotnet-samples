@@ -85,6 +85,9 @@ param apimSku string = 'Basicv2'
 @description('Whether to configure the MCP API facade and OAuth app objects inside APIM. Set false to deploy APIM networking/private DNS first and defer OAuth later.')
 param deployApimMcpApi bool = true
 
+@description('Optional. Existing Container App name that the APIM MCP facade should forward to. Leave empty to keep the Function App backend.')
+param apimBackendContainerAppName string = ''
+
 @maxLength(50)
 @description('Optional explicit API Management service name. Must use a valid APIM service name and is ignored when deployApim is false. Leave empty to use the standard derived APIM naming pattern.')
 param apimNameOverride string = ''
@@ -143,6 +146,7 @@ var functionAppDnsLinkName = '${functionAppName}-sites-link'
 var effectiveMcpOauthTenantId = reuseExistingMcpOauthApp ? existingMcpOauthTenantId : mcpEntraApp!.outputs.mcpAppTenantId
 var effectiveMcpOauthClientId = reuseExistingMcpOauthApp ? existingMcpOauthClientId : mcpEntraApp!.outputs.mcpAppId
 var effectiveDirectAllowedClientApplications = deployApimFacade && !empty(directAllowedClientApplications) ? concat(directAllowedClientApplications, [mcpApimGatewayIdentity!.outputs.clientId]) : directAllowedClientApplications
+var apimBackendFqdn = !empty(apimBackendContainerAppName) ? apimBackendContainerApp!.properties.configuration.ingress.fqdn : fncapp.outputs.fqdn
 var allowedSenderAppSettings = reduce(
   allowedSenders,
   {},
@@ -206,6 +210,10 @@ module mcpApimGatewayIdentity 'br/public:avm/res/managed-identity/user-assigned-
 
 resource existingVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-05-01' existing = if (useExistingVirtualNetwork) {
   name: virtualNetworkName
+}
+
+resource apimBackendContainerApp 'Microsoft.App/containerApps@2023-05-02-preview' existing = if (!empty(apimBackendContainerAppName)) {
+  name: apimBackendContainerAppName
 }
 
 resource sharedFunctionAppPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = if (useSharedPrivateDnsZones && deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints) {
@@ -329,12 +337,12 @@ module mcpApiModule './modules/mcp-api.bicep' = if (deployApimFacade) {
   params: {
     apimServiceName: apimService!.outputs.name
     functionAppName: functionAppName
+    backendUrl: !empty(apimBackendContainerAppName) ? 'https://${apimBackendFqdn}/' : ''
     mcpAppId: effectiveMcpOauthClientId
     mcpAppTenantId: effectiveMcpOauthTenantId
     backendManagedIdentityClientId: mcpApimGatewayIdentity!.outputs.clientId
   }
   dependsOn: [
-    fncapp
     apimGatewayAppRoleAssignment
   ]
 }
@@ -599,3 +607,4 @@ output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = fncapp.outputs.fqdn
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = deployApim ? apimService!.outputs.id : ''
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = deployApim ? apimService!.outputs.name : ''
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN string = deployApim ? replace(apimService!.outputs.gatewayUrl, 'https://', '') : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN string = deployApimFacade ? apimBackendFqdn : ''
