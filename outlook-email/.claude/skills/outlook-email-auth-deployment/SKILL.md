@@ -210,6 +210,15 @@ azd env get-value AZURE_CONTAINER_REGISTRY_ENDPOINT
 - `postdeploy` 現在驗的是 direct ACA `/mcp`，不是 `/.well-known/oauth-protected-resource`。
 - 若 direct / retained path 都要排錯，先分清楚是 **APIM inbound OAuth**、**APIM -> ACA backend token**，還是 **backend -> Graph** 出站權限，不要混成同一組 credential 問題。
 
+### APIM 維運 / 重建記憶點
+
+- 手動維運入口主要是 `infra\remove-apim.bicep` / `infra\rebuild-apim.bicep`。
+- APIM 刪除是**長時間操作**；不要因為 Azure 一段時間沒回應就中途 Ctrl+C，否則資源可能長時間卡在 `Deleting`。
+- 查 managed identity 的角色指派時，不要直接用 `az role assignment list --assignee <managed-identity-resource-id>`；先用 `az identity show --query principalId` 取出 `principalId`，再改用 `--assignee-object-id <principalId>` 查詢。
+- `remove-apim.bicep` 的 deploymentScript 需要執行用 managed identity 至少具備 Contributor 以上權限；若 RBAC 不足，常見症狀是 script 卡住或看似成功但沒有真的清乾淨。
+- APIM 刪掉後，`apim-subnet` 不會跟著一起刪除；重建前先確認 prefix、NSG 與 route table 仍是預期值，不要重複建立 subnet。
+- 更完整的 lessons learned 與症狀對照，以 `README.md` 的 **「本輪踩雷與避坑紀錄（2026-04）」** 為主。
+
 ## 變更時的注意事項
 
 1. 如果新增認證來源或設定鍵，請優先同步更新 `README.md` 與 `local.settings.sample.json`。

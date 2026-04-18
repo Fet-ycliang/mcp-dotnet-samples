@@ -121,7 +121,7 @@
 - **內容頁**：使用 section title + card panel，讓重點區塊更像正式簡報而不是純文字頁。
 - **條列**：`bullets` 會轉成真正的 paragraph bullet 與縮排，不再只是把 `•` 字元硬塞進文字。
 - **字型與層次**：預設使用 `Aptos` + `Microsoft JhengHei`，並加入較穩定的行距、段落間距與 footer。
-- **頁腳**：內容頁會帶 deck title 與頁碼，讓輸出更接近會議簡報格式。
+- **頁腳**：**封面頁刻意不帶 footer**；只有內容頁會帶 deck title 與頁碼，讓輸出更接近會議簡報格式。
 
 #### 呼叫端建議：先整理成商務簡報語氣
 
@@ -1345,6 +1345,12 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | APIM subnet prefix 調整 | 直接把現有 `apim-subnet` 從 `/24` 縮到 `/25`，但該 subnet 上其實已有 APIM active allocations | Azure 直接回 `InUsePrefixCannotBeDeleted`，例如：`IpPrefix 172.18.78.0/24 on Subnet apim-subnet has active allocations and cannot be deleted.` | 先把這條路徑視為 **不可原地縮編**；若要 `/25`，改走 **新 subnet 建立 + APIM 遷移**。另外先區分「容量」和「縮編」：Azure 每個 subnet 先保留 5 個 IP；目前這條 classic Developer internal 路徑可把 **`/29 = 3 usable IP`** 視為理論最小值，`/25 ≈ 123 usable IP`、`/24 ≈ 251 usable IP`。這次失敗不是容量不足，而是舊 prefix 已 in use |
 | 既有 VNet 跨 RG | 目前 template 仍預設既有 VNet 與部署 RG 同一個 resource group | 跨 RG reuse 時找不到 VNet | 若要跨 RG 重用既有 VNet，先擴充 template，再部署；不要先假設目前版本支援 |
 | PPTX part relationship | 自己手寫 `PresentationPart` / `ThemePart` 的 relationship ID | 簡報在 4 張以上時可能壞檔或打不開 | 不要把 theme 掛回 `PresentationPart`，也不要自己保證 slide `rId`；改用 SDK 自動指派的 relationship ID |
+| PPTX footer baseline | 改模板時把封面頁也當內容頁處理，或忽略既有 deck 視覺基線 | 封面頁突然出現 deck title / page number，整份簡報風格不一致 | 目前 baseline 是 **封面頁不帶 footer**、內容頁才帶 deck title + page number；若要改模板，請連同 README、skills 與驗收基準一起同步 |
+| PPTX auto-fit / validation | 只改內容框大小或字數上限，不同步調整 auto-fit 或 validation | 檔案能開，但長標題或 bullets 被裁掉，輸出不可讀 | 保留 auto-fit，或同步收緊 validation / 範例 payload，避免 render 成功卻不可讀 |
+| APIM 刪除流程 | 手動刪除 APIM 時中途 Ctrl+C，或太早判定 Azure 沒反應 | 資源長時間卡在 `Deleting`，後續重建又互相干擾 | APIM 刪除是長時間操作；送出後先等 control plane 完成，再進行重建或下一輪排錯 |
+| Managed identity 角色查詢 | 直接用 `az role assignment list --assignee <managed-identity-resource-id>` 查 RBAC | CLI 直接回 Graph / principal lookup 錯誤，看起來像角色不存在 | 先用 `az identity show --query principalId` 取得 `principalId`，再改用 `--assignee-object-id <principalId>` 查 role assignment |
+| `remove-apim.bicep` deploymentScript 權限 | 用沒有足夠 RBAC 的 identity 跑清除腳本 | deploymentScript 靜默失敗、卡住，或資源沒真的被清乾淨 | 先確認該 managed identity 至少有 Contributor 以上權限，再執行 `az deployment group create` |
+| APIM subnet lifecycle | 以為刪掉 APIM 會連 `apim-subnet` 一起清掉 | 重建時誤重建 subnet、prefix 對不上，或把既有 NSG / route table 關聯弄亂 | APIM 刪除後保留既有 subnet；重建前先確認 prefix、NSG 與 route table 仍正確 |
 
 #### APIM retained + direct Function 實際落地架構（2026-04）
 
