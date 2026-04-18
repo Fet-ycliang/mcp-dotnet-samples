@@ -45,14 +45,14 @@
 - `Program.cs` 先透過 `AppSettings.UseStreamableHttp(...)` 決定 STDIO 或 HTTP。
 - HTTP 模式下會讀取 `FUNCTIONS_CUSTOMHANDLER_PORT`，若沒有則預設使用 `5260`。
 - 認證與 Graph client 建立都留在 `outlook-email` sample 內，不要隨意搬到 shared。
-- `azure.yaml` 目前預設把 `outlook-email` 部署成 **Azure Functions**，不是 Container Apps；`azd up` / `azd deploy` 不會自動產出 ACR image。
+- `azure.yaml` 現在預設把 `outlook-email` 部署成 **Azure Container Apps**；`azd up` / `azd deploy` 會用 `Dockerfile.outlook-email-azure` + remote build 自動把映像推到 azd 管理的 ACR，並 rollout 到 Container App。
 - 若要手動或用 CI 發布容器映像到 ACR，命名規則使用 **`<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`**；branch 分目錄放 repository path，不放 tag。
 - **ACA / ACR 這條線固定使用 `Dockerfile.outlook-email-azure`**；不要再把 `Dockerfile.outlook-email` 丟給 `az acr build` / ACR Task，否則容易在 dependency scanner 卡在 `FROM --platform=$BUILDPLATFORM ...`。
 - Azure 命名與 tag 基線目前以 **`fet-outlook-email-bst`** 為核心 stem；實際覆寫方式看 `infra\main.bicep`、`infra\main.parameters.json` 與 `README.md` 的 Azure 部署段落。
 - **目前 live APIM resource 名稱**是 `apim-fet-outlook-email`；`AZURE_APIM_NAME` 或 README 內的 `fet-mcp-apim-bst` 只應視為 env / 範例值，不要直接當成已落地資源名稱。
-- **目前 live APIM retained path backend** 是 ACA `fet-outlook-email-ca`，不是 Function App；若要讓 IaC 跟上這個現況，請設定 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca`，讓 `mcp-api` module 直接取 ACA ingress FQDN。這個參數目前假設 ACA 與本次部署在**同一個 resource group**，而且該 ACA 已啟用 ingress 並有可用 FQDN。注意：template **不會**順手替既有 ACA 補 auth / network 鎖定，你必須自己確保 ACA 不會變成繞過 APIM 的入口。
+- **目前 live APIM retained path backend** 是 ACA `fet-outlook-email-ca`；若要讓 azd 直接接手並持續更新這個既有 ACA，請設定 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca`。template 會沿用該 ACA 的 managed environment / 目前 image 當 deploy baseline，再把 azd service 與 APIM backend 一起對準它。這個參數目前假設 ACA 與本次部署在**同一個 resource group**，而且該 ACA 已啟用 ingress 並有可用 FQDN。注意：template **不會**順手替既有 ACA 補完所有 auth / network 鎖定，你仍要自己確認 ACA 不會變成繞過 APIM 的入口。
 - **目前 live frontend 已是 private-only ingress**：Function App 走 **Private Link / private endpoint**，且 `publicNetworkAccess=Disabled`；APIM gateway 走 **Internal VNet + private DNS**。若有人說「frontend 都走 private link」，要先確認他是泛指私網入口，還是嚴格要求 **APIM 也必須是 Azure Private Link**。
-- **注意這不是 template 預設值**：目前合規是因為這個 azd env 已把 `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true`、`AZURE_APIM_INTERNAL_VNET=true` 與 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca` 打開；`main.parameters.json` 的預設仍是空字串或 `false`。
+- **注意這不是 template 預設值**：目前 live retained path 之所以對準 `fet-outlook-email-ca`，是因為這個 azd env 已把 `AZURE_APIM_INTERNAL_VNET=true` 與 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca` 打開；`main.parameters.json` 的預設仍是空字串或 `false`。
 - **APIM subnet**：`apim-subnet`，`172.18.78.0/28`，位於 `apim-bst-vnet`，NSG `172.18.78.0_24_APIM` 與 Route Table `DG-Route-APIM` 已就位，重建 APIM 時 subnet 本身不需異動。
 - Graph 認證模式的優先序是：`EntraId__UseManagedIdentity` 明確值 > 明確提供的 `EntraId__TenantId` / `ClientId` / `ClientSecret` > `AZURE_CLIENT_ID` fallback。不要只看 `AZURE_CLIENT_ID` 來判斷目前是否一定走 managed identity。
 - `send_email` 的責任分層是：

@@ -85,7 +85,7 @@ param apimSku string = 'Basicv2'
 @description('Whether to configure the MCP API facade and OAuth app objects inside APIM. Set false to deploy APIM networking/private DNS first and defer OAuth later.')
 param deployApimMcpApi bool = true
 
-@description('Optional. Existing Container App name that the APIM MCP facade should forward to. Leave empty to keep the Function App backend.')
+@description('Optional. Existing Container App name to reuse as the azd deployment target and APIM backend. Leave empty to let the template create and manage a new Container App.')
 param apimBackendContainerAppName string = ''
 
 @maxLength(50)
@@ -116,10 +116,14 @@ var abbrs = loadJsonContent('./abbreviations.json')
 var normalizedStem = toLower(resourceNameStem)
 var compactStem = take(replace(normalizedStem, '-', ''), 22)
 var functionAppName = '${abbrs.webSitesFunctions}${normalizedStem}'
+var containerRegistryName = take('${abbrs.containerRegistryRegistries}${compactStem}acr', 50)
+var containerAppsEnvironmentName = '${abbrs.appManagedEnvironments}${normalizedStem}'
+var containerAppName = !empty(apimBackendContainerAppName) ? apimBackendContainerAppName : '${abbrs.appContainerApps}${normalizedStem}'
 var deploymentStorageContainerName = 'app-package-${normalizedStem}'
 var allowedSenders = empty(allowedSendersCsv) ? [] : split(allowedSendersCsv, ';')
 var allowedReplyTo = empty(allowedReplyToCsv) ? [] : split(allowedReplyToCsv, ';')
 var directAllowedClientApplications = empty(directAllowedClientApplicationsCsv) ? [] : filter(map(split(directAllowedClientApplicationsCsv, ';'), appId => trim(appId)), appId => !empty(appId))
+var useExistingContainerApp = !empty(apimBackendContainerAppName) || mcpOutlookEmailExists
 var useExistingVirtualNetwork = vnetEnabled && !empty(existingVirtualNetworkName)
 var deployApimFacade = deployApim && deployApimMcpApi
 var reuseExistingMcpOauthApp = !empty(existingMcpOauthTenantId) && !empty(existingMcpOauthClientId)
@@ -143,10 +147,10 @@ var storageAccountName = '${abbrs.storageStorageAccounts}${compactStem}'
 var mcpEntraAppUniqueName = 'mcp-${normalizedStem}'
 var mcpEntraAppDisplayName = 'MCP-${normalizedStem}'
 var functionAppDnsLinkName = '${functionAppName}-sites-link'
+var userAssignedIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', userAssignedIdentityName)
 var effectiveMcpOauthTenantId = reuseExistingMcpOauthApp ? existingMcpOauthTenantId : mcpEntraApp!.outputs.mcpAppTenantId
 var effectiveMcpOauthClientId = reuseExistingMcpOauthApp ? existingMcpOauthClientId : mcpEntraApp!.outputs.mcpAppId
 var effectiveDirectAllowedClientApplications = deployApimFacade && !empty(directAllowedClientApplications) ? concat(directAllowedClientApplications, [mcpApimGatewayIdentity!.outputs.clientId]) : directAllowedClientApplications
-var apimBackendFqdn = !empty(apimBackendContainerAppName) ? apimBackendContainerApp!.properties.configuration.ingress.fqdn : fncapp.outputs.fqdn
 var allowedSenderAppSettings = reduce(
   allowedSenders,
   {},
@@ -160,6 +164,61 @@ var allowedReplyToAppSettings = reduce(
   (cur, next, i) => union(cur, {
     'AllowedReplyTo__${i}': next
   })
+)
+var allowedSenderEnvVars = [for appSetting in items(allowedSenderAppSettings): {
+  name: appSetting.key
+  value: string(appSetting.value)
+}]
+var allowedReplyToEnvVars = [for appSetting in items(allowedReplyToAppSettings): {
+  name: appSetting.key
+  value: string(appSetting.value)
+}]
+var entraClientSecretIsKeyVaultReference = !empty(entraClientSecret) && startsWith(entraClientSecret, '@Microsoft.KeyVault(') && contains(entraClientSecret, 'SecretUri=')
+var entraClientSecretKeyVaultUrl = entraClientSecretIsKeyVaultReference ? replace(replace(entraClientSecret, '@Microsoft.KeyVault(SecretUri=', ''), ')', '') : ''
+var containerAppSecrets = !graphUseManagedIdentity && !empty(entraClientSecret) ? [
+  entraClientSecretIsKeyVaultReference ? {
+    name: 'graph-client-secret'
+    identity: userAssignedIdentityResourceId
+    keyVaultUrl: entraClientSecretKeyVaultUrl
+  } : {
+    name: 'graph-client-secret'
+    value: entraClientSecret
+  }
+] : []
+var graphAuthEnvVars = graphUseManagedIdentity ? [
+  {
+    name: 'EntraId__UseManagedIdentity'
+    value: 'true'
+  }
+  {
+    name: 'AZURE_CLIENT_ID'
+    value: mcpOutlookEmailIdentity.outputs.clientId
+  }
+] : concat(
+  [
+    {
+      name: 'EntraId__UseManagedIdentity'
+      value: 'false'
+    }
+  ],
+  !empty(entraTenantId) ? [
+    {
+      name: 'EntraId__TenantId'
+      value: entraTenantId
+    }
+  ] : [],
+  !empty(entraClientId) ? [
+    {
+      name: 'EntraId__ClientId'
+      value: entraClientId
+    }
+  ] : [],
+  !empty(entraClientSecret) ? [
+    {
+      name: 'EntraId__ClientSecret'
+      secretRef: 'graph-client-secret'
+    }
+  ] : []
 )
 
 // Monitor application with Azure Monitor
@@ -212,8 +271,8 @@ resource existingVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-05-01' e
   name: virtualNetworkName
 }
 
-resource apimBackendContainerApp 'Microsoft.App/containerApps@2023-05-02-preview' existing = if (!empty(apimBackendContainerAppName)) {
-  name: apimBackendContainerAppName
+resource existingManagedContainerApp 'Microsoft.App/containerApps@2024-03-01' existing = if (useExistingContainerApp) {
+  name: containerAppName
 }
 
 resource sharedFunctionAppPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = if (useSharedPrivateDnsZones && deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints) {
@@ -337,7 +396,7 @@ module mcpApiModule './modules/mcp-api.bicep' = if (deployApimFacade) {
   params: {
     apimServiceName: apimService!.outputs.name
     functionAppName: functionAppName
-    backendUrl: !empty(apimBackendContainerAppName) ? 'https://${apimBackendFqdn}/' : ''
+    backendUrl: 'https://${mcpOutlookEmail.properties.configuration.ingress.fqdn}/'
     mcpAppId: effectiveMcpOauthClientId
     mcpAppTenantId: effectiveMcpOauthTenantId
     backendManagedIdentityClientId: mcpApimGatewayIdentity!.outputs.clientId
@@ -370,7 +429,7 @@ module fncapp './modules/functionapp.bicep' = {
     name: functionAppName
     location: location
     tags: tags
-    azdServiceName: azdServiceName
+    azdServiceName: '${azdServiceName}-function'
     applicationInsightsName: monitoring.outputs.applicationInsightsName
     appServicePlanId: appServicePlan.outputs.resourceId
     runtimeName: 'dotnet-isolated'
@@ -490,121 +549,129 @@ module storagePrivateEndpoint './modules/storage-privateendpoint.bicep' = if (ca
   }
 }
 
-// // Container registry
-// module containerRegistry 'br/public:avm/res/container-registry/registry:0.1.1' = {
-//   name: 'registry'
-//   params: {
-//     name: '${abbrs.containerRegistryRegistries}${resourceToken}'
-//     location: location
-//     tags: tags
-//     publicNetworkAccess: 'Enabled'
-//     roleAssignments: [
-//       {
-//         principalId: mcpOutlookEmailIdentity.outputs.principalId
-//         principalType: 'ServicePrincipal'
-//         // ACR pull role
-//         roleDefinitionIdOrName: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-//       }
-//     ]
-//   }
-// }
+// Container registry for azd remote builds
+module containerRegistry 'br/public:avm/res/container-registry/registry:0.1.1' = {
+  name: 'registry'
+  params: {
+    name: containerRegistryName
+    location: location
+    tags: tags
+    publicNetworkAccess: 'Enabled'
+    roleAssignments: [
+      {
+        principalId: mcpOutlookEmailIdentity.outputs.principalId
+        principalType: 'ServicePrincipal'
+        roleDefinitionIdOrName: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
+      }
+    ]
+  }
+}
 
-// // Container apps environment
-// module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.4.5' = {
-//   name: 'container-apps-environment'
-//   params: {
-//     logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
-//     name: '${abbrs.appManagedEnvironments}${resourceToken}'
-//     location: location
-//     zoneRedundant: false
-//   }
-// }
+module containerAppsEnvironment 'br/public:avm/res/app/managed-environment:0.4.5' = if (!useExistingContainerApp) {
+  name: 'container-apps-environment'
+  params: {
+    logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
+    name: containerAppsEnvironmentName
+    location: location
+    zoneRedundant: false
+    tags: tags
+  }
+}
 
-// // Azure Container Apps
-// module mcpOutlookEmailFetchLatestImage './modules/fetch-container-image.bicep' = {
-//   name: 'mcpOutlookEmail-fetch-image'
-//   params: {
-//     exists: mcpOutlookEmailExists
-//     name: 'outlook-email'
-//   }
-// }
+module mcpOutlookEmailFetchLatestImage './modules/fetch-container-image.bicep' = {
+  name: 'mcpOutlookEmail-fetch-image'
+  params: {
+    exists: useExistingContainerApp
+    name: containerAppName
+  }
+}
 
-// module mcpOutlookEmail 'br/public:avm/res/app/container-app:0.8.0' = {
-//   name: 'mcpOutlookEmail'
-//   params: {
-//     name: 'outlook-email'
-//     ingressTargetPort: 8080
-//     scaleMinReplicas: 1
-//     scaleMaxReplicas: 10
-//     secrets: {
-//       secureList: [
-//       ]
-//     }
-//     containers: [
-//       {
-//         image: mcpOutlookEmailFetchLatestImage.outputs.?containers[?0].?image ?? 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
-//         name: 'main'
-//         resources: {
-//           cpu: json('0.5')
-//           memory: '1.0Gi'
-//         }
-//         env: [
-//           {
-//             name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-//             value: monitoring.outputs.applicationInsightsConnectionString
-//           }
-//           {
-//             name: 'AZURE_CLIENT_ID'
-//             value: mcpOutlookEmailIdentity.outputs.clientId
-//           }
-//           {
-//             name: 'PORT'
-//             value: '8080'
-//           }
-//         ]
-//         args: [
-//           '--http'
-//         ]
-//       }
-//     ]
-//     managedIdentities: {
-//       systemAssigned: false
-//       userAssignedResourceIds: [
-//         mcpOutlookEmailIdentity.outputs.resourceId
-//       ]
-//     }
-//     registries: [
-//       {
-//         server: containerRegistry.outputs.loginServer
-//         identity: mcpOutlookEmailIdentity.outputs.resourceId
-//       }
-//     ]
-//     environmentResourceId: containerAppsEnvironment.outputs.resourceId
-//     corsPolicy: {
-//       allowedOrigins: [
-//         'https://make.preview.powerapps.com'
-//         'https://make.powerapps.com'
-//         'https://make.preview.powerautomate.com'
-//         'https://make.powerautomate.com'
-//         'https://copilotstudio.preview.microsoft.com'
-//         'https://copilotstudio.microsoft.com'
-//       ]
-//     }
-//     location: location
-//     tags: union(tags, { 'azd-service-name': 'outlook-email' })
-//   }
-// }
+var managedContainerAppEnvironmentResourceId = useExistingContainerApp
+  ? existingManagedContainerApp!.properties.managedEnvironmentId
+  : containerAppsEnvironment!.outputs.resourceId
+var managedContainerAppImage = useExistingContainerApp && length(mcpOutlookEmailFetchLatestImage.outputs.containers) > 0
+  ? mcpOutlookEmailFetchLatestImage.outputs.containers[0].image
+  : 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+var managedContainerAppIngressExternal = useExistingContainerApp ? existingManagedContainerApp!.properties.configuration.ingress.external : true
+var managedContainerAppIngressTransport = useExistingContainerApp ? existingManagedContainerApp!.properties.configuration.ingress.transport : 'auto'
 
-// output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerRegistry.outputs.loginServer
-// output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = mcpOutlookEmail.outputs.resourceId
-// output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = mcpOutlookEmail.outputs.name
-// output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = mcpOutlookEmail.outputs.fqdn
+resource mcpOutlookEmail 'Microsoft.App/containerApps@2024-03-01' = {
+  name: containerAppName
+  location: location
+  tags: union(tags, {
+    'azd-service-name': azdServiceName
+  })
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${userAssignedIdentityResourceId}': {}
+    }
+  }
+  properties: {
+    managedEnvironmentId: managedContainerAppEnvironmentResourceId
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: managedContainerAppIngressExternal
+        targetPort: 8080
+        transport: managedContainerAppIngressTransport
+        allowInsecure: false
+      }
+      registries: [
+        {
+          server: containerRegistry.outputs.loginServer
+          identity: userAssignedIdentityResourceId
+        }
+      ]
+      secrets: containerAppSecrets
+    }
+    template: {
+      containers: [
+        {
+          name: 'main'
+          image: managedContainerAppImage
+          args: [
+            '--http'
+          ]
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          env: concat(
+            [
+              {
+                name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+                value: monitoring.outputs.applicationInsightsConnectionString
+              }
+              {
+                name: 'FUNCTIONS_CUSTOMHANDLER_PORT'
+                value: '8080'
+              }
+              {
+                name: 'UseHttp'
+                value: 'true'
+              }
+            ],
+            graphAuthEnvVars,
+            allowedSenderEnvVars,
+            allowedReplyToEnvVars
+          )
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 10
+      }
+    }
+  }
+}
 
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = fncapp.outputs.resourceId
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = fncapp.outputs.name
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = fncapp.outputs.fqdn
+output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerRegistry.outputs.loginServer
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = mcpOutlookEmail.id
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = mcpOutlookEmail.name
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = mcpOutlookEmail.properties.configuration.ingress.fqdn
 
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_ID string = deployApim ? apimService!.outputs.id : ''
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_NAME string = deployApim ? apimService!.outputs.name : ''
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_GATEWAY_FQDN string = deployApim ? replace(apimService!.outputs.gatewayUrl, 'https://', '') : ''
-output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN string = deployApimFacade ? apimBackendFqdn : ''
+output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN string = deployApimFacade ? mcpOutlookEmail.properties.configuration.ingress.fqdn : ''
