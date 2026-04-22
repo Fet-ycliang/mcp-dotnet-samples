@@ -30,6 +30,11 @@
   | Tools | `generate_xlsx_attachment` | 根據結構化工作表、資料表與圖表內容產生 `.xlsx` 附件，並回傳可供 `send_email` 使用的附件識別碼。 | `#generate_xlsx_attachment` |
   | Tools | `send_email` | 將電子郵件寄送給收件者，並可選擇加入 reply-to 位址與附件。 | `#send_email` |
 
+`send_email` 支援 `bodyContentType` 指定郵件本文格式：
+
+- `text`：純文字（預設值）
+- `html`：HTML 內容，會以 Graph `BodyType.Html` 寄出
+
 `send_email` 也接受選用的 `attachments`。每個附件項目應包含：
 
 - `name`：電子郵件中顯示的檔名
@@ -74,6 +79,7 @@
 {
   "title": "本週報表",
   "body": "請參考附件。",
+  "bodyContentType": "text",
   "sender": "shared-mailbox@contoso.com",
   "recipients": "alice@contoso.com; bob@contoso.com",
   "replyTo": "owner@contoso.com",
@@ -91,6 +97,20 @@
   ]
 }
 ```
+
+HTML 內容範例：
+
+```json
+{
+  "title": "Token 用量通知",
+  "bodyContentType": "html",
+  "body": "<div style=\"font-family:Segoe UI,Arial,sans-serif;\"><h2>Token 使用量日報</h2><p>請參考今日摘要。</p></div>",
+  "sender": "shared-mailbox@contoso.com",
+  "recipients": "alice@contoso.com"
+}
+```
+
+> 若 `body` 內容是 HTML，但沒有明確指定 `"bodyContentType": "html"`，系統仍會以純文字寄出，收件者會看到原始 HTML 標記。
 
 > 若有設定 `AllowedSenders`，`sender` 必須位於允許清單中。若有設定 `AllowedReplyTo`，`replyTo` 也必須位於允許清單中。
 

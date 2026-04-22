@@ -20,13 +20,14 @@ public interface IOutlookEmailTool
     /// </summary>
     /// <param name="title">電子郵件標題。</param>
     /// <param name="body">電子郵件內容。</param>
+    /// <param name="bodyContentType">電子郵件內容格式。支援 text 或 html。</param>
     /// <param name="sender">寄件者電子郵件地址。</param>
     /// <param name="recipients">以逗號或分號分隔的收件者電子郵件地址。</param>
     /// <param name="replyTo">以逗號或分號分隔的選用回覆地址。</param>
     /// <param name="attachments">選用的電子郵件附件。</param>
     /// <param name="generatedAttachmentIds">由其他工具產生並暫存於伺服器端的附件識別碼。</param>
     /// <returns>回傳 <see cref="OutlookEmailResult"/> 執行個體。</returns>
-    Task<OutlookEmailResult> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default, string[]? generatedAttachmentIds = default);
+    Task<OutlookEmailResult> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default, string[]? generatedAttachmentIds = default, string? bodyContentType = default);
 }
 
 /// <summary>
@@ -47,12 +48,13 @@ public class OutlookEmailTool(IOutlookEmailService service, ILogger<OutlookEmail
         [Description("以逗號或分號分隔的收件者電子郵件地址")] string recipients,
         [Description("以逗號或分號分隔的選用回覆地址")] string? replyTo = default,
         [Description("選用附件。每個項目都必須包含 name、contentType 與 contentBytesBase64，並會套用附件數量與單檔大小限制")] OutlookEmailAttachment[]? attachments = default,
-        [Description("由 generate_pptx_attachment、generate_xlsx_attachment 等工具產生的附件識別碼陣列。與 attachments 一起提供時會合併寄出")] string[]? generatedAttachmentIds = default)
+        [Description("由 generate_pptx_attachment、generate_xlsx_attachment 等工具產生的附件識別碼陣列。與 attachments 一起提供時會合併寄出")] string[]? generatedAttachmentIds = default,
+        [Description("電子郵件內容格式。支援 text 或 html；未提供時預設為 text")] string? bodyContentType = default)
     {
         var result = new OutlookEmailResult();
         try
         {
-            var requestBody = await service.SendEmailAsync(title, body, sender, recipients, replyTo, attachments, generatedAttachmentIds).ConfigureAwait(false);
+            var requestBody = await service.SendEmailAsync(title, body, sender, recipients, replyTo, attachments, generatedAttachmentIds, bodyContentType).ConfigureAwait(false);
 
             logger.LogInformation("已成功從 {Sender} 將主旨為 {Subject} 的電子郵件寄送給 {Recipients}。", sender, title, recipients);
 

@@ -43,6 +43,10 @@ description: |
 3. `generatedAttachmentIds` 目前同時支援 `generate_pptx_attachment` 與 `generate_xlsx_attachment`；若修改這條路徑，記得同步更新 tool 描述與 README 範例。
 4. 收件者目前支援逗號與分號分隔；若要修改，必須保留或明確更新這項規則。
 5. 若有調整 `AllowedSenders` 或 `AllowedReplyTo` 驗證，記得同步更新 `local.settings.sample.json` 與 `README.md`。
+6. `body` 若要以 HTML render，必須明確傳 `bodyContentType=html`；僅把 HTML 字串塞進 `body` 並不會自動切成 Graph `BodyType.Html`。
+7. 若新增 / 調整 `bodyContentType` 這類輸入，請保留顯式 validation（例如只接受 `text` / `html`），並讓預設值維持既有行為，避免把所有舊 caller 一次變成 HTML。
+8. `send_email` 的例外目前會在 tool 層轉成 `OutlookEmailResult.ErrorMessage`；除錯 `tools/call` 時，不要只看 MCP envelope 的 `isError`，也要檢查 `result.content[0].text`。
+9. 本機要驗證 `send_email` payload / validation 時，先確認 `GraphServiceClient` 能被 DI 建出來；若 Entra 設定缺漏，可能會在進入 tool / service validation 前就先失敗。
 
 ### 調整 PPTX 產生邏輯時
 
@@ -78,6 +82,8 @@ dotnet build .\McpOutlookEmail.sln
 ```powershell
 dotnet run --project .\src\McpSamples.OutlookEmail.HybridApp -- --http
 ```
+
+直接打本機 HTTP `/mcp` 除錯時，回應可能是 `text/event-stream`，而且不一定會帶 `mcp-session-id` header；請直接解析 SSE `event:` / `data:` 行，不要只假設會拿到一般 JSON。
 
 ## 實作原則
 

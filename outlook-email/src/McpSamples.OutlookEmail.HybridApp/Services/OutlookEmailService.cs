@@ -19,13 +19,14 @@ public interface IOutlookEmailService
     /// </summary>
     /// <param name="title">電子郵件標題。</param>
     /// <param name="body">電子郵件內容。</param>
+    /// <param name="bodyContentType">電子郵件內容格式。支援 text 或 html。</param>
     /// <param name="sender">寄件者電子郵件地址。</param>
     /// <param name="recipients">以逗號或分號分隔的收件者電子郵件地址。</param>
     /// <param name="replyTo">以逗號或分號分隔的選用回覆地址。</param>
     /// <param name="attachments">選用的電子郵件附件。</param>
     /// <param name="generatedAttachmentIds">由其他工具產生並暫存於伺服器端的附件識別碼。</param>
     /// <returns>電子郵件傳送作業的結果。</returns>
-    Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default, string[]? generatedAttachmentIds = default);
+    Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default, string[]? generatedAttachmentIds = default, string? bodyContentType = default);
 }
 
 /// <summary>
@@ -58,13 +59,14 @@ public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettin
                                                        : OutlookEmailAppSettings.DefaultMaxAttachmentSizeBytes;
 
     /// <inheritdoc />
-    public async Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default, string[]? generatedAttachmentIds = default)
+    public async Task<SendMailPostRequestBody> SendEmailAsync(string title, string body, string sender, string recipients, string? replyTo = default, OutlookEmailAttachment[]? attachments = default, string[]? generatedAttachmentIds = default, string? bodyContentType = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(title, nameof(title));
         ArgumentException.ThrowIfNullOrWhiteSpace(body, nameof(body));
         ArgumentException.ThrowIfNullOrWhiteSpace(sender, nameof(sender));
         ArgumentException.ThrowIfNullOrWhiteSpace(recipients, nameof(recipients));
 
+        var normalizedBodyContentType = ParseBodyContentType(bodyContentType, nameof(bodyContentType));
         var normalizedSender = ParseSender(sender, nameof(sender));
         ValidateSender(normalizedSender, nameof(sender));
         var recipientList = ParseAddresses(recipients, nameof(recipients), "至少需要一位收件者");
@@ -75,7 +77,7 @@ public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettin
         ValidateAttachmentCount(directAttachments.Length + generatedAttachments.Length);
         var attachmentList = directAttachments.Concat(generatedAttachments).ToArray();
 
-        var req = BuildMailRequest(title, body, recipientList, replyToList, attachmentList);
+        var req = BuildMailRequest(title, body, normalizedBodyContentType, recipientList, replyToList, attachmentList);
 
         try
         {
@@ -254,6 +256,21 @@ public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettin
         return mediaType.MediaType;
     }
 
+    private static BodyType ParseBodyContentType(string? bodyContentType, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(bodyContentType))
+        {
+            return BodyType.Text;
+        }
+
+        return bodyContentType.Trim().ToLowerInvariant() switch
+        {
+            "text" => BodyType.Text,
+            "html" => BodyType.Html,
+            _ => throw new ArgumentException("bodyContentType 僅支援 'text' 或 'html'。", parameterName)
+        };
+    }
+
     private static string FormatBinarySize(int sizeInBytes)
     {
         const int oneMiB = 1024 * 1024;
@@ -262,7 +279,7 @@ public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettin
                    : $"{sizeInBytes} bytes";
     }
 
-    private static SendMailPostRequestBody BuildMailRequest(string title, string body, IEnumerable<string> recipients, IEnumerable<string> replyToRecipients, IEnumerable<FileAttachment> attachments)
+    private static SendMailPostRequestBody BuildMailRequest(string title, string body, BodyType bodyContentType, IEnumerable<string> recipients, IEnumerable<string> replyToRecipients, IEnumerable<FileAttachment> attachments)
     {
         var replyToList = replyToRecipients.Select(r => new Recipient
         {
@@ -278,7 +295,7 @@ public class OutlookEmailService(GraphServiceClient graph, OutlookEmailAppSettin
             Subject = title,
             Body = new ItemBody
             {
-                ContentType = BodyType.Text,
+                ContentType = bodyContentType,
                 Content = body
             },
             ToRecipients = [.. recipients.Select(r => new Recipient

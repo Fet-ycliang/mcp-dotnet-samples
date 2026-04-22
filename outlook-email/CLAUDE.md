@@ -108,6 +108,10 @@
 - 不要把 `outlook-email` 專屬的 Graph / auth 邏輯搬進 shared。
 - 目前這個 sample 沒有專屬測試專案；預設驗證基線是 `dotnet build .\McpOutlookEmail.sln`，必要時再補跑 `dotnet run` 或 `func start`。
 - 如果只改程式碼卻沒同步 README、設定範本或腳本，後續本機啟動與部署文件很容易失真。
+- `send_email` 的 `body` 就算看起來是 HTML，若沒明確提供 `bodyContentType=html`，Graph 仍會以純文字寄出，收件者會看到原始標記。
+- 本機直接打 HTTP `/mcp` 除錯時，回應可能是 SSE `text/event-stream`，而且不一定會帶 `mcp-session-id` header；PowerShell / curl 要直接解析 `event:` / `data:` 行，不要只假設是一般 JSON。
+- `send_email` 的 payload 驗證雖然在 `OutlookEmailService`，但 tool instance 先要能 resolve `GraphServiceClient`；若本機沒設好 Entra 參數，可能會在進入 tool / service 驗證前就先因 DI 或 auth 設定失敗。
+- `send_email` 目前會把 service 例外轉成 `errorMessage` 放在 tool 結果內，因此 `tools/call` 不一定會用 MCP envelope 的 `isError=true` 呈現；排查時要一起看 `result.content[0].text` 與 server log。
 - private Function App / SCM 在有公司 proxy 的環境下，通常要補 `NO_PROXY`；否則看起來像是 server 壞了，其實是流量被送去公網。
 - 若 APIM remote MCP 使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`（例如 `.claude\mcp.json` 內的範例），啟動 Claude Code / Copilot CLI 前，先在同一個 shell 刷新 access token。
 - `generate_pptx_attachment` 的建議流程是：先產出 `generatedAttachmentId`，再交給 `send_email.generatedAttachmentIds`；不要在遠端 APIM 路徑搬整份 `.pptx` Base64。
