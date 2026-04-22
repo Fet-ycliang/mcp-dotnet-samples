@@ -24,7 +24,7 @@ env:
   AZURE_RESOURCE_GROUP: apim-app-bst-rg
   AZURE_RESOURCE_GROUP_NAME: apim-app-bst-rg
   AZURE_RESOURCE_NAME_STEM: fet-outlook-email-bst
-  AZURE_CONTAINER_REGISTRY_ENDPOINT: fetimageacr.azurecr.io
+  AZURE_CONTAINER_REGISTRY_ENDPOINT: crfetoutlookemailbstacr.azurecr.io
   AZURE_EXISTING_VNET_NAME: apim-bst-vnet
   AZURE_INTEGRATION_SUBNET_NAME: app-flex-out-subnet
   AZURE_PRIVATE_ENDPOINT_SUBNET_NAME: PE_Subnet
@@ -33,13 +33,13 @@ env:
   AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME: fet-outlook-email-ca
   AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID: /subscriptions/1d077479-3fc2-4f1f-82b4-0a5789393fd2/resourceGroups/apim-app-bst-rg/providers/Microsoft.App/containerapps/fet-outlook-email-ca
   AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN: fet-outlook-email-ca.proudpebble-d0c3559f.eastus2.azurecontainerapps.io
-  AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN: fet-outlook-email-ca.proudpebble-d0c3559f.eastus2.azurecontainerapps.io
+  AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN: ''
   AZURE_APIM_BACKEND_CONTAINER_APP_NAME: fet-outlook-email-ca
   AZURE_APIM_SKU: Developer
   AZURE_APIM_INTERNAL_VNET: 'true'
   AZURE_APIM_SUBNET_NAME: apim-subnet
   AZURE_DEPLOY_APIM: 'false'
-  AZURE_DEPLOY_APIM_MCP_API: 'false'
+  AZURE_DEPLOY_APIM_MCP_API: 'true'
   AZURE_APIM_NAME: apim-fet-outlook-email
   MCP_OAUTH_CLIENT_ID: 87123f9d-6cf0-4672-9003-c8eba016749d
   MCP_OAUTH_TENANT_ID: bb5ad653-221f-4b94-9c26-f815e04eef40
