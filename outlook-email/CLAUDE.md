@@ -32,6 +32,7 @@
 | `infra\remove-apim.bicep` / `infra\remove-apim.parameters.json` | 手動刪除 APIM 用（`az deployment group create`）|
 | `infra\rebuild-apim.bicep` / `infra\rebuild-apim.parameters.json` | 手動重建 APIM 用（`az deployment group create`）|
 | `..\.github\workflows\build.yaml` / `..\.github\workflows\build-container.yaml` | repo-level GitHub Actions matrix build、GHCR tag 組法與 fail-fast 設定 |
+| `..\.github\workflows\deploy-outlook-email-main.yaml` | `main` branch 對 live ACA 的 GitHub Actions rollout；會重建 azd env 後執行 `azd deploy outlook-email` |
 | `.vscode\mcp*.json` | STDIO / HTTP / Functions / remote MCP 連線模板 |
 | `.mcp.json` | Claude Code 使用的**本地** project-level MCP 設定（不進版控）；這個 repo 的 project code 是 `y94` |
 | `.claude\mcp.json` | APIM remote header 參考範例；不是目前 Claude Code 的 project-level 載入入口 |
@@ -48,6 +49,7 @@
 - HTTP 模式下會讀取 `FUNCTIONS_CUSTOMHANDLER_PORT`，若沒有則預設使用 `5260`。
 - 認證與 Graph client 建立都留在 `outlook-email` sample 內，不要隨意搬到 shared。
 - `azure.yaml` 現在預設把 `outlook-email` 部署成 **Azure Container Apps**；`azd up` / `azd deploy` 會用 `Dockerfile.outlook-email-azure` + remote build 自動把映像推到 azd 管理的 ACR，並 rollout 到 Container App。
+- `main` branch 的 checked-in Azure rollout 入口是 `..\.github\workflows\deploy-outlook-email-main.yaml`；它和 `build.yaml` 分開，前者負責 azd-managed ACR + ACA，後者仍是 GHCR matrix build。
 - 若要手動或用 CI 發布容器映像到 ACR，命名規則使用 **`<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`**；branch 分目錄放 repository path，不放 tag。
 - **ACA / ACR 這條線固定使用 `Dockerfile.outlook-email-azure`**；不要再把 `Dockerfile.outlook-email` 丟給 `az acr build` / ACR Task，否則容易在 dependency scanner 卡在 `FROM --platform=$BUILDPLATFORM ...`。
 - Azure 命名與 tag 基線目前以 **`fet-outlook-email-bst`** 為核心 stem；實際覆寫方式看 `infra\main.bicep`、`infra\main.parameters.json` 與 `README.md` 的 Azure 部署段落。
@@ -127,6 +129,7 @@
 - branch 名稱若直接拿 `refs/heads/*`、大寫或特殊字元組 image ref，常會踩到非法名稱；先轉小寫、去掉 `refs/heads/`，其餘不安全字元改成 `-`。
 - GitHub Actions reusable workflow 若要推 GHCR image，不要直接拿原始 `GITHUB_REPOSITORY` 組 image ref；owner / repo 要先轉小寫，否則 `docker buildx` 常會報 `repository name must be lowercase`。
 - 查 `Build MCP Servers` 這種 matrix workflow 時，`outlook-email` job 若顯示 `cancelled` / `The operation was canceled.`，先別把它當根因；先找同一個 run 裡最早的 `failure` job。若不想讓其他 image 被連帶取消，記得把 `strategy.fail-fast` 關掉。
+- `Build MCP Servers` 成功不等於 live ACA 已更新；`main` 真正的 Azure rollout 要看 `deploy-outlook-email-main.yaml`，而且若 repo 沒有 `MCP_VALIDATION_*` secrets，workflow 會刻意帶 `MCP_SKIP_POSTDEPLOY_VALIDATION=true`，先避免 GitHub deployment service principal 卡在 direct ACA 的 `user_impersonation` fallback。
 - `awesome-copilot` 的 MCP Registry 名稱固定是 `io.github.microsoft/awesome-copilot`；fork repo（例如 `Fet-ycliang/mcp-dotnet-samples`）只有 `io.github.<fork-owner>/*` 的 publish 權限，若 workflow 沒有把 metadata sync / registry publish 限制在官方 repo，就會在 `mcp-publisher publish` 收到 `403 Forbidden`。
 - 若要建 ACA / ACR 映像，請固定用 `Dockerfile.outlook-email-azure`；`Dockerfile.outlook-email` 只要進 ACR scanner，就可能卡在 `FROM --platform=$BUILDPLATFORM ...`。
 - `PptxPresentationService` 若再動到 Open XML packaging，**不要**把 `ThemePart` 再掛回 `PresentationPart`，也不要自己手寫 slide relationship ID；交給 SDK 指派，否則 deck 在 4+ slides 可能壞掉。
