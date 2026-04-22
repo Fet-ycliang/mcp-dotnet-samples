@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "4951794590239887035"
+      "templateHash": "2896904302778410834"
     }
   },
   "parameters": {
@@ -461,7 +461,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "3955007556015893356"
+              "templateHash": "17579703424208960952"
             }
           },
           "parameters": {
@@ -945,13 +945,6 @@
               "apiVersion": "2024-05-01",
               "name": "[variables('virtualNetworkName')]"
             },
-            "existingManagedContainerApp": {
-              "condition": "[variables('useExistingContainerApp')]",
-              "existing": true,
-              "type": "Microsoft.App/containerApps",
-              "apiVersion": "2024-03-01",
-              "name": "[variables('containerAppName')]"
-            },
             "sharedFunctionAppPrivateDnsZone": {
               "condition": "[and(and(variables('useSharedPrivateDnsZones'), parameters('deployFunctionAppPrivateEndpoint')), variables('canDeployPrivateEndpoints'))]",
               "existing": true,
@@ -1044,13 +1037,13 @@
                 }
               },
               "properties": {
-                "managedEnvironmentId": "[if(variables('useExistingContainerApp'), reference('existingManagedContainerApp').managedEnvironmentId, reference('containerAppsEnvironment').outputs.resourceId.value)]",
+                "managedEnvironmentId": "[if(variables('useExistingContainerApp'), reference('mcpOutlookEmailFetchLatestImage').outputs.managedEnvironmentId.value, reference('containerAppsEnvironment').outputs.resourceId.value)]",
                 "configuration": {
                   "activeRevisionsMode": "Single",
                   "ingress": {
-                    "external": "[if(variables('useExistingContainerApp'), reference('existingManagedContainerApp').configuration.ingress.external, true())]",
+                    "external": "[if(variables('useExistingContainerApp'), reference('mcpOutlookEmailFetchLatestImage').outputs.ingressExternal.value, true())]",
                     "targetPort": 8080,
-                    "transport": "[if(variables('useExistingContainerApp'), reference('existingManagedContainerApp').configuration.ingress.transport, 'auto')]",
+                    "transport": "[if(variables('useExistingContainerApp'), reference('mcpOutlookEmailFetchLatestImage').outputs.ingressTransport.value, 'auto')]",
                     "allowInsecure": false
                   },
                   "registries": [
@@ -1085,7 +1078,6 @@
               "dependsOn": [
                 "containerAppsEnvironment",
                 "containerRegistry",
-                "existingManagedContainerApp",
                 "mcpOutlookEmailFetchLatestImage",
                 "mcpOutlookEmailIdentity",
                 "monitoring"
@@ -38035,7 +38027,7 @@
                     "_generator": {
                       "name": "bicep",
                       "version": "0.39.26.7824",
-                      "templateHash": "7494163638420703867"
+                      "templateHash": "2258256940815498452"
                     }
                   },
                   "parameters": {
@@ -38051,6 +38043,18 @@
                     "containers": {
                       "type": "array",
                       "value": "[if(parameters('exists'), reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2023-05-02-preview').template.containers, createArray())]"
+                    },
+                    "managedEnvironmentId": {
+                      "type": "string",
+                      "value": "[if(parameters('exists'), reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2023-05-02-preview').managedEnvironmentId, '')]"
+                    },
+                    "ingressExternal": {
+                      "type": "bool",
+                      "value": "[if(parameters('exists'), reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2023-05-02-preview').configuration.ingress.external, true())]"
+                    },
+                    "ingressTransport": {
+                      "type": "string",
+                      "value": "[if(parameters('exists'), reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2023-05-02-preview').configuration.ingress.transport, 'auto')]"
                     }
                   }
                 }

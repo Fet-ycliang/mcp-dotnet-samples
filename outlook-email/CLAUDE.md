@@ -32,7 +32,7 @@
 | `infra\remove-apim.bicep` / `infra\remove-apim.parameters.json` | 手動刪除 APIM 用（`az deployment group create`）|
 | `infra\rebuild-apim.bicep` / `infra\rebuild-apim.parameters.json` | 手動重建 APIM 用（`az deployment group create`）|
 | `..\.github\workflows\build.yaml` / `..\.github\workflows\build-container.yaml` | repo-level GitHub Actions matrix build、GHCR tag 組法與 fail-fast 設定 |
-| `..\.github\workflows\deploy-outlook-email-main.yaml` | `main` branch 對 live ACA 的 GitHub Actions rollout；會重建 azd env 後執行 `azd deploy outlook-email` |
+| `..\.github\workflows\deploy-outlook-email-main.yaml` | `main` branch 對 live ACA 的 GitHub Actions rollout；會重建 azd env 後執行 `azd up` |
 | `.vscode\mcp*.json` | STDIO / HTTP / Functions / remote MCP 連線模板 |
 | `.mcp.json` | Claude Code 使用的**本地** project-level MCP 設定（不進版控）；這個 repo 的 project code 是 `y94` |
 | `.claude\mcp.json` | APIM remote header 參考範例；不是目前 Claude Code 的 project-level 載入入口 |
@@ -50,6 +50,7 @@
 - 認證與 Graph client 建立都留在 `outlook-email` sample 內，不要隨意搬到 shared。
 - `azure.yaml` 現在預設把 `outlook-email` 部署成 **Azure Container Apps**；`azd up` / `azd deploy` 會用 `Dockerfile.outlook-email-azure` + remote build 自動把映像推到 azd 管理的 ACR，並 rollout 到 Container App。
 - `main` branch 的 checked-in Azure rollout 入口是 `..\.github\workflows\deploy-outlook-email-main.yaml`；它和 `build.yaml` 分開，前者負責 azd-managed ACR + ACA，後者仍是 GHCR matrix build。
+- `deploy-outlook-email-main.yaml` 目前固定帶 `AZURE_DEPLOY_APIM=false`，只做 routine ACA rollout；若要連 retained APIM / private DNS 一起變更，請改走人工 `azd up`。
 - 若要手動或用 CI 發布容器映像到 ACR，命名規則使用 **`<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`**；branch 分目錄放 repository path，不放 tag。
 - **ACA / ACR 這條線固定使用 `Dockerfile.outlook-email-azure`**；不要再把 `Dockerfile.outlook-email` 丟給 `az acr build` / ACR Task，否則容易在 dependency scanner 卡在 `FROM --platform=$BUILDPLATFORM ...`。
 - Azure 命名與 tag 基線目前以 **`fet-outlook-email-bst`** 為核心 stem；實際覆寫方式看 `infra\main.bicep`、`infra\main.parameters.json` 與 `README.md` 的 Azure 部署段落。

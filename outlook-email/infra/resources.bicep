@@ -271,10 +271,6 @@ resource existingVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-05-01' e
   name: virtualNetworkName
 }
 
-resource existingManagedContainerApp 'Microsoft.App/containerApps@2024-03-01' existing = if (useExistingContainerApp) {
-  name: containerAppName
-}
-
 resource sharedFunctionAppPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = if (useSharedPrivateDnsZones && deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints) {
   name: functionAppPrivateDnsZoneName
   scope: resourceGroup(privateDnsZoneResourceGroupName)
@@ -587,13 +583,13 @@ module mcpOutlookEmailFetchLatestImage './modules/fetch-container-image.bicep' =
 }
 
 var managedContainerAppEnvironmentResourceId = useExistingContainerApp
-  ? existingManagedContainerApp!.properties.managedEnvironmentId
+  ? mcpOutlookEmailFetchLatestImage.outputs.managedEnvironmentId
   : containerAppsEnvironment!.outputs.resourceId
 var managedContainerAppImage = useExistingContainerApp && length(mcpOutlookEmailFetchLatestImage.outputs.containers) > 0
   ? mcpOutlookEmailFetchLatestImage.outputs.containers[0].image
   : 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
-var managedContainerAppIngressExternal = useExistingContainerApp ? existingManagedContainerApp!.properties.configuration.ingress.external : true
-var managedContainerAppIngressTransport = useExistingContainerApp ? existingManagedContainerApp!.properties.configuration.ingress.transport : 'auto'
+var managedContainerAppIngressExternal = useExistingContainerApp ? mcpOutlookEmailFetchLatestImage.outputs.ingressExternal : true
+var managedContainerAppIngressTransport = useExistingContainerApp ? mcpOutlookEmailFetchLatestImage.outputs.ingressTransport : 'auto'
 
 resource mcpOutlookEmail 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
