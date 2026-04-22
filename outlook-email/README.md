@@ -637,6 +637,7 @@ docker push $imageRef
 | 用 `Dockerfile.outlook-email` 建 ACR / ACA 映像 | `az acr build` / ACR Task 卡在 dependency scanner，常見訊息是 `unable to understand line FROM --platform=$BUILDPLATFORM ...` | ACA / ACR 路線固定改用 `Dockerfile.outlook-email-azure` |
 | 把 `azd up` 當成可完全自訂 image naming 的流程 | 以為 `azd` 會照你想要的 repository / tag 命名規則產生 image | `azure.yaml` 現在會用 `host: containerapp` + `remoteBuild: true` 自動推到 azd 管理的 ACR；若你要精準控制 image naming，仍請改走手動 `docker build/push` 或 CI pipeline |
 | workflow matrix 沒留意 `fail-fast` | 同一個 run 只有一個 image 真失敗，其餘 job 卻顯示 `cancelled` / `The operation was canceled.` | 先找第一個 `failure` job 當根因；若要保留每個 image 的完整結果、不要讓其他 image 被連帶取消，請設定 `strategy.fail-fast: false` |
+| 以為 `Build MCP Servers` 成功就代表 Azure 已更新 | `main` push 的 GitHub run 顯示 success，但 live ACA 還停在舊 revision / 舊 branch image | `build.yaml` 只負責 GHCR matrix build；`main` 真正 rollout 到 azd-managed ACR + ACA 要看 `.github/workflows/deploy-outlook-email-main.yaml` |
 
 <a id="on-azure"></a>
 #### 在 Azure 上
@@ -670,10 +671,28 @@ docker push $imageRef
     >
     > 這也代表 `azd` 主要會更新 **ACA backend**；repo 內仍保留部分 Function-based 資源 / 設定是為了既有路徑與文件參考，但它不再是這條部署流程的 primary rollout target。
 
+##### `main` branch 的 GitHub Actions rollout
+
+- repo 內現在把 `main` 的 Azure rollout 拆成兩條：
+  - `.github/workflows/build.yaml`：`push main` 後做 repo-level GHCR matrix build
+  - `.github/workflows/deploy-outlook-email-main.yaml`：`push main` / `workflow_dispatch` 後，針對 `outlook-email` 重建 azd env，然後執行 `azd deploy outlook-email`
+- `deploy-outlook-email-main.yaml` 會直接對既有環境 `fet-outlook-email-bst` 下手，目標是 live ACA `fet-outlook-email-ca`
+- workflow 目前依賴 GitHub repo secret **`AZURE_CREDENTIALS`** 做 Azure 登入
+- 若你有另外準備 direct ACA smoke test 用的 caller app，也可以在 repo secret 補上：
+
+  ```text
+  MCP_VALIDATION_CLIENT_ID
+  MCP_VALIDATION_CLIENT_SECRET
+  MCP_VALIDATION_TENANT_ID   # optional, omitted 時會沿用 live env 內的 MCP_OAUTH_TENANT_ID
+  ```
+
+- 若上面三個 validation secrets 沒有配置，workflow 仍會完成 `azd deploy`，但會自動把 `MCP_SKIP_POSTDEPLOY_VALIDATION=true` 傳給 hook，避免 GitHub deployment service principal 卡在 `user_impersonation` fallback
+- workflow 會同步重建 live env 內的 `MCP_OAUTH_CLIENT_ID` / `MCP_OAUTH_TENANT_ID`，因此只要 validation client id / secret 補齊，就能自動恢復 direct ACA `/mcp initialize` / `tools/list` smoke test，不需要再改 YAML
+
 ##### 上版後自動驗證（Asia/Taipei）
 
 - `azure.yaml` 已替 `outlook-email` service 掛上 **`postdeploy` hook**：`./hooks/postdeploy-validate-mcp.ps1`（service hook 的 `cwd` 是 `project: src/McpSamples.OutlookEmail.HybridApp`，所以實際檔案位置仍是 `src/McpSamples.OutlookEmail.HybridApp/hooks/postdeploy-validate-mcp.ps1`）
-- 只要執行 `azd deploy` 或 `azd up`，部署完成後就會**自動驗證剛 rollout 的 direct ACA `/mcp` 路徑**
+- 只要執行 `azd deploy` 或 `azd up`，部署完成後就會**自動驗證剛 rollout 的 direct ACA `/mcp` 路徑**；只有在 workflow 明確帶 `MCP_SKIP_POSTDEPLOY_VALIDATION=true` 時才會跳過
 - hook 的日誌時間戳固定以 **台北時區（UTC+8 / Asia/Taipei）** 輸出，方便和你們的維運時間對齊
 
 這個 hook 目前會自動執行下列 smoke tests：
@@ -705,6 +724,7 @@ docker push $imageRef
 > 不論 hook 是走 Azure CLI fallback 還是 dedicated validation app，重點都是它必須能對 `MCP_OAUTH_*` 這顆 resource app 拿到有效 token。
 > - 若 hook 走 Azure CLI fallback，請確認目前登入身分可取得 `user_impersonation`
 > - 若 hook 走 dedicated validation app，請先把那顆 validation app 指派到 resource app 的 `access_as_application`
+> - 若目前是在 GitHub Actions 用 deployment service principal 跑 `azd deploy`，而且 repo 尚未配置 validation app secrets，請改由 workflow 設定 `MCP_SKIP_POSTDEPLOY_VALIDATION=true`，先把 rollout 與 smoke test 分開
 
 1. 正式環境建議先設定下列 azd 環境變數，再部署：
 

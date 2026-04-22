@@ -22,6 +22,14 @@ function Write-Step {
     Write-Host ('[{0}] {1}' -f (Get-TaipeiTimestamp), $Message)
 }
 
+if (
+    [string]::Equals($env:GITHUB_ACTIONS, 'true', [System.StringComparison]::OrdinalIgnoreCase) -and
+    [string]::Equals($env:MCP_SKIP_POSTDEPLOY_VALIDATION, 'true', [System.StringComparison]::OrdinalIgnoreCase)
+) {
+    Write-Step 'Skipping postdeploy MCP validation for the approved GitHub Actions CI fallback path.'
+    return
+}
+
 function Import-AzdEnvironment {
     $envLines = azd env get-values
     foreach ($line in $envLines) {
