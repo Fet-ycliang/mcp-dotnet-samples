@@ -33,6 +33,9 @@ param resourceNameStem string = ''
 @description('Optional. Existing Azure Container Registry name to reuse for azd remote builds and ACA image pulls. Defaults to fetimageacr.')
 param existingContainerRegistryName string = 'fetimageacr'
 
+@description('Optional. Existing AcrPull role assignment name/GUID to adopt when reusing a shared ACR that already granted the ACA identity pull access.')
+param existingContainerRegistryAcrPullRoleAssignmentName string = ''
+
 @description('Tag value for cost allocation.')
 param tagCostCenter string = '3901'
 
@@ -80,18 +83,52 @@ param entraClientId string = ''
 @description('Optional. Graph client secret or Key Vault reference string when using service principal credentials from Function App app settings.')
 param entraClientSecret string = ''
 
-@description('Optional. Existing Entra tenant ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthClientId, deployment reuses that app instead of creating a new MCP app registration.')
+@description('Optional legacy fallback. Existing Entra tenant ID for the shared MCP OAuth resource application. Prefer MCP_DIRECT_* for direct Easy Auth and MCP_APIM_RESOURCE_* for the APIM facade.')
 param existingMcpOauthTenantId string = ''
 
-@description('Optional. Existing Entra client/application ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthTenantId, deployment reuses that app instead of creating a new MCP app registration.')
+@description('Optional legacy fallback. Existing Entra client/application ID for the shared MCP OAuth resource application. Prefer MCP_DIRECT_* for direct Easy Auth and MCP_APIM_RESOURCE_* for the APIM facade.')
 param existingMcpOauthClientId string = ''
 
+@description('Optional legacy fallback. Existing Application ID URI for the shared MCP OAuth resource application, for example api://apim-mcp. Prefer MCP_DIRECT_APPLICATION_ID_URI or MCP_APIM_RESOURCE_APPLICATION_ID_URI.')
+param mcpOauthApplicationIdUri string = ''
+
 @secure()
-@description('Optional. MCP OAuth client secret or Key Vault reference string that must remain mapped to the ACA secret name mcp-oauth-client-secret. Keep this separate from the Graph outbound secret.')
+@description('Optional legacy fallback. Client secret or Key Vault reference string that must remain mapped to the ACA secret name mcp-oauth-client-secret. Prefer MCP_DIRECT_CLIENT_SECRET.')
 param mcpOauthClientSecret string = ''
+
+@description('Optional. Existing Entra tenant ID for the direct MCP resource application that protects the Function App / ACA direct path.')
+param directMcpTenantId string = ''
+
+@description('Optional. Existing Entra client/application ID for the direct MCP resource application that protects the Function App / ACA direct path.')
+param directMcpClientId string = ''
+
+@description('Optional. Existing Application ID URI for the direct MCP resource application. Leave empty to derive api://<directMcpClientId>.')
+param directMcpApplicationIdUri string = ''
+
+@secure()
+@description('Optional. Client secret or Key Vault reference string for the direct MCP resource application. This must remain mapped to the ACA secret name mcp-oauth-client-secret.')
+param directMcpClientSecret string = ''
 
 @description('Optional. Semicolon-separated Entra client/application IDs allowed to call the Function App private endpoint directly with MCP OAuth tokens.')
 param directAllowedClientApplicationsCsv string = ''
+
+@description('Optional. Existing Entra tenant ID for the APIM MCP resource application. When paired with apimResourceClientId, deployment reuses that app instead of creating a new APIM MCP resource app.')
+param apimResourceTenantId string = ''
+
+@description('Optional. Existing Entra client/application ID for the APIM MCP resource application. When paired with apimResourceTenantId, deployment reuses that app instead of creating a new APIM MCP resource app.')
+param apimResourceClientId string = ''
+
+@description('Optional. Existing Application ID URI for the APIM MCP resource application. Leave empty to derive api://<apimResourceClientId> when reusing an existing app.')
+param apimResourceApplicationIdUri string = ''
+
+@description('Optional. Existing Entra client/application ID for the Claude caller public client app used by the APIM OAuth register stub. Required when the APIM OAuth facade is deployed.')
+param mcpClaudeClientId string = ''
+
+@description('Optional. Semicolon-separated Entra client/application IDs allowed to call the APIM retained MCP path. MCP_CLAUDE_CLIENT_ID is always included automatically.')
+param apimAllowedClientApplicationsCsv string = ''
+
+@description('Optional. Semicolon-separated exact redirect URIs allowed for the Claude public client on the APIM OAuth facade. Defaults to http://localhost.')
+param mcpClaudeRedirectUrisCsv string = 'http://localhost'
 
 @description('Optional. Existing VNet name to reuse when vnetEnabled is true. Leave empty to create a new VNet.')
 param existingVirtualNetworkName string = ''
@@ -113,6 +150,22 @@ param integrationSubnetNetworkSecurityGroupResourceId string = ''
 
 @description('Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints and internal APIM hostnames.')
 param privateDnsZoneResourceGroupName string = ''
+
+@description('Whether to deploy the sample Key Vault used for Key Vault referenced secrets.')
+param deployKeyVault bool = false
+
+@description('Optional explicit Key Vault name. Leave empty to use the standard derived naming pattern.')
+param keyVaultNameOverride string = ''
+
+@allowed([
+  'Enabled'
+  'Disabled'
+])
+@description('Public network access mode for the sample Key Vault. Keep Enabled while callers are still migrating to the private endpoint.')
+param keyVaultPublicNetworkAccess string = 'Enabled'
+
+@description('Whether to create a private endpoint for the sample Key Vault. Requires VNet + private endpoint subnet planning.')
+param deployKeyVaultPrivateEndpoint bool = false
 
 @description('Whether to deploy API Management and the MCP API facade.')
 param deployApim bool = true
@@ -143,6 +196,9 @@ param apimInternalVirtualNetwork bool = false
 
 @description('Optional existing subnet name for APIM when apimInternalVirtualNetwork is true. The subnet must already exist, have no delegation, and include the required NSG rules.')
 param apimSubnetName string = ''
+
+@description('Optional. Existing APIM private DNS virtual network link name to adopt when the private zones are already linked to the target VNet.')
+param apimPrivateDnsVirtualNetworkLinkName string = ''
 
 @description('Optional. Address prefix to update the existing APIM subnet inside an existing VNet when apimInternalVirtualNetwork is true. Leave empty to reference the subnet without changing it.')
 param apimSubnetAddressPrefix string = ''
@@ -191,6 +247,7 @@ module resources 'resources.bicep' = {
     tags: tags
     resourceNameStem: effectiveResourceNameStem
     existingContainerRegistryName: existingContainerRegistryName
+    existingContainerRegistryAcrPullRoleAssignmentName: existingContainerRegistryAcrPullRoleAssignmentName
     principalId: principalId
     mcpOutlookEmailExists: mcpOutlookEmailExists
     azdServiceName: 'outlook-email'
@@ -204,8 +261,19 @@ module resources 'resources.bicep' = {
     entraClientSecret: entraClientSecret
     existingMcpOauthTenantId: existingMcpOauthTenantId
     existingMcpOauthClientId: existingMcpOauthClientId
+    mcpOauthApplicationIdUri: mcpOauthApplicationIdUri
     mcpOauthClientSecret: mcpOauthClientSecret
+    directMcpTenantId: directMcpTenantId
+    directMcpClientId: directMcpClientId
+    directMcpApplicationIdUri: directMcpApplicationIdUri
+    directMcpClientSecret: directMcpClientSecret
     directAllowedClientApplicationsCsv: directAllowedClientApplicationsCsv
+    apimResourceTenantId: apimResourceTenantId
+    apimResourceClientId: apimResourceClientId
+    apimResourceApplicationIdUri: apimResourceApplicationIdUri
+    mcpClaudeClientId: mcpClaudeClientId
+    apimAllowedClientApplicationsCsv: apimAllowedClientApplicationsCsv
+    mcpClaudeRedirectUrisCsv: mcpClaudeRedirectUrisCsv
     existingVirtualNetworkName: existingVirtualNetworkName
     integrationSubnetName: integrationSubnetName
     integrationSubnetAddressPrefix: integrationSubnetAddressPrefix
@@ -213,6 +281,10 @@ module resources 'resources.bicep' = {
     integrationSubnetRouteTableResourceId: integrationSubnetRouteTableResourceId
     integrationSubnetNetworkSecurityGroupResourceId: integrationSubnetNetworkSecurityGroupResourceId
     privateDnsZoneResourceGroupName: privateDnsZoneResourceGroupName
+    deployKeyVault: deployKeyVault
+    keyVaultNameOverride: keyVaultNameOverride
+    keyVaultPublicNetworkAccess: keyVaultPublicNetworkAccess
+    deployKeyVaultPrivateEndpoint: deployKeyVaultPrivateEndpoint
     deployApim: deployApim
     apimSku: apimSku
     deployApimMcpApi: deployApimMcpApi
@@ -220,6 +292,7 @@ module resources 'resources.bicep' = {
     apimNameOverride: apimNameOverride
     apimInternalVirtualNetwork: apimInternalVirtualNetwork
     apimSubnetName: apimSubnetName
+    apimPrivateDnsVirtualNetworkLinkName: apimPrivateDnsVirtualNetworkLinkName
     apimSubnetAddressPrefix: apimSubnetAddressPrefix
     apimSubnetRouteTableResourceId: apimSubnetRouteTableResourceId
     apimSubnetNetworkSecurityGroupResourceId: apimSubnetNetworkSecurityGroupResourceId
@@ -231,6 +304,9 @@ module resources 'resources.bicep' = {
 }
 
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = resources.outputs.AZURE_CONTAINER_REGISTRY_ENDPOINT
+output AZURE_RESOURCE_KEY_VAULT_ID string = resources.outputs.AZURE_RESOURCE_KEY_VAULT_ID
+output AZURE_RESOURCE_KEY_VAULT_NAME string = resources.outputs.AZURE_RESOURCE_KEY_VAULT_NAME
+output AZURE_RESOURCE_KEY_VAULT_URI string = resources.outputs.AZURE_RESOURCE_KEY_VAULT_URI
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = resources.outputs.AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN

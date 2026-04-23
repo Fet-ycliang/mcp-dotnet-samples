@@ -13,6 +13,8 @@ param graphClientSecret string = ''
 param mcpAuthTenantId string = ''
 @description('Client/application ID of the MCP OAuth resource application that protects the Function App via Easy Auth.')
 param mcpAuthClientId string = ''
+@description('Application ID URI of the MCP OAuth resource application that protects the Function App via Easy Auth. Defaults to api://<mcpAuthClientId> when omitted.')
+param mcpAuthApplicationIdUri string = ''
 @description('Optional client/application IDs allowed to call the Function App directly with MCP OAuth tokens.')
 param allowedClientApplicationIds array = []
 param runtimeName string 
@@ -87,10 +89,12 @@ var graphCredentialAppSettings = !graphUseManagedIdentity ? union(
     EntraId__ClientSecret: graphClientSecret
   } : {}
 ) : {}
-var authAllowedAudiences = !empty(mcpAuthClientId) ? [
+var effectiveMcpAuthApplicationIdUri = !empty(mcpAuthApplicationIdUri) ? mcpAuthApplicationIdUri : (!empty(mcpAuthClientId) ? 'api://${mcpAuthClientId}' : '')
+var authAllowedAudiences = !empty(mcpAuthClientId) ? union([
   mcpAuthClientId
-  'api://${mcpAuthClientId}'
-] : []
+], !empty(effectiveMcpAuthApplicationIdUri) ? [
+  effectiveMcpAuthApplicationIdUri
+] : []) : []
 var directClientAuthorizationPolicy = !empty(allowedClientApplicationIds) ? {
   defaultAuthorizationPolicy: {
     allowedApplications: allowedClientApplicationIds

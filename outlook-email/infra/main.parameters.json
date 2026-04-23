@@ -17,6 +17,9 @@
       "existingContainerRegistryName": {
         "value": "${AZURE_CONTAINER_REGISTRY_NAME=fetimageacr}"
       },
+      "existingContainerRegistryAcrPullRoleAssignmentName": {
+        "value": "${AZURE_CONTAINER_REGISTRY_ACR_PULL_ROLE_ASSIGNMENT_NAME=}"
+      },
       "tagCostCenter": {
         "value": "${AZURE_TAG_COST_CENTER=3901}"
       },
@@ -68,11 +71,44 @@
       "existingMcpOauthClientId": {
         "value": "${MCP_OAUTH_CLIENT_ID=}"
       },
+      "mcpOauthApplicationIdUri": {
+        "value": "${MCP_OAUTH_APPLICATION_ID_URI=}"
+      },
       "mcpOauthClientSecret": {
         "value": "${MCP_OAUTH_CLIENT_SECRET=}"
       },
+      "directMcpTenantId": {
+        "value": "${MCP_DIRECT_TENANT_ID=}"
+      },
+      "directMcpClientId": {
+        "value": "${MCP_DIRECT_CLIENT_ID=}"
+      },
+      "directMcpApplicationIdUri": {
+        "value": "${MCP_DIRECT_APPLICATION_ID_URI=}"
+      },
+      "directMcpClientSecret": {
+        "value": "${MCP_DIRECT_CLIENT_SECRET=}"
+      },
       "directAllowedClientApplicationsCsv": {
         "value": "${MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV=}"
+      },
+      "apimResourceTenantId": {
+        "value": "${MCP_APIM_RESOURCE_TENANT_ID=}"
+      },
+      "apimResourceClientId": {
+        "value": "${MCP_APIM_RESOURCE_CLIENT_ID=}"
+      },
+      "apimResourceApplicationIdUri": {
+        "value": "${MCP_APIM_RESOURCE_APPLICATION_ID_URI=}"
+      },
+      "mcpClaudeClientId": {
+        "value": "${MCP_CLAUDE_CLIENT_ID=}"
+      },
+      "apimAllowedClientApplicationsCsv": {
+        "value": "${MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV=}"
+      },
+      "mcpClaudeRedirectUrisCsv": {
+        "value": "${MCP_CLAUDE_REDIRECT_URIS_CSV=http://localhost}"
       },
        "existingVirtualNetworkName": {
          "value": "${AZURE_EXISTING_VNET_NAME=}"
@@ -95,6 +131,18 @@
       "privateDnsZoneResourceGroupName": {
         "value": "${AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME=}"
       },
+      "deployKeyVault": {
+        "value": "${AZURE_DEPLOY_KEY_VAULT=false}"
+      },
+      "keyVaultNameOverride": {
+        "value": "${AZURE_KEY_VAULT_NAME=}"
+      },
+      "keyVaultPublicNetworkAccess": {
+        "value": "${AZURE_KEY_VAULT_PUBLIC_NETWORK_ACCESS=Enabled}"
+      },
+      "deployKeyVaultPrivateEndpoint": {
+        "value": "${AZURE_DEPLOY_KEY_VAULT_PRIVATE_ENDPOINT=false}"
+      },
       "deployApim": {
         "value": "${AZURE_DEPLOY_APIM=true}"
       },
@@ -115,6 +163,9 @@
       },
       "apimSubnetName": {
         "value": "${AZURE_APIM_SUBNET_NAME=}"
+      },
+      "apimPrivateDnsVirtualNetworkLinkName": {
+        "value": "${AZURE_APIM_PRIVATE_DNS_VNET_LINK_NAME=}"
       },
       "apimSubnetAddressPrefix": {
         "value": "${AZURE_APIM_SUBNET_ADDRESS_PREFIX=}"

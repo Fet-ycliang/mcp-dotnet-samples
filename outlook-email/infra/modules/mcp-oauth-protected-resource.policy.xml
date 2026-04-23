@@ -1,0 +1,19 @@
+<policies>
+    <inbound>
+        <base />
+        <return-response>
+            <set-status code="200" reason="OK" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-body>@{
+                return JObject.FromObject(new {
+                    resource = "{{APIMGatewayURL}}/mcp",
+                    authorization_servers = new[] { "{{McpOAuthBaseUrl}}" },
+                    scopes_supported = new[] { "{{McpScope}}" },
+                    bearer_methods_supported = new[] { "header" }
+                }).ToString();
+            }</set-body>
+        </return-response>
+    </inbound>
+</policies>

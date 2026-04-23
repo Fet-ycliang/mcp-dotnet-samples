@@ -1,0 +1,123 @@
+<policies>
+    <inbound>
+        <base />
+        <set-variable name="requestedClientId" value="@{
+            var query = context.Request.Url.Query;
+            var values = query.ContainsKey(&quot;client_id&quot;) ? query[&quot;client_id&quot;] : new string[0];
+            return values.Length &gt; 0 ? Uri.UnescapeDataString(values[0]) : &quot;&quot;;
+        }" />
+        <set-variable name="requestedRedirectUri" value="@{
+            var query = context.Request.Url.Query;
+            var values = query.ContainsKey(&quot;redirect_uri&quot;) ? query[&quot;redirect_uri&quot;] : new string[0];
+            return values.Length &gt; 0 ? Uri.UnescapeDataString(values[0]) : &quot;&quot;;
+        }" />
+        <set-variable name="requestedResponseType" value="@{
+            var query = context.Request.Url.Query;
+            var values = query.ContainsKey(&quot;response_type&quot;) ? query[&quot;response_type&quot;] : new string[0];
+            return values.Length &gt; 0 ? Uri.UnescapeDataString(values[0]) : &quot;&quot;;
+        }" />
+        <set-variable name="requestedCodeChallenge" value="@{
+            var query = context.Request.Url.Query;
+            var values = query.ContainsKey(&quot;code_challenge&quot;) ? query[&quot;code_challenge&quot;] : new string[0];
+            return values.Length &gt; 0 ? Uri.UnescapeDataString(values[0]) : &quot;&quot;;
+        }" />
+        <set-variable name="requestedCodeChallengeMethod" value="@{
+            var query = context.Request.Url.Query;
+            var values = query.ContainsKey(&quot;code_challenge_method&quot;) ? query[&quot;code_challenge_method&quot;] : new string[0];
+            return values.Length &gt; 0 ? Uri.UnescapeDataString(values[0]) : &quot;&quot;;
+        }" />
+        <choose>
+            <when condition="@(!string.Equals((string)context.Variables[&quot;requestedClientId&quot;], &quot;{{McpClaudeClientId}}&quot;, StringComparison.OrdinalIgnoreCase))">
+                <return-response>
+                    <set-status code="400" reason="Bad Request" />
+                    <set-body>client_id must match the configured Claude public client.</set-body>
+                </return-response>
+            </when>
+            <when condition="@(!string.Equals((string)context.Variables[&quot;requestedResponseType&quot;], &quot;code&quot;, StringComparison.OrdinalIgnoreCase))">
+                <return-response>
+                    <set-status code="400" reason="Bad Request" />
+                    <set-body>response_type must be code.</set-body>
+                </return-response>
+            </when>
+            <when condition="@{
+                var redirectUri = (string)context.Variables[&quot;requestedRedirectUri&quot;];
+                if (string.IsNullOrWhiteSpace(redirectUri))
+                {
+                    return true;
+                }
+
+                var allowedRedirectUris = &quot;{{McpClaudeRedirectUrisCsv}}&quot;
+                    .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(uri =&gt; uri.Trim());
+
+                return !allowedRedirectUris.Any(uri =&gt; string.Equals(uri, redirectUri, StringComparison.OrdinalIgnoreCase));
+            }">
+                <return-response>
+                    <set-status code="400" reason="Bad Request" />
+                    <set-body>redirect_uri is not allowlisted for the configured Claude public client.</set-body>
+                </return-response>
+            </when>
+            <when condition="@{
+                var codeChallenge = (string)context.Variables[&quot;requestedCodeChallenge&quot;];
+                var method = (string)context.Variables[&quot;requestedCodeChallengeMethod&quot;];
+                return string.IsNullOrWhiteSpace(codeChallenge) || !string.Equals(method, &quot;S256&quot;, StringComparison.OrdinalIgnoreCase);
+            }">
+                <return-response>
+                    <set-status code="400" reason="Bad Request" />
+                    <set-body>PKCE S256 is required.</set-body>
+                </return-response>
+            </when>
+        </choose>
+        <set-variable name="authorizeQueryString" value="@{
+            var query = context.Request.Url.Query;
+            var scopeValues = query.ContainsKey(&quot;scope&quot;) ? query[&quot;scope&quot;] : new string[0];
+            var scope = scopeValues.Length &gt; 0 ? Uri.UnescapeDataString(scopeValues[0]) : &quot;&quot;;
+            if (string.IsNullOrWhiteSpace(scope))
+            {
+                scope = &quot;{{McpScope}} offline_access&quot;;
+            }
+            else
+            {
+                var requestedScopes = scope
+                    .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                    .ToList();
+
+                if (!requestedScopes.Any(token =&gt; string.Equals(token, &quot;{{McpScope}}&quot;, StringComparison.OrdinalIgnoreCase)))
+                {
+                    requestedScopes.Add(&quot;{{McpScope}}&quot;);
+                }
+
+                if (!requestedScopes.Any(token =&gt; string.Equals(token, &quot;offline_access&quot;, StringComparison.OrdinalIgnoreCase)))
+                {
+                    requestedScopes.Add(&quot;offline_access&quot;);
+                }
+
+                scope = string.Join(&quot; &quot;, requestedScopes);
+            }
+
+            var pairs = new System.Collections.Generic.List<string>();
+            foreach (var item in query)
+            {
+                if (string.Equals(item.Key, &quot;scope&quot;, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                foreach (var value in item.Value)
+                {
+                    pairs.Add(Uri.EscapeDataString(item.Key) + &quot;=&quot; + Uri.EscapeDataString(Uri.UnescapeDataString(value)));
+                }
+            }
+
+            pairs.Add(Uri.EscapeDataString(&quot;scope&quot;) + &quot;=&quot; + Uri.EscapeDataString(scope));
+
+            return string.Join(&quot;&amp;&quot;, pairs);
+        }" />
+        <return-response>
+            <set-status code="302" reason="Found" />
+            <set-header name="Location" exists-action="override">
+                <value>@("https://login.microsoftonline.com/{{McpTenantId}}/oauth2/v2.0/authorize?" + (string)context.Variables["authorizeQueryString"])</value>
+            </set-header>
+        </return-response>
+    </inbound>
+</policies>
