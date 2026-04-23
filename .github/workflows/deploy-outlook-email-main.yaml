@@ -24,14 +24,22 @@ env:
   AZURE_RESOURCE_GROUP: apim-app-bst-rg
   AZURE_RESOURCE_GROUP_NAME: apim-app-bst-rg
   AZURE_RESOURCE_NAME_STEM: fet-outlook-email-bst
+  AZURE_CONTAINER_REGISTRY_NAME: fetimageacr
   AZURE_CONTAINER_REGISTRY_ENDPOINT: fetimageacr.azurecr.io
+  AZURE_EXISTING_VNET_NAME: apim-bst-vnet
+  AZURE_INTEGRATION_SUBNET_NAME: app-flex-out-subnet
+  AZURE_PRIVATE_ENDPOINT_SUBNET_NAME: PE_Subnet
+  AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME: aibde-common-rg
+  AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT: 'true'
   AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME: fet-outlook-email-ca
   AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID: /subscriptions/1d077479-3fc2-4f1f-82b4-0a5789393fd2/resourceGroups/apim-app-bst-rg/providers/Microsoft.App/containerapps/fet-outlook-email-ca
   AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN: fet-outlook-email-ca.proudpebble-d0c3559f.eastus2.azurecontainerapps.io
-  AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN: fet-outlook-email-ca.proudpebble-d0c3559f.eastus2.azurecontainerapps.io
+  AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN: ''
   AZURE_APIM_BACKEND_CONTAINER_APP_NAME: fet-outlook-email-ca
+  AZURE_APIM_SKU: Developer
   AZURE_APIM_INTERNAL_VNET: 'true'
-  AZURE_DEPLOY_APIM: 'true'
+  AZURE_APIM_SUBNET_NAME: apim-subnet
+  AZURE_DEPLOY_APIM: 'false'
   AZURE_DEPLOY_APIM_MCP_API: 'true'
   AZURE_APIM_NAME: apim-fet-outlook-email
   MCP_OAUTH_CLIENT_ID: 87123f9d-6cf0-4672-9003-c8eba016749d
@@ -63,6 +71,9 @@ jobs:
 
       - name: Rebuild azd environment on runner
         shell: pwsh
+        env:
+          MCP_ENTRA_CLIENT_SECRET: ${{ secrets.MCP_ENTRA_CLIENT_SECRET }}
+          MCP_OAUTH_CLIENT_SECRET: ${{ secrets.MCP_OAUTH_CLIENT_SECRET }}
         run: |
           azd config set auth.useAzCliAuth true
           azd env new $env:AZURE_ENV_NAME --no-prompt
@@ -75,13 +86,21 @@ jobs:
             AZURE_RESOURCE_GROUP                          = $env:AZURE_RESOURCE_GROUP
             AZURE_RESOURCE_GROUP_NAME                     = $env:AZURE_RESOURCE_GROUP_NAME
             AZURE_RESOURCE_NAME_STEM                      = $env:AZURE_RESOURCE_NAME_STEM
+            AZURE_CONTAINER_REGISTRY_NAME                 = $env:AZURE_CONTAINER_REGISTRY_NAME
             AZURE_CONTAINER_REGISTRY_ENDPOINT             = $env:AZURE_CONTAINER_REGISTRY_ENDPOINT
+            AZURE_EXISTING_VNET_NAME                      = $env:AZURE_EXISTING_VNET_NAME
+            AZURE_INTEGRATION_SUBNET_NAME                 = $env:AZURE_INTEGRATION_SUBNET_NAME
+            AZURE_PRIVATE_ENDPOINT_SUBNET_NAME            = $env:AZURE_PRIVATE_ENDPOINT_SUBNET_NAME
+            AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME    = $env:AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME
+            AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT     = $env:AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT
             AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME         = $env:AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME
             AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID           = $env:AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID
             AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN         = $env:AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN
             AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN = $env:AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_APIM_BACKEND_FQDN
             AZURE_APIM_BACKEND_CONTAINER_APP_NAME         = $env:AZURE_APIM_BACKEND_CONTAINER_APP_NAME
+            AZURE_APIM_SKU                                = $env:AZURE_APIM_SKU
             AZURE_APIM_INTERNAL_VNET                      = $env:AZURE_APIM_INTERNAL_VNET
+            AZURE_APIM_SUBNET_NAME                        = $env:AZURE_APIM_SUBNET_NAME
             AZURE_DEPLOY_APIM                             = $env:AZURE_DEPLOY_APIM
             AZURE_DEPLOY_APIM_MCP_API                     = $env:AZURE_DEPLOY_APIM_MCP_API
             AZURE_APIM_NAME                               = $env:AZURE_APIM_NAME
@@ -89,11 +108,54 @@ jobs:
             MCP_OAUTH_TENANT_ID                           = $env:MCP_OAUTH_TENANT_ID
           }
 
+          if ($env:MCP_ENTRA_CLIENT_SECRET) {
+            $envValues.MCP_ENTRA_CLIENT_SECRET = $env:MCP_ENTRA_CLIENT_SECRET
+          }
+
+          if ($env:MCP_OAUTH_CLIENT_SECRET) {
+            $envValues.MCP_OAUTH_CLIENT_SECRET = $env:MCP_OAUTH_CLIENT_SECRET
+          }
+
           foreach ($entry in $envValues.GetEnumerator()) {
             azd env set $entry.Key $entry.Value
           }
 
-      - name: Deploy outlook-email to ACA
+      - name: Build Taipei-tagged ACA image
+        shell: pwsh
+        run: |
+          function Get-TaipeiImageTag {
+            foreach ($timeZoneId in @('Taipei Standard Time', 'Asia/Taipei')) {
+              try {
+                $timeZone = [TimeZoneInfo]::FindSystemTimeZoneById($timeZoneId)
+                return [TimeZoneInfo]::ConvertTime([DateTimeOffset]::UtcNow, $timeZone).ToString('yyyyMMdd-HHmmss')
+              }
+              catch {
+              }
+            }
+
+            return [DateTimeOffset]::UtcNow.ToOffset([TimeSpan]::FromHours(8)).ToString('yyyyMMdd-HHmmss')
+          }
+
+          $imageRepository = $env:AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME
+          $timestamp = Get-TaipeiImageTag
+          $imageRef = "$($env:AZURE_CONTAINER_REGISTRY_ENDPOINT)/$imageRepository`:$timestamp"
+
+          Write-Host "Building custom image ref: $imageRef"
+          az acr build `
+            --registry $env:AZURE_CONTAINER_REGISTRY_NAME `
+            --image "$imageRepository`:$timestamp" `
+            --file ../Dockerfile.outlook-email-azure `
+            ..
+
+          azd env set SERVICE_OUTLOOK_EMAIL_IMAGE_NAME $imageRef
+          "OUTLOOK_EMAIL_IMAGE_REF=$imageRef" >> $env:GITHUB_ENV
+
+      - name: Deploy custom ACA image
+        shell: pwsh
+        run: |
+          ./scripts/deploy-containerapp-ready-image.ps1 -ImageRef $env:OUTLOOK_EMAIL_IMAGE_REF
+
+      - name: Run postdeploy MCP validation
         shell: pwsh
         env:
           MCP_VALIDATION_TENANT_ID: ${{ secrets.MCP_VALIDATION_TENANT_ID }}
@@ -105,7 +167,7 @@ jobs:
             Write-Host 'MCP validation app secrets are not configured. Skipping postdeploy MCP smoke test in CI.'
           }
 
-          azd deploy outlook-email --environment $env:AZURE_ENV_NAME --no-prompt
+          ./src/McpSamples.OutlookEmail.HybridApp/hooks/postdeploy-validate-mcp.ps1
 
       - name: Report active ACA revision
         shell: pwsh

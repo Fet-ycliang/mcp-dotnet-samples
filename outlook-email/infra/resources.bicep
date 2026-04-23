@@ -9,6 +9,9 @@ param tags object = {}
 @description('Deterministic resource naming stem, for example fet-outlook-email-bst.')
 param resourceNameStem string
 
+@description('Existing Azure Container Registry name to reuse for azd remote builds and ACA image pulls. Defaults to fetimageacr.')
+param existingContainerRegistryName string = 'fetimageacr'
+
 param mcpOutlookEmailExists bool
 
 param vnetEnabled bool = true // Enable VNet by default
@@ -43,6 +46,10 @@ param existingMcpOauthTenantId string = ''
 
 @description('Optional. Existing Entra client/application ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthTenantId, deployment reuses that app instead of creating a new MCP app registration.')
 param existingMcpOauthClientId string = ''
+
+@secure()
+@description('Optional. MCP OAuth client secret or Key Vault reference string that must stay mapped to the ACA secret name mcp-oauth-client-secret. Keep this separate from the Graph outbound secret.')
+param mcpOauthClientSecret string = ''
 
 @description('Optional. Semicolon-separated Entra client/application IDs allowed to call the Function App private endpoint directly with MCP OAuth tokens.')
 param directAllowedClientApplicationsCsv string = ''
@@ -116,7 +123,6 @@ var abbrs = loadJsonContent('./abbreviations.json')
 var normalizedStem = toLower(resourceNameStem)
 var compactStem = take(replace(normalizedStem, '-', ''), 22)
 var functionAppName = '${abbrs.webSitesFunctions}${normalizedStem}'
-var containerRegistryName = take('${abbrs.containerRegistryRegistries}${compactStem}acr', 50)
 var containerAppsEnvironmentName = '${abbrs.appManagedEnvironments}${normalizedStem}'
 var containerAppName = !empty(apimBackendContainerAppName) ? apimBackendContainerAppName : '${abbrs.appContainerApps}${normalizedStem}'
 var deploymentStorageContainerName = 'app-package-${normalizedStem}'
@@ -151,6 +157,16 @@ var userAssignedIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userA
 var effectiveMcpOauthTenantId = reuseExistingMcpOauthApp ? existingMcpOauthTenantId : mcpEntraApp!.outputs.mcpAppTenantId
 var effectiveMcpOauthClientId = reuseExistingMcpOauthApp ? existingMcpOauthClientId : mcpEntraApp!.outputs.mcpAppId
 var effectiveDirectAllowedClientApplications = deployApimFacade && !empty(directAllowedClientApplications) ? concat(directAllowedClientApplications, [mcpApimGatewayIdentity!.outputs.clientId]) : directAllowedClientApplications
+var directAllowedClientApplicationEnvVars = [for (clientAppId, i) in directAllowedClientApplications: {
+  name: 'McpAuth__AllowedCallerAppIds__${i}'
+  value: clientAppId
+}]
+var apimGatewayAllowedClientApplicationEnvVars = deployApimFacade && !empty(directAllowedClientApplications) ? [
+  {
+    name: 'McpAuth__AllowedCallerAppIds__${length(directAllowedClientApplications)}'
+    value: mcpApimGatewayIdentity!.outputs.clientId
+  }
+] : []
 var allowedSenderAppSettings = reduce(
   allowedSenders,
   {},
@@ -175,7 +191,9 @@ var allowedReplyToEnvVars = [for appSetting in items(allowedReplyToAppSettings):
 }]
 var entraClientSecretIsKeyVaultReference = !empty(entraClientSecret) && startsWith(entraClientSecret, '@Microsoft.KeyVault(') && contains(entraClientSecret, 'SecretUri=')
 var entraClientSecretKeyVaultUrl = entraClientSecretIsKeyVaultReference ? replace(replace(entraClientSecret, '@Microsoft.KeyVault(SecretUri=', ''), ')', '') : ''
-var containerAppSecrets = !graphUseManagedIdentity && !empty(entraClientSecret) ? [
+var mcpOauthClientSecretIsKeyVaultReference = !empty(mcpOauthClientSecret) && startsWith(mcpOauthClientSecret, '@Microsoft.KeyVault(') && contains(mcpOauthClientSecret, 'SecretUri=')
+var mcpOauthClientSecretKeyVaultUrl = mcpOauthClientSecretIsKeyVaultReference ? replace(replace(mcpOauthClientSecret, '@Microsoft.KeyVault(SecretUri=', ''), ')', '') : ''
+var graphContainerAppSecrets = !graphUseManagedIdentity && !empty(entraClientSecret) ? [
   entraClientSecretIsKeyVaultReference ? {
     name: 'graph-client-secret'
     identity: userAssignedIdentityResourceId
@@ -185,6 +203,17 @@ var containerAppSecrets = !graphUseManagedIdentity && !empty(entraClientSecret) 
     value: entraClientSecret
   }
 ] : []
+var mcpOauthContainerAppSecrets = !empty(mcpOauthClientSecret) ? [
+  mcpOauthClientSecretIsKeyVaultReference ? {
+    name: 'mcp-oauth-client-secret'
+    identity: userAssignedIdentityResourceId
+    keyVaultUrl: mcpOauthClientSecretKeyVaultUrl
+  } : {
+    name: 'mcp-oauth-client-secret'
+    value: mcpOauthClientSecret
+  }
+] : []
+var containerAppSecrets = concat(graphContainerAppSecrets, mcpOauthContainerAppSecrets)
 var graphAuthEnvVars = graphUseManagedIdentity ? [
   {
     name: 'EntraId__UseManagedIdentity'
@@ -220,6 +249,28 @@ var graphAuthEnvVars = graphUseManagedIdentity ? [
     }
   ] : []
 )
+var directMcpAuthEnvVars = !empty(effectiveMcpOauthTenantId) && !empty(effectiveMcpOauthClientId) ? concat(
+  [
+    {
+      name: 'McpAuth__Enabled'
+      value: 'True'
+    }
+    {
+      name: 'McpAuth__TrustEasyAuthHeaders'
+      value: 'True'
+    }
+    {
+      name: 'McpAuth__TenantId'
+      value: effectiveMcpOauthTenantId
+    }
+    {
+      name: 'McpAuth__ClientId'
+      value: effectiveMcpOauthClientId
+    }
+  ],
+  directAllowedClientApplicationEnvVars,
+  apimGatewayAllowedClientApplicationEnvVars
+) : []
 
 // Monitor application with Azure Monitor
 module monitoring 'br/public:avm/ptn/azd/monitoring:0.1.0' = {
@@ -278,6 +329,10 @@ resource existingManagedContainerApp 'Microsoft.App/containerApps@2024-03-01' ex
 resource sharedFunctionAppPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = if (useSharedPrivateDnsZones && deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints) {
   name: functionAppPrivateDnsZoneName
   scope: resourceGroup(privateDnsZoneResourceGroupName)
+}
+
+resource existingContainerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
+  name: existingContainerRegistryName
 }
 
 resource existingVirtualNetworkIntegrationSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = if (useExistingVirtualNetwork && !empty(integrationSubnetAddressPrefix) && !empty(effectiveIntegrationSubnetName)) {
@@ -549,21 +604,15 @@ module storagePrivateEndpoint './modules/storage-privateendpoint.bicep' = if (ca
   }
 }
 
-// Container registry for azd remote builds
-module containerRegistry 'br/public:avm/res/container-registry/registry:0.1.1' = {
-  name: 'registry'
-  params: {
-    name: containerRegistryName
-    location: location
-    tags: tags
-    publicNetworkAccess: 'Enabled'
-    roleAssignments: [
-      {
-        principalId: mcpOutlookEmailIdentity.outputs.principalId
-        principalType: 'ServicePrincipal'
-        roleDefinitionIdOrName: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
-      }
-    ]
+// Reuse the shared ACR for azd remote builds and ACA image pulls.
+// Keep AcrPull enforced even on retained Container App paths so existing apps do not drift from the shared ACR contract.
+resource existingContainerRegistryAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(existingContainerRegistry.id, userAssignedIdentityResourceId, 'acrpull')
+  scope: existingContainerRegistry
+  properties: {
+    principalId: mcpOutlookEmailIdentity.outputs.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
   }
 }
 
@@ -619,7 +668,7 @@ resource mcpOutlookEmail 'Microsoft.App/containerApps@2024-03-01' = {
       }
       registries: [
         {
-          server: containerRegistry.outputs.loginServer
+          server: existingContainerRegistry.properties.loginServer
           identity: userAssignedIdentityResourceId
         }
       ]
@@ -653,6 +702,7 @@ resource mcpOutlookEmail 'Microsoft.App/containerApps@2024-03-01' = {
               }
             ],
             graphAuthEnvVars,
+            directMcpAuthEnvVars,
             allowedSenderEnvVars,
             allowedReplyToEnvVars
           )
@@ -666,7 +716,7 @@ resource mcpOutlookEmail 'Microsoft.App/containerApps@2024-03-01' = {
   }
 }
 
-output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerRegistry.outputs.loginServer
+output AZURE_CONTAINER_REGISTRY_ENDPOINT string = existingContainerRegistry.properties.loginServer
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = mcpOutlookEmail.id
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = mcpOutlookEmail.name
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = mcpOutlookEmail.properties.configuration.ingress.fqdn

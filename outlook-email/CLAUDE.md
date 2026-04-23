@@ -32,7 +32,7 @@
 | `infra\remove-apim.bicep` / `infra\remove-apim.parameters.json` | 手動刪除 APIM 用（`az deployment group create`）|
 | `infra\rebuild-apim.bicep` / `infra\rebuild-apim.parameters.json` | 手動重建 APIM 用（`az deployment group create`）|
 | `..\.github\workflows\build.yaml` / `..\.github\workflows\build-container.yaml` | repo-level GitHub Actions matrix build、GHCR tag 組法與 fail-fast 設定 |
-| `..\.github\workflows\deploy-outlook-email-main.yaml` | `main` branch 對 live ACA 的 GitHub Actions rollout；會重建 azd env 後執行 `azd deploy outlook-email` |
+| `..\.github\workflows\deploy-outlook-email-main.yaml` | `main` branch 對 live ACA 的 GitHub Actions rollout；會重建 azd env、同步 ACA secrets、`az acr build`，再執行 `deploy-containerapp-ready-image.ps1` |
 | `.vscode\mcp*.json` | STDIO / HTTP / Functions / remote MCP 連線模板 |
 | `.mcp.json` | Claude Code 使用的**本地** project-level MCP 設定（不進版控）；這個 repo 的 project code 是 `y94` |
 | `.claude\mcp.json` | APIM remote header 參考範例；不是目前 Claude Code 的 project-level 載入入口 |
@@ -48,9 +48,16 @@
 - `Program.cs` 先透過 `AppSettings.UseStreamableHttp(...)` 決定 STDIO 或 HTTP。
 - HTTP 模式下會讀取 `FUNCTIONS_CUSTOMHANDLER_PORT`，若沒有則預設使用 `5260`。
 - 認證與 Graph client 建立都留在 `outlook-email` sample 內，不要隨意搬到 shared。
-- `azure.yaml` 現在預設把 `outlook-email` 部署成 **Azure Container Apps**；`azd up` / `azd deploy` 會用 `Dockerfile.outlook-email-azure` + remote build 自動把映像推到 azd 管理的 ACR，並 rollout 到 Container App。
-- `main` branch 的 checked-in Azure rollout 入口是 `..\.github\workflows\deploy-outlook-email-main.yaml`；它和 `build.yaml` 分開，前者負責 azd-managed ACR + ACA，後者仍是 GHCR matrix build。
-- 若要手動或用 CI 發布容器映像到 ACR，命名規則使用 **`<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`**；branch 分目錄放 repository path，不放 tag。
+- `azure.yaml` 現在預設把 `outlook-email` 部署成 **Azure Container Apps**；若你手動跑 `azd up` / `azd deploy`，它仍會用 `Dockerfile.outlook-email-azure` + remote build 自動把映像推到既有 ACR **`fetimageacr`**，並 rollout 到 Container App。
+- `main` branch 的 checked-in Azure rollout 入口是 `..\.github\workflows\deploy-outlook-email-main.yaml`；它和 `build.yaml` 分開，前者負責 `fetimageacr` + ACA，後者仍是 GHCR matrix build。
+- `main` workflow 已改成 **重建 azd env + 同步 ACA secrets + `az acr build` + `deploy-containerapp-ready-image.ps1`**，故意避開 `azd` 預設產生的 `outlook-email-fet-outlook-email-bst:azd-deploy-<unix>` naming，改用 **`fetimageacr.azurecr.io/fet-outlook-email-ca:<taipei-timestamp>`**。
+- ACA secret contract 目前固定保留兩顆：`graph-client-secret` 與 `mcp-oauth-client-secret`。前者給 **Graph outbound auth**，後者給 **ACA inbound MCP OAuth**；不要混用，也不要只更新其中一顆。
+- `MCP_ENTRA_CLIENT_SECRET` 與 `MCP_OAUTH_CLIENT_SECRET` 都支援 `@Microsoft.KeyVault(SecretUri=...)`，`main` workflow 與 `deploy-containerapp-ready-image.ps1` 會先同步這兩顆 ACA secret，再做 image rollout。
+- **目前 live Key Vault** 是 `outlook-email-kv`，位於 `apim-app-bst-rg`。它目前已補上 private endpoint `pe-outlook-email-kv`（`PE_Subnet`）與 `aibde-common-rg/privatelink.vaultcore.azure.net`，但 migration 期間仍暫時保留 `publicNetworkAccess=Enabled`。
+- `outlook-email-kv` 目前是 **RBAC mode**；不要再用 `az keyvault set-policy`。operator / pipeline 若要寫 secret，走 Azure RBAC；ACA 的 user-assigned managed identity 若要讀 secret，也走 Azure RBAC。
+- 目前 repo / azd env / GitHub Actions secrets 內的 `@Microsoft.KeyVault(SecretUri=...)` 都是 **versioned URI**。之後 rotate `graph-client-secret` 或 `mcp-oauth-client-secret` 時，除了寫新值到 Key Vault，也要同步更新 reference 字串本身。
+- `deploy-outlook-email-main.yaml` 目前固定帶 `AZURE_DEPLOY_APIM=false`，只做 routine ACA rollout；若要連 retained APIM / private DNS 一起變更，請改走人工 `azd up`。
+- 若要手動或用 CI 發布這條 **main ACA rollout** 的容器映像，命名規則使用 **`<acr-login-server>/fet-outlook-email-ca:<taipei-timestamp>`**。
 - **ACA / ACR 這條線固定使用 `Dockerfile.outlook-email-azure`**；不要再把 `Dockerfile.outlook-email` 丟給 `az acr build` / ACR Task，否則容易在 dependency scanner 卡在 `FROM --platform=$BUILDPLATFORM ...`。
 - Azure 命名與 tag 基線目前以 **`fet-outlook-email-bst`** 為核心 stem；實際覆寫方式看 `infra\main.bicep`、`infra\main.parameters.json` 與 `README.md` 的 Azure 部署段落。
 - **目前 live APIM resource 名稱**是 `apim-fet-outlook-email`；`AZURE_APIM_NAME` 或 README 內的 `fet-mcp-apim-bst` 只應視為 env / 範例值，不要直接當成已落地資源名稱。
@@ -125,6 +132,9 @@
 - `tools/call` 的結果在某些 remote path 下可能被包在 `result.content[0].text`，不要只讀 `structuredContent`。
 - Windows PowerShell 若直接用 `curl.exe --data-raw` 送中文 JSON，主旨 / 內文 / slide text 可能變亂碼；改用 **UTF-8 檔案 + `--data-binary`**。
 - 若 Azure 走 managed identity，就不要同時把 `MCP_ENTRA_*` service principal 值留在 app settings；走 service principal 時則優先使用 Key Vault reference。
+- Key Vault 只是在保存 **secret value**；真正會被 ACA auth sidecar 讀的是 Container App secret name。若 deploy path 只宣告 `graph-client-secret`、沒把 `mcp-oauth-client-secret` 一起帶上，新的 revision 仍會卡在 `Activating`。
+- 建 Key Vault private endpoint 後，不要只看 private endpoint connection `Approved`；還要檢查 `privatelink.vaultcore.azure.net` 內是否真的有 `outlook-email-kv` 的 A record。這次 zone group 存在，但 zone 內最初只有 SOA，A record 要另外補。
+- 若本機 / jumpbox / runner 沒有 private DNS / VNet reachability，就算補了 `NO_PROXY`，Key Vault data plane 還是可能直接 `getaddrinfo failed`。看到這種錯先查 DNS / network，不要先懷疑 secret value。
 - ACR tag 不是資料夾；若要做 branch 分目錄，請把 branch 放在 repository path（例如 `fet-mcp-server-dotnet/feature/pptx-mailer:20260418-101011`），不要放進 tag。
 - branch 名稱若直接拿 `refs/heads/*`、大寫或特殊字元組 image ref，常會踩到非法名稱；先轉小寫、去掉 `refs/heads/`，其餘不安全字元改成 `-`。
 - GitHub Actions reusable workflow 若要推 GHCR image，不要直接拿原始 `GITHUB_REPOSITORY` 組 image ref；owner / repo 要先轉小寫，否則 `docker buildx` 常會報 `repository name must be lowercase`。

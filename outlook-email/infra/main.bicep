@@ -30,6 +30,9 @@ param existingResourceGroupName string = ''
 @description('Optional. Resource naming stem. Defaults to environmentName, for example fet-outlook-email-bst.')
 param resourceNameStem string = ''
 
+@description('Optional. Existing Azure Container Registry name to reuse for azd remote builds and ACA image pulls. Defaults to fetimageacr.')
+param existingContainerRegistryName string = 'fetimageacr'
+
 @description('Tag value for cost allocation.')
 param tagCostCenter string = '3901'
 
@@ -82,6 +85,10 @@ param existingMcpOauthTenantId string = ''
 
 @description('Optional. Existing Entra client/application ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthTenantId, deployment reuses that app instead of creating a new MCP app registration.')
 param existingMcpOauthClientId string = ''
+
+@secure()
+@description('Optional. MCP OAuth client secret or Key Vault reference string that must remain mapped to the ACA secret name mcp-oauth-client-secret. Keep this separate from the Graph outbound secret.')
+param mcpOauthClientSecret string = ''
 
 @description('Optional. Semicolon-separated Entra client/application IDs allowed to call the Function App private endpoint directly with MCP OAuth tokens.')
 param directAllowedClientApplicationsCsv string = ''
@@ -183,6 +190,7 @@ module resources 'resources.bicep' = {
     location: location
     tags: tags
     resourceNameStem: effectiveResourceNameStem
+    existingContainerRegistryName: existingContainerRegistryName
     principalId: principalId
     mcpOutlookEmailExists: mcpOutlookEmailExists
     azdServiceName: 'outlook-email'
@@ -196,6 +204,7 @@ module resources 'resources.bicep' = {
     entraClientSecret: entraClientSecret
     existingMcpOauthTenantId: existingMcpOauthTenantId
     existingMcpOauthClientId: existingMcpOauthClientId
+    mcpOauthClientSecret: mcpOauthClientSecret
     directAllowedClientApplicationsCsv: directAllowedClientApplicationsCsv
     existingVirtualNetworkName: existingVirtualNetworkName
     integrationSubnetName: integrationSubnetName
