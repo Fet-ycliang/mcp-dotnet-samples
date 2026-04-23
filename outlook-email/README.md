@@ -655,21 +655,21 @@ docker push $imageRef
 
 - repo 內現在把 `main` 的 Azure rollout 拆成兩條：
   - `.github/workflows/build.yaml`：`push main` 後做 repo-level GHCR matrix build
-  - `.github/workflows/deploy-outlook-email-main.yaml`：`push main` / `workflow_dispatch` 後，針對 `outlook-email` 重建 azd env，然後執行 `azd provision`、`az acr build`、`azd deploy --from-package`
+  - `.github/workflows/deploy-outlook-email-main.yaml`：`push main` / `workflow_dispatch` 後，針對 `outlook-email` 重建 azd env，然後執行 `az acr build` + `scripts/deploy-containerapp-ready-image.ps1`
 - `deploy-outlook-email-main.yaml` 會直接對既有環境 `fet-outlook-email-bst` 下手，目標是 live ACA `fet-outlook-email-ca`
 - workflow 目前依賴 GitHub repo secret **`AZURE_CREDENTIALS`** 做 Azure 登入
 - workflow 目前固定帶 `AZURE_DEPLOY_APIM=false`，讓 routine app rollout 只更新 live ACA；既有 retained APIM path 會繼續沿用同一個 ACA backend，不在每次 `main` push 時重跑 APIM / private DNS provisioning
-- workflow 目前會先在 `fetimageacr` 建一個 **`fet-outlook-email-ca:<taipei-timestamp>`** image，再把這個 image ref 交給 `azd deploy --from-package`
+- workflow 目前會先在 `fetimageacr` 建一個 **`fet-outlook-email-ca:<taipei-timestamp>`** image，再把這個 image ref 交給 `deploy-containerapp-ready-image.ps1`
 - 若你有另外準備 direct ACA smoke test 用的 caller app，也可以在 repo secret 補上：
 
   ```text
   MCP_VALIDATION_CLIENT_ID
   MCP_VALIDATION_CLIENT_SECRET
-  MCP_VALIDATION_TENANT_ID   # optional, omitted 時會沿用 live env 內的 MCP_OAUTH_TENANT_ID
+  MCP_VALIDATION_TENANT_ID   # optional, omitted 時會沿用 live env 內的 MCP_DIRECT_TENANT_ID
   ```
 
 - 若上面三個 validation secrets 沒有配置，workflow 仍會完成 deploy，但會自動把 `MCP_SKIP_POSTDEPLOY_VALIDATION=true` 傳給 hook，避免 GitHub deployment service principal 卡在 `user_impersonation` fallback
-- workflow 會同步重建 live env 內的 `MCP_OAUTH_CLIENT_ID` / `MCP_OAUTH_TENANT_ID`，因此只要 validation client id / secret 補齊，就能自動恢復 direct ACA `/mcp initialize` / `tools/list` smoke test，不需要再改 YAML
+- workflow 會同步重建 live env 內的 `MCP_DIRECT_CLIENT_ID` / `MCP_DIRECT_TENANT_ID`，因此只要 validation client id / secret 補齊，就能自動恢復 direct ACA `/mcp initialize` / `tools/list` smoke test，不需要再改 YAML
 - 若你這次真的要連 **APIM / private DNS / retained facade** 一起變更，不要走這條 routine workflow；請改用人工 `azd up` 並把 `AZURE_DEPLOY_APIM=true` 帶回來
 
 ##### 上版後自動驗證（Asia/Taipei）
@@ -697,14 +697,14 @@ docker push $imageRef
    azd env set MCP_VALIDATION_CLIENT_SECRET "{{VALIDATION_CALLER_APP_SECRET}}"
    ```
 
-   hook 會改走 **client credentials**，以 `api://<MCP_OAUTH_CLIENT_ID>/.default` 驗證 direct ACA `/mcp`。
+   hook 會改走 **client credentials**，以 `api://<MCP_DIRECT_CLIENT_ID>/.default`（或 `MCP_DIRECT_APPLICATION_ID_URI/.default`）驗證 direct ACA `/mcp`。
 
 1. 若你**沒有**提供上面三個值，hook 會 fallback 成：
 
    - 直接使用目前 Azure CLI 登入身分
-   - 呼叫 `az account get-access-token --scope "api://<MCP_OAUTH_CLIENT_ID>/user_impersonation"`
+   - 呼叫 `az account get-access-token --scope "api://<MCP_DIRECT_CLIENT_ID>/user_impersonation"`
 
-> 不論 hook 是走 Azure CLI fallback 還是 dedicated validation app，重點都是它必須能對 `MCP_OAUTH_*` 這顆 resource app 拿到有效 token。
+> 不論 hook 是走 Azure CLI fallback 還是 dedicated validation app，重點都是它必須能對 **direct path** 這顆 resource app（`MCP_DIRECT_*`）拿到有效 token。
 > - 若 hook 走 Azure CLI fallback，請確認目前登入身分可取得 `user_impersonation`
 > - 若 hook 走 dedicated validation app，請先把那顆 validation app 指派到 resource app 的 `access_as_application`
 > - 若目前是在 GitHub Actions 用 deployment service principal 跑 `azd up`，而且 repo 尚未配置 validation app secrets，請改由 workflow 設定 `MCP_SKIP_POSTDEPLOY_VALIDATION=true`，先把 rollout 與 smoke test 分開
@@ -847,9 +847,14 @@ docker push $imageRef
 
       > `AZURE_DEPLOY_APIM_MCP_API=false` 時，sample 仍會部署 APIM service、本次 internal VNet wiring 與 private DNS，但會先**跳過** APIM 內的 MCP API facade。
       >
-      > 由於目前 direct Function path 也會共用 `MCP_OAUTH_*` 這顆 resource app 做 Easy Auth，若你沒有提供既有 `MCP_OAUTH_TENANT_ID` / `MCP_OAUTH_CLIENT_ID`，Bicep 仍可能為 Function App auth 建立 `mcpEntraApp`。
+      > split-auth 後，`MCP_DIRECT_*` 與 `MCP_APIM_RESOURCE_*` 已分開；若你沒有提供既有 `MCP_APIM_RESOURCE_TENANT_ID` / `MCP_APIM_RESOURCE_CLIENT_ID`，而且又把 `AZURE_DEPLOY_APIM_MCP_API` 改回 `true`，Bicep 才會建立新的 APIM MCP resource app。
       >
       > 這個模式適合先把網路 / DNS / APIM service 骨架建好，等 APIM facade 準備好之後，再把 `AZURE_DEPLOY_APIM_MCP_API` 改回 `true` 補齊保留中的 APIM OAuth 路徑。
+      >
+      > `AZURE_DEPLOY_APIM_MCP_API=true` 時，template 現在會一起建立：
+      > - `mcp` API 的 `validate-jwt`、backend managed identity forwarding、401 `resource_metadata`
+      > - `mcp-oauth` API 的 `register`、`/.well-known/oauth-authorization-server`、`/.well-known/openid-configuration`、`/authorize`、`/token`、`/.well-known/oauth-protected-resource`
+      > - `mcp` API 的 App Insights diagnostics（JWT validation trace + masked auth metadata）
 
 1. 若正式環境要先用 **service principal + environment variables**，而不是 managed identity，可再設定下列 azd 環境變數：
 
@@ -868,34 +873,71 @@ docker push $imageRef
      >
      > 若你要走 managed identity，請不要同時保留 `MCP_ENTRA_TENANT_ID`、`MCP_ENTRA_CLIENT_ID`、`MCP_ENTRA_CLIENT_SECRET`，避免把不需要的 credential 長期留在 Function App app settings 中。
 
-1. 若你要保留 **APIM + OAuth**，但目前 tenant 內不方便讓部署流程自動建立新的 MCP app registration，可改為重用既有 Entra app：
+1. 若你要保留 **APIM + OAuth**，而且不想讓部署流程把 direct path 與 APIM retained path 綁在同一顆 app 上，建議改用 split-auth contract：
 
     ```bash
-    azd env set MCP_OAUTH_TENANT_ID "{{TENANT_ID}}"
-    azd env set MCP_OAUTH_CLIENT_ID "{{EXISTING_MCP_APP_CLIENT_ID}}"
-    azd env set MCP_OAUTH_CLIENT_SECRET "{{CLIENT_SECRET_OR_KEYVAULT_REFERENCE}}"
+    azd env set MCP_DIRECT_TENANT_ID "{{DIRECT_RESOURCE_TENANT_ID}}"
+    azd env set MCP_DIRECT_CLIENT_ID "{{DIRECT_RESOURCE_APP_CLIENT_ID}}"
+    azd env set MCP_DIRECT_CLIENT_SECRET "{{DIRECT_CLIENT_SECRET_OR_KEYVAULT_REFERENCE}}"
+    azd env set MCP_DIRECT_APPLICATION_ID_URI "{{DIRECT_RESOURCE_APP_ID_URI}}"   # optional
+
+    azd env set MCP_APIM_RESOURCE_TENANT_ID "{{APIM_RESOURCE_TENANT_ID}}"
+    azd env set MCP_APIM_RESOURCE_CLIENT_ID "{{APIM_RESOURCE_APP_CLIENT_ID}}"     # optional，未提供時可讓 template 新建
+    azd env set MCP_APIM_RESOURCE_APPLICATION_ID_URI "{{APIM_RESOURCE_APP_ID_URI}}" # optional
+
+    azd env set MCP_CLAUDE_CLIENT_ID "{{CLAUDE_PUBLIC_CLIENT_ID}}"                # public client + PKCE
+    azd env set MCP_CLAUDE_REDIRECT_URIS_CSV "http://localhost;http://localhost:8765/callback" # optional，至少補齊實際 callback
+    azd env set MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV "{{EXTRA_APIM_CALLER_APP_ID}}" # optional，額外 APIM retained caller allowlist
     azd env set MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV "{{DATABRICKS_OR_DIRECT_CALLER_APP_ID}}"
     ```
 
-       > `MCP_OAUTH_TENANT_ID` / `MCP_OAUTH_CLIENT_ID` 這兩個值現在會同時用在：
-       > - **APIM inbound OAuth / bearer token 驗證**
-      > - **Function App direct path 的 Easy Auth audience / issuer**
-      >
-       > 它們跟上面 `MCP_ENTRA_*` 那組 **Function App 出站呼叫 Graph** 的 service principal 設定不同。
+       > 這三條線現在應分開看：
+       > - `MCP_DIRECT_*`：**Function App / ACA direct path** 的 resource app、issuer / audience，以及 ACA secret `mcp-oauth-client-secret`
+       > - `MCP_APIM_RESOURCE_*`：**APIM inbound OAuth / bearer token 驗證** 的 resource app
+       > - `MCP_CLAUDE_CLIENT_ID`：**Claude caller public client app**；這條只需要 client ID，不要把 confidential client secret 塞回來
        >
-       > 當 `MCP_OAUTH_TENANT_ID` 與 `MCP_OAUTH_CLIENT_ID` 都有提供時，Bicep 會**直接重用**該既有 app，不再嘗試建立 `mcpEntraApp`。
-       >
-        > `MCP_OAUTH_CLIENT_SECRET` 會被投影成 ACA secret name **`mcp-oauth-client-secret`**。請把它與 `MCP_ENTRA_CLIENT_SECRET` 分開管理，前者是 **inbound MCP OAuth**，後者是 **backend outbound Graph auth**。
+        > 上面這三組值都跟 `MCP_ENTRA_*` 那組 **backend 出站呼叫 Graph** 的 service principal 設定不同。
         >
-        > 正式環境建議把 `MCP_OAUTH_CLIENT_SECRET` 與 `MCP_ENTRA_CLIENT_SECRET` 都設成 **Key Vault reference 字串**，格式同樣是 `@Microsoft.KeyVault(SecretUri=https://<vault-name>.vault.azure.net/secrets/<secret-name>/<secret-version>)`。
+        > 若 `MCP_APIM_RESOURCE_TENANT_ID` 與 `MCP_APIM_RESOURCE_CLIENT_ID` 都有提供，Bicep 會**直接重用**該既有 APIM resource app；若沒提供 `MCP_APIM_RESOURCE_CLIENT_ID`，而且 `AZURE_DEPLOY_APIM=true` + `AZURE_DEPLOY_APIM_MCP_API=true`，template 會建立新的 APIM MCP resource app。
         >
-        > `main` branch 的 `deploy-outlook-email-main.yaml` 與 `deploy-containerapp-ready-image.ps1` 現在都會先同步 ACA secrets `graph-client-secret` / `mcp-oauth-client-secret`，避免未來 rollout 再把其中一個 secret name 洗掉。
+        > `MCP_APIM_RESOURCE_CLIENT_ID` 這裡要填的是 **Application (client) ID / `appId`**，不是 Entra object ID。這輪 live migration 就曾因為把 `7dfdd946-...` object ID 誤填成 client ID，導致 APIM named value 與 token audience 全部接錯；正確 client ID 是 `ddfcc64c-b3c5-419f-a2c6-c3abed72b64d`。
         >
-        > 目前 live 例子已改成 `outlook-email-kv` + Key Vault reference；這顆 vault 在這次環境是 **RBAC mode**，不是 access policy mode。若你之後重建或搬移 Key Vault，請改用 Azure RBAC（例如 operator / pipeline 用 `Key Vault Secrets Officer`、user-assigned managed identity 用 `Key Vault Secrets User`），`az keyvault set-policy` 不會生效。
+        > `MCP_CLAUDE_CLIENT_ID` 在 APIM retained OAuth 路徑下也應視為**必填**。不要再讓它 fallback 成 APIM resource app 自己的 client ID，不然 `/register` 回給 caller 的 client metadata 會重新混回 combined-auth。
         >
-        > 目前這組 Key Vault reference 用的是 **versioned SecretUri**。若你之後 rotate secret，除了更新 Key Vault secret value，還要同步更新 `azd env` 與 GitHub Actions secrets 裡的 `@Microsoft.KeyVault(SecretUri=...)` 到新的 secret version URI，不然 deploy 仍會抓舊版。
+        > `MCP_CLAUDE_REDIRECT_URIS_CSV` 會同時決定 APIM OAuth facade `/register` 回傳的 `redirect_uris`，以及 `/authorize` 允許前轉到 Entra 的 `redirect_uri` allowlist。若你要做像 `http://localhost:8765/callback` 這種實際 browser PKCE callback，請把**完整 URI** 加進這個值，不要只留裸的 `http://localhost`。
         >
-        > 你提供的既有 app 需要已經能代表這條 MCP resource path：至少要有 delegated scope `user_impersonation`，若還要支援 client credentials / M2M，還要再補 application role `access_as_application`；否則部署可過，但 client 端拿 token 時仍會失敗。
+        > `MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV` 是 retained MCP path 的**額外 caller allowlist**。模板會自動把 `MCP_CLAUDE_CLIENT_ID` 放進 allowlist；若你還要讓 Azure CLI / Copilot CLI / 其他 dedicated caller app 直接帶 Bearer token 打 APIM `/mcp`，請把那些 caller app 的 client ID 也補進來。
+        >
+         > `MCP_DIRECT_CLIENT_SECRET` 會被投影成 ACA secret name **`mcp-oauth-client-secret`**。請把它與 `MCP_ENTRA_CLIENT_SECRET` 分開管理，前者是 **direct MCP auth**，後者是 **backend outbound Graph auth**。
+         >
+         > 若 direct 或 APIM resource app 的 **Application ID URI** 不是預設推導值，記得分別補 `MCP_DIRECT_APPLICATION_ID_URI` 與 `MCP_APIM_RESOURCE_APPLICATION_ID_URI`。
+         >
+         > 正式環境建議把 `MCP_DIRECT_CLIENT_SECRET` 與 `MCP_ENTRA_CLIENT_SECRET` 都設成 **Key Vault reference 字串**，格式同樣是 `@Microsoft.KeyVault(SecretUri=https://<vault-name>.vault.azure.net/secrets/<secret-name>/<secret-version>)`。
+         >
+         > `main` branch 的 `deploy-outlook-email-main.yaml` 與 `deploy-containerapp-ready-image.ps1` 現在都會先同步 ACA secrets `graph-client-secret` / `mcp-oauth-client-secret`，避免未來 rollout 再把其中一個 secret name 洗掉。
+        >
+         > 目前 live 例子已改成 `outlook-email-kv` + Key Vault reference；這顆 vault 在這次環境是 **RBAC mode**，不是 access policy mode。若你之後重建或搬移 Key Vault，請改用 Azure RBAC（例如 operator / pipeline 用 `Key Vault Secrets Officer`、user-assigned managed identity 用 `Key Vault Secrets User`），`az keyvault set-policy` 不會生效。
+         >
+         > 目前這組 Key Vault reference 用的是 **versioned SecretUri**。若你之後 rotate secret，除了更新 Key Vault secret value，還要同步更新 `azd env` 與 GitHub Actions secrets 裡的 `@Microsoft.KeyVault(SecretUri=...)` 到新的 secret version URI，不然 deploy 仍會抓舊版。
+         >
+         > 若你要讓 checked-in Bicep **直接接手管理** 這顆 vault / private endpoint，目前對應的 azd env 變數是：
+         >
+         > ```bash
+         > azd env set AZURE_DEPLOY_KEY_VAULT true
+         > azd env set AZURE_KEY_VAULT_NAME "outlook-email-kv"
+         > azd env set AZURE_DEPLOY_KEY_VAULT_PRIVATE_ENDPOINT true
+          > azd env set AZURE_KEY_VAULT_PUBLIC_NETWORK_ACCESS "Disabled"
+          > ```
+          >
+          > `main` branch routine rollout 現在已改成 `AZURE_KEY_VAULT_PUBLIC_NETWORK_ACCESS=Disabled`。若你還有 caller / runner 必須走公網，請先在自己的 env 明確覆寫，再進行 deploy。
+         >
+        > 目前 APIM resource app 與 Claude caller app 已經拆開：APIM 那顆 resource app 只需要 delegated scope / application role；`http://localhost` public client redirect 應該放在 `MCP_CLAUDE_CLIENT_ID` 對應的 caller app，而不是再塞回 resource app。
+        >
+        > 若你要做 **實際 browser PKCE / localhost callback** 驗證，不要只註冊裸的 `http://localhost`。這輪 live E2E 實測，`http://localhost:8765/callback` 若沒被明確加到 `claudeEtraApp` 的 redirect URIs，Entra 會直接回 `AADSTS50011 redirect URI mismatch`。
+         >
+         > 你提供的既有 app 需要已經能代表這條 MCP resource path：至少要有 delegated scope `mcp.access`，若還要支援 client credentials / M2M，還要再補 application role `access_as_application`；`mcp` policy 雖然目前仍暫時接受 legacy `user_impersonation`，但那只應視為 migration 相容，不是新的目標 contract。
+        >
+        > 若 tenant 對這顆 resource app 套了 MFA / Conditional Access，第一次人工驗證 retained OAuth 時建議在 authorize URL 額外帶 `prompt=login`，強制完成一次新鮮的登入 + MFA；否則可能在 token exchange 才收到 `AADSTS50076`。
         >
         > `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是可選的 direct caller allowlist；若有設定，只有列在這裡的 caller app 才能直接打 Function App private endpoint。APIM backend 自己使用的 managed identity 會由模板自動加入，不需要手動再填一次。
 
@@ -903,7 +945,7 @@ docker push $imageRef
 
      **A. APIM inbound OAuth（遠端 MCP 入口）**
 
-     - 若要讓部署流程自動建立 / 更新 `mcpEntraApp`：
+     - 若要讓部署流程自動建立 / 更新 **APIM MCP resource app**：
        - 請把執行 `azd provision` 的部署身分（使用者或 service principal）暫時加入 Microsoft Entra 角色：
          - `Application Administrator`
          - 或 `Cloud Application Administrator`
@@ -914,8 +956,8 @@ docker push $imageRef
          - `client / application ID`
        - 這顆 app 至少要已完成：
          - **Expose an API**
-        - 有可供 client 取得 token 的 delegated scope（目前 sample 預期是 `user_impersonation`）
-        - 若要支援 M2M / client credentials，另需 application role `access_as_application`
+         - 有可供 client 取得 token 的 delegated scope（目前 sample 預期是 `mcp.access`；`user_impersonation` 只留作 migration 相容）
+         - 若要支援 M2M / client credentials，另需 application role `access_as_application`
          - 視 tenant 規範完成必要的 consent / assignment
 
      **B. Function App 出站 `sendMail`（Microsoft Graph）**
@@ -924,7 +966,7 @@ docker push $imageRef
         - `MCP_ENTRA_CLIENT_ID` 對應的 app / enterprise app 需要 Microsoft Graph **Application** permission：`Mail.Send`
         - 這個 `Mail.Send` 需要 administrator 完成 **admin consent**
         - 需提供 secret 或 certificate 給 Function App；目前 sample 吃 `MCP_ENTRA_CLIENT_SECRET`，正式環境建議改成 **Key Vault reference**
-        - 若 live ACA 仍要保留 inbound MCP OAuth，請不要只更新 `MCP_ENTRA_CLIENT_SECRET`；`MCP_OAUTH_CLIENT_SECRET` 也要一起維護，不然會再把 `mcp-oauth-client-secret` 這條 ACA auth secret contract 打斷
+        - 若 live ACA 仍要保留 direct MCP auth，請不要只更新 `MCP_ENTRA_CLIENT_SECRET`；`MCP_DIRECT_CLIENT_SECRET` 也要一起維護，不然會再把 `mcp-oauth-client-secret` 這條 ACA auth secret contract 打斷
      - 若之後改用 managed identity：
        - 仍然需要 administrator 對 **Function App 使用的 user-assigned managed identity service principal** 授與 Microsoft Graph **Application** permission：`Mail.Send`
        - 同樣需要 **admin consent**
@@ -936,7 +978,7 @@ docker push $imageRef
      >
      > 這次另一個實際踩雷是：`outlook-email-kv` 雖然補了 private endpoint，但 `privatelink.vaultcore.azure.net` zone 一開始只有 SOA、沒有 `outlook-email-kv` 的 A record。若你之後也要把 Key Vault 納進 private networking，請把 **private endpoint connection / zone group / DNS A record** 都當成獨立檢查點，不要只看其中一項。
      >
-     > 目前 migration 階段的 live vault 仍保留 `publicNetworkAccess=Enabled`。若要往下收斂成 private-only，先確認 ACA、jumpbox 與 deploy runner 都能穩定走 private DNS / private endpoint，再決定要不要關公網。
+     > `main` branch routine rollout 現在預設把 `publicNetworkAccess` 關成 `Disabled`。若你在其他 env 仍要暫時保留公網，請確認那是明確覆寫，而不是沿用過期的 migration 預設。
 
 1. 若你要保留 **APIM + OAuth** 的遠端 MCP 路徑，但開發 / 測試階段想先壓低固定成本，可再設定：
 
@@ -993,7 +1035,23 @@ docker push $imageRef
    - `privatelink.azurewebsites.net`
    - `privatelink.blob.core.windows.net`
 
-   若未先建立 link，private endpoint 建好後仍可能無法在該 VNet 內正確解析名稱。
+    若未先建立 link，private endpoint 建好後仍可能無法在該 VNet 內正確解析名稱。
+
+    > 若共用 zone 與目標 VNet 的 link **已經存在**，而且 link name 不是 template 預設算出的 `link-<uniqueString>`，請另外設定：
+    >
+    > ```bash
+    > azd env set AZURE_APIM_PRIVATE_DNS_VNET_LINK_NAME "link-fb4fd6ojqoxvq"
+    > ```
+    >
+    > 否則 retained APIM / internal VNet 這條路在 `azd provision` 時，會因 `Private zone '<zone>' is already linked to the virtual network ...` 直接失敗。
+
+1. 若你沿用的是既有 shared ACR，而且 ACA user-assigned identity 的 `AcrPull` 是歷史上用**隨機 GUID** 建出的 role assignment，請把既有 assignment name 一起交給 template adopt：
+
+    ```bash
+    azd env set AZURE_CONTAINER_REGISTRY_ACR_PULL_ROLE_ASSIGNMENT_NAME "ffa5f5ac-a208-41d0-a88f-6cc03c427567"
+    ```
+
+    > 否則即使 principal / scope / role 都已正確存在，ARM 仍可能因 role assignment resource name 不同而回 `RoleAssignmentExists`，導致整個 provision 被中斷。
 
 1. 本次建議的 integration subnet 治理參數如下：
 
@@ -1217,9 +1275,11 @@ docker push $imageRef
 
 ```powershell
 $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
-  --scope "api://87123f9d-6cf0-4672-9003-c8eba016749d/user_impersonation" `
+  --scope "api://<MCP_APIM_RESOURCE_CLIENT_ID>/mcp.access" `
   --query accessToken -o tsv
 ```
+
+> 這條手動 Bearer 範例的前提是：**實際拿 token 的 caller app 已被放進 `MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV`**。模板預設只自動放行 `MCP_CLAUDE_CLIENT_ID`；若你直接用 Azure CLI / Copilot CLI / 其他 dedicated caller app 取 token，卻沒有把它們的 client ID 補進 allowlist，APIM retained path 會回 `403 Caller application is not allowed`。
 
 若你要先做一輪最小正向驗證，建議順序是：
 
@@ -1248,7 +1308,7 @@ $env:OUTLOOK_EMAIL_ACA_ACCESS_TOKEN = az account get-access-token `
 
 - Databricks direct path 要連的是 **Function App private endpoint FQDN**，不是 APIM gateway。
 - VS Code 遠端 Function 範本請使用 `.vscode\mcp.http.remote-func.json`；它現在走的是 **Bearer token**，不是 `x-functions-key`。
-- direct Function 與 APIM 會共用同一顆 `MCP_OAUTH_*` resource app；因此 token endpoint / scope 形狀相同，只是 **Host** 不同。
+- split-auth 後，direct Function 與 APIM 不再共用同一顆 resource app：direct path 看 `MCP_DIRECT_*`，APIM retained path 看 `MCP_APIM_RESOURCE_*`；因此 **Host** 與 token audience / scope 都要分開看。
 - 若你有設定 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，只有列在裡面的 direct caller app 可以直打 Function App；APIM backend 使用的 managed identity 會由模板自動加入。
 - 若你還想用 Azure CLI / 手動 shell 直接驗證 direct Function，且同時啟用了 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，請記得把實際拿 token 的 caller app 一起列入 allowlist。
 
@@ -1256,7 +1316,7 @@ $env:OUTLOOK_EMAIL_ACA_ACCESS_TOKEN = az account get-access-token `
 
 ```powershell
 $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
-  --scope "api://87123f9d-6cf0-4672-9003-c8eba016749d/user_impersonation" `
+  --scope "api://<MCP_DIRECT_CLIENT_ID>/user_impersonation" `
   --query accessToken -o tsv
 ```
 
@@ -1272,7 +1332,7 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 | Claude Code | **APIM retained path** | `https://<apim-fqdn>/mcp` | 依你本地 `.\.mcp.json` 內各 server 設定而定 | 本地 `.\.mcp.json` 的 `mcpServers`（不進版控） | 這個 repo 的 Claude Code project code 是 `y94`；`.claude\mcp.json` 目前只保留作 APIM remote header 參考範例 |
 | VS Code Agent Mode | 本機或遠端範本皆可 | 依 `.vscode/mcp.*.json` | 依範本 | `.vscode/mcp.http.remote-apim.json`、`.vscode/mcp.http.remote-func.json`、`.vscode/mcp.http.remote.json` | `.vscode/mcp.http.remote.json` 僅限 direct ACA 除錯，不是標準日常入口 |
 
-> **原則**：Databricks 優先看 **Function App direct path**；Copilot CLI / Claude Code 優先看 **APIM retained path**。兩條路共用同一顆 `MCP_OAUTH_*` resource app，只是 Host 不同。
+> **原則**：Databricks 優先看 **Function App direct path**；Copilot CLI / Claude Code 優先看 **APIM retained path**。split-auth 後，Databricks / direct caller 看 `MCP_DIRECT_*`，Claude retained path 看 `MCP_APIM_RESOURCE_*` + `MCP_CLAUDE_CLIENT_ID`。
 
 #### 外部平台 OAuth Machine to Machine 表單欄位對照
 
@@ -1286,7 +1346,7 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 | Port | HTTPS port | `443` |
 | Client ID | **呼叫端 client app** 的 Application (client) ID。這裡填的是 caller，不是 resource app | 請填 Databricks / 外部平台專用 client app ID |
 | Client secret | 上面同一顆 **呼叫端 client app** 的 secret | 請填該 client app 對應的 secret |
-| OAuth scope | **resource app** 的 `.default` scope；不要填 delegated `user_impersonation`，也不要填 caller 自己的 app ID | `api://87123f9d-6cf0-4672-9003-c8eba016749d/.default` |
+| OAuth scope | **resource app** 的 `.default` scope；不要填 delegated `user_impersonation`，也不要填 caller 自己的 app ID | `api://<MCP_DIRECT_CLIENT_ID>/.default` |
 
 ##### APIM 保留路徑
 
@@ -1296,7 +1356,7 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 | Port | HTTPS port | `443` |
 | Client ID | **呼叫端 client app** 的 Application (client) ID。這裡填的是 caller，不是 resource app | 請填你的 Databricks / 外部平台專用 client app ID |
 | Client secret | 上面同一顆 **呼叫端 client app** 的 secret | 請填該 client app 對應的 secret |
-| OAuth scope | **resource app** 的 `.default` scope；不要填 delegated `user_impersonation`，也不要填 caller 自己的 app ID | `api://87123f9d-6cf0-4672-9003-c8eba016749d/.default` |
+| OAuth scope | **resource app** 的 `.default` scope；不要填 delegated `mcp.access`，也不要填 caller 自己的 app ID | `api://<MCP_APIM_RESOURCE_CLIENT_ID>/.default` |
 
 補充：
 
@@ -1314,7 +1374,7 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 | App | 角色判定 | 目前狀態 | 是否適合填 Databricks `Client ID / secret` |
 | --- | --- | --- | --- |
 | `DatabricksAgent` (`e11ff460-a5c8-47a8-8d10-9e0a04233a4e`) | Databricks caller client app | 已有 password credential，且已被指派到 `mcpEntraApp` 的 `access_as_application` app role | **是，優先使用** |
-| `mcpEntraApp` (`87123f9d-6cf0-4672-9003-c8eba016749d`) | MCP resource app | 暴露 delegated scope `user_impersonation` 與 application role `access_as_application` | **否**。這顆應留在 `OAuth scope` / audience 這一側，不是 caller app |
+| `mcpEntraApp` (`87123f9d-6cf0-4672-9003-c8eba016749d`) | MCP resource app | 暴露 delegated scope `user_impersonation` / `mcp.access` 與 application role `access_as_application` | **否**。這顆應留在 `OAuth scope` / audience 這一側，不是 caller app |
 | `dw_fabric_ap` (`4d44998d-c0d1-465a-9219-d246d579a34f`) | 其他 client app 候選 | 已有 password credential，但**尚未**被指派到 `mcpEntraApp` 的 `access_as_application` app role | **暫不建議**。若要改用它，先補 app role assignment |
 
 適合當 Databricks external MCP caller app 的最低要求：
@@ -1408,7 +1468,7 @@ flowchart LR
     DNS["Private DNS zones<br/>aibde-common-rg<br/>azure-api.net family"]
     APIM["APIM Developer (Internal)<br/>apim-fet-outlook-email<br/>private IP: 172.18.78.4"]
     Net["apim-bst-vnet / apim-subnet<br/>NSG + DG-Route-APIM"]
-    InboundAuth["Shared MCP OAuth resource app<br/>Expose an API + user_impersonation + access_as_application"]
+    InboundAuth["APIM MCP resource app<br/>Expose an API + mcp.access + access_as_application"]
     ACA["Azure Container App backend<br/>fet-outlook-email-ca"]
     Func["Azure Function App direct path<br/>func-fet-outlook-email-bst<br/>Private Endpoint: 172.18.79.118"]
     OutboundAuth["Outbound Graph identity<br/>ACA / Function 可各自採 managed identity 或 service principal"]
@@ -1454,7 +1514,7 @@ sequenceDiagram
     ACA-->>Client: MCP response
 ```
 
-> **注意**：現在有四個實際責任面：**APIM inbound OAuth**、**APIM -> ACA backend token**、**direct Function Easy Auth**、**應用程式出站呼叫 Graph**。retained path 與 direct Function 會共用 `MCP_OAUTH_*` 這顆 MCP resource app；真正寄信時才看各自 backend 的 Graph credential。
+> **注意**：現在有四個實際責任面：**APIM inbound OAuth**、**APIM -> ACA backend token**、**direct Function Easy Auth**、**應用程式出站呼叫 Graph**。split-auth 後，**APIM retained path** 與 **direct Function** 不再共用同一顆 resource app：前者看 `MCP_APIM_RESOURCE_*`，後者看 `MCP_DIRECT_*`；真正寄信時才看 backend 的 Graph credential。
 
 #### APIM internal / private 這輪 lesson learned
 
@@ -1463,7 +1523,7 @@ sequenceDiagram
 | Private DNS | internal APIM 的預設 hostname 不會自動出現在公網 DNS；APIM 本身成功不代表 client 已經可達 | 先建立 / 連結 private DNS zones，再用 `Resolve-DnsName` 驗證 `apim-fet-outlook-email.azure-api.net` 是否真的解析到 private IP |
 | Proxy | DNS 通了之後，CLI / `curl` 仍可能把流量送去公司 proxy，最後拿到 `504` 或其他誤導性錯誤 | 把 APIM hostname（至少 `apim-fet-outlook-email.azure-api.net`）或對應網域加入 `NO_PROXY`；診斷時優先用 `curl --noproxy '*'` 驗證真實私網路徑 |
 | NSG 前置條件 | internal APIM 若缺少必要 inbound 規則，很容易長時間卡在 `Activating` | 在 provisioning 前先確認 `ApiManagement -> VirtualNetwork TCP 3443` 與 `AzureLoadBalancer -> VirtualNetwork TCP 6390` 已放行 |
-| OAuth app | 既有 Entra app 只有 app registration 還不夠；delegated 與 M2M 需要的 permission model 不同 | 若不讓部署自動建立 `mcpEntraApp`，就先把既有 app 補到至少有 delegated scope `user_impersonation`，以及 application role `access_as_application`，再把 `MCP_OAUTH_TENANT_ID` / `MCP_OAUTH_CLIENT_ID` 設進 azd env |
+| OAuth app | 既有 Entra app 只有 app registration 還不夠；delegated 與 M2M 需要的 permission model 不同 | split-auth 後請分開維護 direct 與 APIM 兩顆 resource app：direct 走 `MCP_DIRECT_*`，APIM retained path 走 `MCP_APIM_RESOURCE_*`；兩邊都至少要有 delegated scope `mcp.access` 與 application role `access_as_application`（`user_impersonation` 只留作 migration 相容） |
 | M2M token flow | 外部平台只能選 `OAuth Machine to Machine`，但 API 端只暴露 delegated scope 時，client credentials 會卡住 | 對 service-to-service 呼叫使用 `api://<client-id>/.default`，並先把 client app 指派到 resource app 的 `access_as_application` app role |
 | Auth 邊界 | APIM inbound OAuth、direct Function Easy Auth 與 Graph `Mail.Send` 是不同責任面，不能當成同一組權限處理 | 權限申請時至少分成兩塊追蹤：**MCP resource app**（client 進 APIM 或 direct Function）與 **Function App outbound Graph**（寄信） |
 | 部署開關 | `AZURE_DEPLOY_APIM_MCP_API=false` 只會落地 APIM service、private DNS 與骨架，不會自動把 `mcp` API facade 掛進 APIM | 若目標是完整遠端 MCP 路徑，最後要把 `AZURE_DEPLOY_APIM_MCP_API` 改回 `true` 再補齊 API / policy / named values |

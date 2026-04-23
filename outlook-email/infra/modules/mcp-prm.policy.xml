@@ -1,12 +1,5 @@
-<!--
-    Azure API Management Policy for Protected Resource Metadata (RFC 9728)
-    This policy returns Protected Resource Metadata information for OAuth 2.0 protected resources.
-    It provides clients with information about the authorization servers, supported methods, and scopes.
-    Note: Authentication is disabled for this endpoint to allow anonymous access.
--->
 <policies>
     <inbound>
-        <!-- Return Protected Resource Metadata according to RFC 9728 -->
         <return-response>
             <set-status code="200" reason="OK" />
             <set-header name="Content-Type" exists-action="override">
@@ -19,13 +12,13 @@
                 return JsonConvert.SerializeObject(new {
                     resource = "{{APIMGatewayURL}}/mcp",
                     authorization_servers = new[] {
-                        $"https://login.microsoftonline.com/{{McpTenantId}}/v2.0"
+                        "{{McpOAuthBaseUrl}}"
                     },
                     bearer_methods_supported = new[] {
                         "header"
                     },
                     scopes_supported = new[] {
-                        $"api://{{McpClientId}}/user_impersonation"
+                        "{{McpScope}}"
                     }
                 });
             }</set-body>

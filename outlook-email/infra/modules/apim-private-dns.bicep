@@ -10,6 +10,9 @@ param virtualNetworkResourceId string
 @description('Tags applied to the private DNS resources.')
 param tags object = {}
 
+@description('Optional existing private DNS virtual network link name to adopt when the shared zones are already linked to the target VNet.')
+param existingVirtualNetworkLinkName string = ''
+
 var zoneNames = [
   'azure-api.net'
   'portal.azure-api.net'
@@ -18,7 +21,7 @@ var zoneNames = [
   'scm.azure-api.net'
 ]
 
-var linkName = 'link-${take(uniqueString(apiManagementName, virtualNetworkResourceId), 16)}'
+var linkName = !empty(existingVirtualNetworkLinkName) ? existingVirtualNetworkLinkName : 'link-${take(uniqueString(apiManagementName, virtualNetworkResourceId), 16)}'
 
 resource privateDnsZones 'Microsoft.Network/privateDnsZones@2020-06-01' = [for zoneName in zoneNames: {
   name: zoneName

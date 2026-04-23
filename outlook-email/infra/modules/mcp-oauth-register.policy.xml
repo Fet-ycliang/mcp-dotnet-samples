@@ -1,0 +1,28 @@
+<policies>
+    <inbound>
+        <base />
+        <return-response>
+            <set-status code="201" reason="Created" />
+            <set-header name="Content-Type" exists-action="override">
+                <value>application/json</value>
+            </set-header>
+            <set-body>@{
+                var redirectUris = new JArray();
+                foreach (var redirectUri in "{{McpClaudeRedirectUrisCsv}}".Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    redirectUris.Add(redirectUri.Trim());
+                }
+
+                return JObject.FromObject(new {
+                    client_id = "{{McpClaudeClientId}}",
+                    client_id_issued_at = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    redirect_uris = redirectUris,
+                    token_endpoint_auth_method = "none",
+                    grant_types = new[] { "authorization_code", "refresh_token" },
+                    response_types = new[] { "code" },
+                    scope = "{{McpScope}} offline_access"
+                }).ToString();
+            }</set-body>
+        </return-response>
+    </inbound>
+</policies>

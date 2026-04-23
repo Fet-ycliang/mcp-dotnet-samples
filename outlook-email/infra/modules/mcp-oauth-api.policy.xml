@@ -1,0 +1,15 @@
+<policies>
+    <inbound>
+        <base />
+        <rate-limit-by-key calls="120" renewal-period="60" counter-key="@(!string.IsNullOrWhiteSpace(context.Request.IpAddress) ? context.Request.IpAddress : &quot;unknown&quot;)" />
+    </inbound>
+    <backend>
+        <base />
+    </backend>
+    <outbound>
+        <base />
+    </outbound>
+    <on-error>
+        <base />
+    </on-error>
+</policies>

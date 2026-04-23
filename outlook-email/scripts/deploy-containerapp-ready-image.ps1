@@ -181,7 +181,7 @@ function Sync-ContainerAppSecrets {
 
     $mcpOauthSecretSpec = Get-ContainerAppSecretSpec `
         -SecretName 'mcp-oauth-client-secret' `
-        -ConfiguredValue $env:MCP_OAUTH_CLIENT_SECRET `
+        -ConfiguredValue $env:MCP_DIRECT_CLIENT_SECRET `
         -UserAssignedIdentityResourceId $UserAssignedIdentityResourceId
     if ($mcpOauthSecretSpec) {
         $secretSpecs += $mcpOauthSecretSpec

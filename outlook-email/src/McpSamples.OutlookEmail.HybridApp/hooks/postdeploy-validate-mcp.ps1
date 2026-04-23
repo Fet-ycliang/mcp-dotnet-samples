@@ -55,13 +55,24 @@ function Import-AzdEnvironment {
 function Get-McpAccessToken {
     param(
         [Parameter(Mandatory = $true)]
-        [string] $ResourceClientId
+        [string] $ResourceClientId,
+
+        [Parameter(Mandatory = $true)]
+        [string] $ResourceAppIdUri
     )
 
     if ($env:MCP_VALIDATION_CLIENT_ID -and $env:MCP_VALIDATION_CLIENT_SECRET) {
-        $tenantId = if ($env:MCP_VALIDATION_TENANT_ID) { $env:MCP_VALIDATION_TENANT_ID } else { $env:MCP_OAUTH_TENANT_ID }
+        $tenantId = if ($env:MCP_VALIDATION_TENANT_ID) {
+            $env:MCP_VALIDATION_TENANT_ID
+        }
+        elseif ($env:MCP_DIRECT_TENANT_ID) {
+            $env:MCP_DIRECT_TENANT_ID
+        }
+        else {
+            $env:MCP_OAUTH_TENANT_ID
+        }
         if (-not $tenantId) {
-            throw 'MCP_VALIDATION_TENANT_ID or MCP_OAUTH_TENANT_ID is required when using MCP_VALIDATION_CLIENT_ID.'
+            throw 'MCP_VALIDATION_TENANT_ID, MCP_DIRECT_TENANT_ID, or MCP_OAUTH_TENANT_ID is required when using MCP_VALIDATION_CLIENT_ID.'
         }
 
         Write-Step ('Using dedicated validation app {0}' -f $env:MCP_VALIDATION_CLIENT_ID)
@@ -73,14 +84,14 @@ function Get-McpAccessToken {
                 client_id     = $env:MCP_VALIDATION_CLIENT_ID
                 client_secret = $env:MCP_VALIDATION_CLIENT_SECRET
                 grant_type    = 'client_credentials'
-                scope         = ('api://{0}/.default' -f $ResourceClientId)
+                scope         = ('{0}/.default' -f $ResourceAppIdUri)
             }
 
         return $tokenResponse.access_token
     }
 
     Write-Step 'Using current Azure CLI identity for postdeploy validation'
-    return az account get-access-token --scope ("api://{0}/user_impersonation" -f $ResourceClientId) --query accessToken -o tsv
+    return az account get-access-token --scope ("{0}/user_impersonation" -f $ResourceAppIdUri) --query accessToken -o tsv
 }
 
 function Invoke-McpRequest {
@@ -138,20 +149,29 @@ function Get-McpPayload {
 Import-AzdEnvironment
 
 $appHostName = $env:AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN
-$resourceClientId = $env:MCP_OAUTH_CLIENT_ID
+$resourceClientId = if ($env:MCP_DIRECT_CLIENT_ID) { $env:MCP_DIRECT_CLIENT_ID } else { $env:MCP_OAUTH_CLIENT_ID }
+$resourceAppIdUri = if ($env:MCP_DIRECT_APPLICATION_ID_URI) {
+    $env:MCP_DIRECT_APPLICATION_ID_URI
+}
+elseif ($resourceClientId) {
+    'api://{0}' -f $resourceClientId
+}
+else {
+    ''
+}
 
 if (-not $appHostName) {
     throw 'AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN is not set in the azd environment.'
 }
 
 if (-not $resourceClientId) {
-    throw 'MCP_OAUTH_CLIENT_ID is not set in the azd environment.'
+    throw 'MCP_DIRECT_CLIENT_ID or legacy MCP_OAUTH_CLIENT_ID is not set in the azd environment.'
 }
 
 $endpoint = "https://$appHostName/mcp"
 Write-Step ('Starting postdeploy MCP validation for {0}' -f $endpoint)
 
-$token = Get-McpAccessToken -ResourceClientId $resourceClientId
+$token = Get-McpAccessToken -ResourceClientId $resourceClientId -ResourceAppIdUri $resourceAppIdUri
 if (-not $token) {
     throw 'Failed to acquire an access token for MCP validation.'
 }

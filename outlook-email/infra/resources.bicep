@@ -41,18 +41,53 @@ param entraClientId string = ''
 @description('Optional. Graph client secret or Key Vault reference string when using service principal credentials from Function App app settings.')
 param entraClientSecret string = ''
 
-@description('Optional. Existing Entra tenant ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthClientId, deployment reuses that app instead of creating a new MCP app registration.')
+@description('Optional legacy fallback. Existing Entra tenant ID for the shared MCP OAuth resource application. Prefer directMcp* for the direct path and apimResource* for the APIM facade.')
 param existingMcpOauthTenantId string = ''
 
-@description('Optional. Existing Entra client/application ID for the MCP OAuth resource application used by APIM token validation. When paired with existingMcpOauthTenantId, deployment reuses that app instead of creating a new MCP app registration.')
+@description('Optional legacy fallback. Existing Entra client/application ID for the shared MCP OAuth resource application. Prefer directMcp* for the direct path and apimResource* for the APIM facade.')
 param existingMcpOauthClientId string = ''
 
+@description('Optional legacy fallback. Existing Application ID URI for the shared MCP OAuth resource application. Prefer directMcpApplicationIdUri or apimResourceApplicationIdUri.')
+param mcpOauthApplicationIdUri string = ''
+
 @secure()
-@description('Optional. MCP OAuth client secret or Key Vault reference string that must stay mapped to the ACA secret name mcp-oauth-client-secret. Keep this separate from the Graph outbound secret.')
+@description('Optional legacy fallback. Client secret or Key Vault reference string that must stay mapped to the ACA secret name mcp-oauth-client-secret. Prefer directMcpClientSecret.')
 param mcpOauthClientSecret string = ''
+
+@description('Optional. Existing Entra tenant ID for the direct MCP resource application that protects the Function App / ACA direct path.')
+param directMcpTenantId string = ''
+
+@description('Optional. Existing Entra client/application ID for the direct MCP resource application that protects the Function App / ACA direct path.')
+param directMcpClientId string = ''
+
+@description('Optional. Existing Application ID URI for the direct MCP resource application. Leave empty to derive api://<directMcpClientId>.')
+param directMcpApplicationIdUri string = ''
+
+@secure()
+@description('Optional. Client secret or Key Vault reference string for the direct MCP resource application. This must remain mapped to the ACA secret name mcp-oauth-client-secret.')
+param directMcpClientSecret string = ''
 
 @description('Optional. Semicolon-separated Entra client/application IDs allowed to call the Function App private endpoint directly with MCP OAuth tokens.')
 param directAllowedClientApplicationsCsv string = ''
+
+@description('Optional. Existing Entra tenant ID for the APIM MCP resource application. When paired with apimResourceClientId, deployment reuses that app instead of creating a new APIM MCP resource app.')
+param apimResourceTenantId string = ''
+
+@description('Optional. Existing Entra client/application ID for the APIM MCP resource application. When paired with apimResourceTenantId, deployment reuses that app instead of creating a new APIM MCP resource app.')
+param apimResourceClientId string = ''
+
+@description('Optional. Existing Application ID URI for the APIM MCP resource application. Leave empty to derive api://<apimResourceClientId> when reusing an existing app.')
+param apimResourceApplicationIdUri string = ''
+
+@description('Optional. Existing Entra client/application ID for the Claude caller public client app used by the APIM OAuth register stub. Required when the APIM OAuth facade is deployed.')
+param mcpClaudeClientId string = ''
+
+@description('Optional. Semicolon-separated Entra client/application IDs allowed to call the APIM retained MCP path. MCP_CLAUDE_CLIENT_ID is always included automatically.')
+param apimAllowedClientApplicationsCsv string = ''
+
+@description('Optional. Semicolon-separated exact redirect URIs allowed for the Claude public client on the APIM OAuth facade. Defaults to http://localhost.')
+param mcpClaudeRedirectUrisCsv string = 'http://localhost'
+
 
 @description('Optional. Existing VNet name to reuse when vnetEnabled is true. Leave empty to create a new VNet.')
 param existingVirtualNetworkName string = ''
@@ -75,6 +110,22 @@ param integrationSubnetNetworkSecurityGroupResourceId string = ''
 @description('Optional. Resource group that hosts shared private DNS zones to reuse for private endpoints and internal APIM hostnames.')
 param privateDnsZoneResourceGroupName string = ''
 
+@description('Whether to deploy the sample Key Vault used for Key Vault referenced secrets.')
+param deployKeyVault bool = false
+
+@description('Optional explicit Key Vault name. Leave empty to use the standard derived naming pattern.')
+param keyVaultNameOverride string = ''
+
+@allowed([
+  'Enabled'
+  'Disabled'
+])
+@description('Public network access mode for the sample Key Vault. Keep Enabled while callers are still migrating to the private endpoint.')
+param keyVaultPublicNetworkAccess string = 'Enabled'
+
+@description('Whether to create a private endpoint for the sample Key Vault. Requires VNet + private endpoint subnet planning.')
+param deployKeyVaultPrivateEndpoint bool = false
+
 @description('Whether to deploy API Management and the MCP API facade.')
 param deployApim bool = true
 
@@ -95,6 +146,9 @@ param deployApimMcpApi bool = true
 @description('Optional. Existing Container App name to reuse as the azd deployment target and APIM backend. Leave empty to let the template create and manage a new Container App.')
 param apimBackendContainerAppName string = ''
 
+@description('Optional. Existing AcrPull role assignment name/GUID to adopt when reusing a shared ACR that already granted the ACA user-assigned identity pull access.')
+param existingContainerRegistryAcrPullRoleAssignmentName string = ''
+
 @maxLength(50)
 @description('Optional explicit API Management service name. Must use a valid APIM service name and is ignored when deployApim is false. Leave empty to use the standard derived APIM naming pattern.')
 param apimNameOverride string = ''
@@ -104,6 +158,9 @@ param apimInternalVirtualNetwork bool = false
 
 @description('Optional existing subnet name for APIM when apimInternalVirtualNetwork is true. The subnet must already exist, have no delegation, and include the required NSG rules.')
 param apimSubnetName string = ''
+
+@description('Optional. Existing APIM private DNS virtual network link name to adopt when the private zones are already linked to the target VNet.')
+param apimPrivateDnsVirtualNetworkLinkName string = ''
 
 @description('Optional. Address prefix to update the existing APIM subnet inside an existing VNet when deploying APIM in internal mode.')
 param apimSubnetAddressPrefix string = ''
@@ -125,6 +182,7 @@ var compactStem = take(replace(normalizedStem, '-', ''), 22)
 var functionAppName = '${abbrs.webSitesFunctions}${normalizedStem}'
 var containerAppsEnvironmentName = '${abbrs.appManagedEnvironments}${normalizedStem}'
 var containerAppName = !empty(apimBackendContainerAppName) ? apimBackendContainerAppName : '${abbrs.appContainerApps}${normalizedStem}'
+var keyVaultName = !empty(keyVaultNameOverride) ? keyVaultNameOverride : take('${abbrs.keyVaultVaults}${normalizedStem}', 24)
 var deploymentStorageContainerName = 'app-package-${normalizedStem}'
 var allowedSenders = empty(allowedSendersCsv) ? [] : split(allowedSendersCsv, ';')
 var allowedReplyTo = empty(allowedReplyToCsv) ? [] : split(allowedReplyToCsv, ';')
@@ -132,13 +190,24 @@ var directAllowedClientApplications = empty(directAllowedClientApplicationsCsv) 
 var useExistingContainerApp = !empty(apimBackendContainerAppName) || mcpOutlookEmailExists
 var useExistingVirtualNetwork = vnetEnabled && !empty(existingVirtualNetworkName)
 var deployApimFacade = deployApim && deployApimMcpApi
-var reuseExistingMcpOauthApp = !empty(existingMcpOauthTenantId) && !empty(existingMcpOauthClientId)
+var configuredDirectMcpTenantId = !empty(directMcpTenantId) ? directMcpTenantId : existingMcpOauthTenantId
+var configuredDirectMcpClientId = !empty(directMcpClientId) ? directMcpClientId : existingMcpOauthClientId
+var configuredLegacySharedMcpApplicationIdUri = !empty(mcpOauthApplicationIdUri) ? mcpOauthApplicationIdUri : (!empty(existingMcpOauthClientId) ? 'api://${existingMcpOauthClientId}' : '')
+var effectiveDirectMcpTenantId = configuredDirectMcpTenantId
+var effectiveDirectMcpClientId = configuredDirectMcpClientId
+var effectiveDirectMcpApplicationIdUri = !empty(directMcpApplicationIdUri) ? directMcpApplicationIdUri : (!empty(directMcpClientId) ? 'api://${directMcpClientId}' : configuredLegacySharedMcpApplicationIdUri)
+var effectiveDirectMcpClientSecret = !empty(directMcpClientSecret) ? directMcpClientSecret : (!deployApimFacade ? mcpOauthClientSecret : '')
+var configuredApimResourceTenantId = apimResourceTenantId
+var configuredApimResourceClientId = apimResourceClientId
+var configuredApimResourceApplicationIdUri = !empty(apimResourceApplicationIdUri) ? apimResourceApplicationIdUri : (!empty(apimResourceClientId) ? 'api://${apimResourceClientId}' : '')
+var reuseExistingApimResourceApp = !empty(configuredApimResourceTenantId) && !empty(configuredApimResourceClientId)
 var virtualNetworkName = useExistingVirtualNetwork ? existingVirtualNetworkName : '${abbrs.networkVirtualNetworks}${normalizedStem}'
 var effectiveIntegrationSubnetName = !empty(integrationSubnetName) ? integrationSubnetName : 'app'
 var effectivePrivateEndpointSubnetName = !empty(privateEndpointSubnetName) ? privateEndpointSubnetName : 'private-endpoints-subnet'
 var canDeployPrivateEndpoints = vnetEnabled && (!useExistingVirtualNetwork || !empty(privateEndpointSubnetName))
 var functionAppPrivateDnsZoneName = 'privatelink.azurewebsites.net'
 var useSharedPrivateDnsZones = !empty(privateDnsZoneResourceGroupName)
+var deployManagedKeyVaultPrivateEndpoint = deployKeyVault && deployKeyVaultPrivateEndpoint && canDeployPrivateEndpoints
 var deployApimInternal = deployApim && apimInternalVirtualNetwork
 var manageExistingApimSubnet = useExistingVirtualNetwork && deployApimInternal && !empty(apimSubnetName) && !empty(apimSubnetAddressPrefix)
 var managedFunctionAppPrivateDnsZoneResourceId = deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints && !useSharedPrivateDnsZones ? functionAppPrivateDnsZone!.outputs.resourceId : ''
@@ -150,12 +219,15 @@ var apimGatewayIdentityName = '${abbrs.managedIdentityUserAssignedIdentities}${n
 var apiManagementName = !empty(apimNameOverride) ? apimNameOverride : '${abbrs.apiManagementService}${normalizedStem}'
 var appServicePlanName = '${abbrs.webServerFarms}${normalizedStem}'
 var storageAccountName = '${abbrs.storageStorageAccounts}${compactStem}'
-var mcpEntraAppUniqueName = 'mcp-${normalizedStem}'
-var mcpEntraAppDisplayName = 'MCP-${normalizedStem}'
+var apimMcpResourceAppUniqueName = 'mcp-${normalizedStem}-apim'
+var apimMcpResourceAppDisplayName = 'MCP-${normalizedStem}-APIM'
 var functionAppDnsLinkName = '${functionAppName}-sites-link'
 var userAssignedIdentityResourceId = resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', userAssignedIdentityName)
-var effectiveMcpOauthTenantId = reuseExistingMcpOauthApp ? existingMcpOauthTenantId : mcpEntraApp!.outputs.mcpAppTenantId
-var effectiveMcpOauthClientId = reuseExistingMcpOauthApp ? existingMcpOauthClientId : mcpEntraApp!.outputs.mcpAppId
+var generatedApimResourceApplicationIdUri = !empty(apimResourceApplicationIdUri) ? apimResourceApplicationIdUri : 'api://${apimMcpResourceAppUniqueName}'
+var effectiveApimResourceTenantId = reuseExistingApimResourceApp ? configuredApimResourceTenantId : (deployApimFacade ? mcpEntraApp!.outputs.mcpAppTenantId : '')
+var effectiveApimResourceClientId = reuseExistingApimResourceApp ? configuredApimResourceClientId : (deployApimFacade ? mcpEntraApp!.outputs.mcpAppId : '')
+var effectiveApimResourceApplicationIdUri = reuseExistingApimResourceApp ? configuredApimResourceApplicationIdUri : (deployApimFacade ? mcpEntraApp!.outputs.mcpAppIdUri : '')
+var effectiveMcpClaudeClientId = mcpClaudeClientId
 var effectiveDirectAllowedClientApplications = deployApimFacade && !empty(directAllowedClientApplications) ? concat(directAllowedClientApplications, [mcpApimGatewayIdentity!.outputs.clientId]) : directAllowedClientApplications
 var directAllowedClientApplicationEnvVars = [for (clientAppId, i) in directAllowedClientApplications: {
   name: 'McpAuth__AllowedCallerAppIds__${i}'
@@ -191,8 +263,8 @@ var allowedReplyToEnvVars = [for appSetting in items(allowedReplyToAppSettings):
 }]
 var entraClientSecretIsKeyVaultReference = !empty(entraClientSecret) && startsWith(entraClientSecret, '@Microsoft.KeyVault(') && contains(entraClientSecret, 'SecretUri=')
 var entraClientSecretKeyVaultUrl = entraClientSecretIsKeyVaultReference ? replace(replace(entraClientSecret, '@Microsoft.KeyVault(SecretUri=', ''), ')', '') : ''
-var mcpOauthClientSecretIsKeyVaultReference = !empty(mcpOauthClientSecret) && startsWith(mcpOauthClientSecret, '@Microsoft.KeyVault(') && contains(mcpOauthClientSecret, 'SecretUri=')
-var mcpOauthClientSecretKeyVaultUrl = mcpOauthClientSecretIsKeyVaultReference ? replace(replace(mcpOauthClientSecret, '@Microsoft.KeyVault(SecretUri=', ''), ')', '') : ''
+var directMcpClientSecretIsKeyVaultReference = !empty(effectiveDirectMcpClientSecret) && startsWith(effectiveDirectMcpClientSecret, '@Microsoft.KeyVault(') && contains(effectiveDirectMcpClientSecret, 'SecretUri=')
+var directMcpClientSecretKeyVaultUrl = directMcpClientSecretIsKeyVaultReference ? replace(replace(effectiveDirectMcpClientSecret, '@Microsoft.KeyVault(SecretUri=', ''), ')', '') : ''
 var graphContainerAppSecrets = !graphUseManagedIdentity && !empty(entraClientSecret) ? [
   entraClientSecretIsKeyVaultReference ? {
     name: 'graph-client-secret'
@@ -203,17 +275,17 @@ var graphContainerAppSecrets = !graphUseManagedIdentity && !empty(entraClientSec
     value: entraClientSecret
   }
 ] : []
-var mcpOauthContainerAppSecrets = !empty(mcpOauthClientSecret) ? [
-  mcpOauthClientSecretIsKeyVaultReference ? {
+var directMcpContainerAppSecrets = !empty(effectiveDirectMcpClientSecret) ? [
+  directMcpClientSecretIsKeyVaultReference ? {
     name: 'mcp-oauth-client-secret'
     identity: userAssignedIdentityResourceId
-    keyVaultUrl: mcpOauthClientSecretKeyVaultUrl
+    keyVaultUrl: directMcpClientSecretKeyVaultUrl
   } : {
     name: 'mcp-oauth-client-secret'
-    value: mcpOauthClientSecret
+    value: effectiveDirectMcpClientSecret
   }
 ] : []
-var containerAppSecrets = concat(graphContainerAppSecrets, mcpOauthContainerAppSecrets)
+var containerAppSecrets = concat(graphContainerAppSecrets, directMcpContainerAppSecrets)
 var graphAuthEnvVars = graphUseManagedIdentity ? [
   {
     name: 'EntraId__UseManagedIdentity'
@@ -249,7 +321,7 @@ var graphAuthEnvVars = graphUseManagedIdentity ? [
     }
   ] : []
 )
-var directMcpAuthEnvVars = !empty(effectiveMcpOauthTenantId) && !empty(effectiveMcpOauthClientId) ? concat(
+var directMcpAuthEnvVars = !empty(effectiveDirectMcpTenantId) && !empty(effectiveDirectMcpClientId) ? concat(
   [
     {
       name: 'McpAuth__Enabled'
@@ -261,11 +333,11 @@ var directMcpAuthEnvVars = !empty(effectiveMcpOauthTenantId) && !empty(effective
     }
     {
       name: 'McpAuth__TenantId'
-      value: effectiveMcpOauthTenantId
+      value: effectiveDirectMcpTenantId
     }
     {
       name: 'McpAuth__ClientId'
-      value: effectiveMcpOauthClientId
+      value: effectiveDirectMcpClientId
     }
   ],
   directAllowedClientApplicationEnvVars,
@@ -283,6 +355,9 @@ module monitoring 'br/public:avm/ptn/azd/monitoring:0.1.0' = {
     tags: tags
   }
 }
+
+var applicationInsightsId = resourceId('Microsoft.Insights/components', applicationInsightsName)
+var applicationInsightsReference = reference(applicationInsightsId, '2020-02-02', 'Full')
 
 resource monitoringDashboard 'Microsoft.Portal/dashboards@2022-12-01-preview' existing = {
   name: applicationInsightsDashboardName
@@ -320,10 +395,6 @@ module mcpApimGatewayIdentity 'br/public:avm/res/managed-identity/user-assigned-
 
 resource existingVirtualNetwork 'Microsoft.Network/virtualNetworks@2024-05-01' existing = if (useExistingVirtualNetwork) {
   name: virtualNetworkName
-}
-
-resource existingManagedContainerApp 'Microsoft.App/containerApps@2024-03-01' existing = if (useExistingContainerApp) {
-  name: containerAppName
 }
 
 resource sharedFunctionAppPrivateDnsZone 'Microsoft.Network/privateDnsZones@2020-06-01' existing = if (useSharedPrivateDnsZones && deployFunctionAppPrivateEndpoint && canDeployPrivateEndpoints) {
@@ -387,6 +458,8 @@ module apimService './modules/apim.bicep' = if (deployApim) {
   params:{
     apiManagementName: apiManagementName
     apimSku: apimSku
+    appInsightsId: applicationInsightsId
+    appInsightsInstrumentationKey: applicationInsightsReference.properties.InstrumentationKey
     apimVirtualNetworkType: deployApimInternal ? 'Internal' : 'None'
     apimSubnetResourceId: apimSubnetResourceId
     managedIdentityResourceId: deployApimFacade ? mcpApimGatewayIdentity!.outputs.resourceId : ''
@@ -402,6 +475,7 @@ module apimPrivateDns './modules/apim-private-dns.bicep' = if (deployApimInterna
     apiManagementName: apiManagementName
     privateIpAddress: apimService!.outputs.privateIpAddress
     virtualNetworkResourceId: virtualNetworkResourceId
+    existingVirtualNetworkLinkName: apimPrivateDnsVirtualNetworkLinkName
     tags: tags
   }
 }
@@ -413,35 +487,34 @@ module apimPrivateDnsShared './modules/apim-private-dns.bicep' = if (deployApimI
     apiManagementName: apiManagementName
     privateIpAddress: apimService!.outputs.privateIpAddress
     virtualNetworkResourceId: virtualNetworkResourceId
+    existingVirtualNetworkLinkName: apimPrivateDnsVirtualNetworkLinkName
     tags: tags
   }
 }
 
-// MCP Entra App protects both the direct Function path and the retained APIM path.
-module mcpEntraApp './modules/mcp-entra-app.bicep' = if (!reuseExistingMcpOauthApp) {
+// APIM MCP resource app is separate from the direct Function / ACA resource app.
+module mcpEntraApp './modules/mcp-entra-app.bicep' = if (deployApimFacade && !reuseExistingApimResourceApp) {
   name: 'mcpEntraApp'
   params: {
-    mcpAppUniqueName: mcpEntraAppUniqueName
-    mcpAppDisplayName: mcpEntraAppDisplayName
-    userAssignedIdentityPrincipleId: mcpOutlookEmailIdentity.outputs.principalId
-    functionAppName: functionAppName
-    grantMailSendToManagedIdentity: graphUseManagedIdentity
+    mcpAppUniqueName: apimMcpResourceAppUniqueName
+    mcpAppDisplayName: apimMcpResourceAppDisplayName
+    mcpAppIdentifierUri: generatedApimResourceApplicationIdUri
   }
 }
 
-resource effectiveMcpOauthServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = if (deployApimFacade) {
-  appId: effectiveMcpOauthClientId
+resource directMcpServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = if (deployApimFacade && !empty(effectiveDirectMcpClientId)) {
+  appId: effectiveDirectMcpClientId
 }
 
 resource apimGatewayServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = if (deployApimFacade) {
   appId: mcpApimGatewayIdentity!.outputs.clientId
 }
 
-var mcpApplicationRoleId = deployApimFacade ? first(filter(effectiveMcpOauthServicePrincipal!.appRoles, role => role.value == 'access_as_application'))!.id : ''
+var directMcpApplicationRoleId = deployApimFacade && !empty(effectiveDirectMcpClientId) ? first(filter(directMcpServicePrincipal!.appRoles, role => role.value == 'access_as_application'))!.id : ''
 
-resource apimGatewayAppRoleAssignment 'Microsoft.Graph/appRoleAssignedTo@v1.0' = if (deployApimFacade) {
-  resourceId: effectiveMcpOauthServicePrincipal!.id
-  appRoleId: mcpApplicationRoleId
+resource apimGatewayAppRoleAssignment 'Microsoft.Graph/appRoleAssignedTo@v1.0' = if (deployApimFacade && !empty(effectiveDirectMcpClientId)) {
+  resourceId: directMcpServicePrincipal!.id
+  appRoleId: directMcpApplicationRoleId
   principalId: apimGatewayServicePrincipal!.id
 }
 
@@ -452,12 +525,81 @@ module mcpApiModule './modules/mcp-api.bicep' = if (deployApimFacade) {
     apimServiceName: apimService!.outputs.name
     functionAppName: functionAppName
     backendUrl: 'https://${mcpOutlookEmail.properties.configuration.ingress.fqdn}/'
-    mcpAppId: effectiveMcpOauthClientId
-    mcpAppTenantId: effectiveMcpOauthTenantId
+    mcpAppId: effectiveApimResourceClientId
+    mcpAppIdUri: effectiveApimResourceApplicationIdUri
+    mcpAppTenantId: effectiveApimResourceTenantId
+    backendMcpAppId: effectiveDirectMcpClientId
+    backendMcpAppIdUri: effectiveDirectMcpApplicationIdUri
+    mcpClaudeClientId: effectiveMcpClaudeClientId
+    apimAllowedClientApplicationsCsv: apimAllowedClientApplicationsCsv
+    mcpClaudeRedirectUrisCsv: mcpClaudeRedirectUrisCsv
     backendManagedIdentityClientId: mcpApimGatewayIdentity!.outputs.clientId
   }
   dependsOn: [
     apimGatewayAppRoleAssignment
+  ]
+}
+
+resource existingApimService 'Microsoft.ApiManagement/service@2024-06-01-preview' existing = if (deployApimFacade) {
+  name: apiManagementName
+}
+
+resource existingApimLogger 'Microsoft.ApiManagement/service/loggers@2021-12-01-preview' existing = if (deployApimFacade) {
+  parent: existingApimService
+  name: 'apim-logger'
+}
+
+resource existingMcpApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' existing = if (deployApimFacade) {
+  parent: existingApimService
+  name: 'mcp'
+}
+
+resource mcpApiDiagnostics 'Microsoft.ApiManagement/service/apis/diagnostics@2023-05-01-preview' = if (deployApimFacade) {
+  parent: existingMcpApi
+  name: 'applicationinsights'
+  properties: {
+    loggerId: existingApimLogger.id
+    alwaysLog: 'allErrors'
+    verbosity: 'verbose'
+    sampling: {
+      samplingType: 'fixed'
+      percentage: 20
+    }
+    frontend: {
+      request: {
+        headers: [
+          'User-Agent'
+        ]
+        body: {
+          bytes: 0
+        }
+      }
+      response: {
+        headers: [
+          'WWW-Authenticate'
+        ]
+        body: {
+          bytes: 0
+        }
+      }
+    }
+    backend: {
+      request: {
+        headers: []
+      }
+      response: {
+        headers: []
+        body: {
+          bytes: 0
+        }
+      }
+    }
+    httpCorrelationProtocol: 'W3C'
+    logClientIp: false
+  }
+  dependsOn: [
+    apimService
+    mcpApiModule
   ]
 }
 
@@ -500,8 +642,9 @@ module fncapp './modules/functionapp.bicep' = {
     graphTenantId: entraTenantId
     graphClientId: entraClientId
     graphClientSecret: entraClientSecret
-    mcpAuthTenantId: effectiveMcpOauthTenantId
-    mcpAuthClientId: effectiveMcpOauthClientId
+    mcpAuthTenantId: effectiveDirectMcpTenantId
+    mcpAuthClientId: effectiveDirectMcpClientId
+    mcpAuthApplicationIdUri: effectiveDirectMcpApplicationIdUri
     allowedClientApplicationIds: effectiveDirectAllowedClientApplications
     appSettings: union(allowedSenderAppSettings, allowedReplyToAppSettings)
     virtualNetworkSubnetId: integrationSubnetResourceId
@@ -589,6 +732,37 @@ module rbac './modules/rbac.bicep' = {
   }
 }
 
+resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = if (deployKeyVault) {
+  name: keyVaultName
+  location: location
+  tags: tags
+  properties: {
+    tenantId: tenant().tenantId
+    sku: {
+      family: 'A'
+      name: 'standard'
+    }
+    enableRbacAuthorization: true
+    publicNetworkAccess: keyVaultPublicNetworkAccess
+    softDeleteRetentionInDays: 90
+    accessPolicies: []
+    networkAcls: keyVaultPublicNetworkAccess == 'Disabled' ? {
+      bypass: 'AzureServices'
+      defaultAction: 'Deny'
+    } : null
+  }
+}
+
+resource keyVaultSecretsUserRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployKeyVault) {
+  name: guid(keyVault.id, userAssignedIdentityResourceId, 'keyvault-secrets-user')
+  scope: keyVault
+  properties: {
+    principalId: mcpOutlookEmailIdentity.outputs.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
+  }
+}
+
 module storagePrivateEndpoint './modules/storage-privateendpoint.bicep' = if (canDeployPrivateEndpoints) {
   name: 'servicePrivateEndpoint'
   params: {
@@ -604,10 +778,24 @@ module storagePrivateEndpoint './modules/storage-privateendpoint.bicep' = if (ca
   }
 }
 
+module keyVaultPrivateEndpoint './modules/keyvault-privateendpoint.bicep' = if (deployManagedKeyVaultPrivateEndpoint) {
+  name: 'keyVaultPrivateEndpoint'
+  params: {
+    location: location
+    tags: tags
+    virtualNetworkName: virtualNetworkName
+    subnetName: effectivePrivateEndpointSubnetName
+    keyVaultName: keyVault.name
+    privateDnsZoneResourceGroupName: privateDnsZoneResourceGroupName
+  }
+}
+
 // Reuse the shared ACR for azd remote builds and ACA image pulls.
 // Keep AcrPull enforced even on retained Container App paths so existing apps do not drift from the shared ACR contract.
 resource existingContainerRegistryAcrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(existingContainerRegistry.id, userAssignedIdentityResourceId, 'acrpull')
+  name: !empty(existingContainerRegistryAcrPullRoleAssignmentName)
+    ? existingContainerRegistryAcrPullRoleAssignmentName
+    : guid(existingContainerRegistry.id, userAssignedIdentityResourceId, 'acrpull')
   scope: existingContainerRegistry
   properties: {
     principalId: mcpOutlookEmailIdentity.outputs.principalId
@@ -636,13 +824,15 @@ module mcpOutlookEmailFetchLatestImage './modules/fetch-container-image.bicep' =
 }
 
 var managedContainerAppEnvironmentResourceId = useExistingContainerApp
-  ? existingManagedContainerApp!.properties.managedEnvironmentId
+  ? mcpOutlookEmailFetchLatestImage.outputs.managedEnvironmentId
   : containerAppsEnvironment!.outputs.resourceId
 var managedContainerAppImage = useExistingContainerApp && length(mcpOutlookEmailFetchLatestImage.outputs.containers) > 0
   ? mcpOutlookEmailFetchLatestImage.outputs.containers[0].image
   : 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
-var managedContainerAppIngressExternal = useExistingContainerApp ? existingManagedContainerApp!.properties.configuration.ingress.external : true
-var managedContainerAppIngressTransport = useExistingContainerApp ? existingManagedContainerApp!.properties.configuration.ingress.transport : 'auto'
+var managedContainerAppIngressExternal = useExistingContainerApp ? mcpOutlookEmailFetchLatestImage.outputs.ingressExternal : true
+var managedContainerAppIngressTransport = useExistingContainerApp && !empty(mcpOutlookEmailFetchLatestImage.outputs.ingressTransport)
+  ? mcpOutlookEmailFetchLatestImage.outputs.ingressTransport
+  : 'auto'
 
 resource mcpOutlookEmail 'Microsoft.App/containerApps@2024-03-01' = {
   name: containerAppName
@@ -717,6 +907,10 @@ resource mcpOutlookEmail 'Microsoft.App/containerApps@2024-03-01' = {
 }
 
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = existingContainerRegistry.properties.loginServer
+output AZURE_RESOURCE_KEY_VAULT_ID string = deployKeyVault ? keyVault.id : ''
+output AZURE_RESOURCE_KEY_VAULT_NAME string = deployKeyVault ? keyVault.name : ''
+output AZURE_RESOURCE_KEY_VAULT_URI string = deployKeyVault ? keyVault!.properties.vaultUri : ''
+
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_ID string = mcpOutlookEmail.id
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_NAME string = mcpOutlookEmail.name
 output AZURE_RESOURCE_MCP_OUTLOOK_EMAIL_FQDN string = mcpOutlookEmail.properties.configuration.ingress.fqdn

@@ -1,0 +1,18 @@
+<policies>
+    <inbound>
+        <base />
+        <set-backend-service base-url="https://login.microsoftonline.com/{{McpTenantId}}/oauth2/v2.0" />
+        <rewrite-uri template="/token" />
+        <set-header name="Host" exists-action="override">
+            <value>login.microsoftonline.com</value>
+        </set-header>
+        <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+    </inbound>
+    <backend>
+        <forward-request />
+    </backend>
+    <outbound>
+        <base />
+        <set-header name="Access-Control-Allow-Origin" exists-action="delete" />
+    </outbound>
+</policies>
