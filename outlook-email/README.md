@@ -568,40 +568,27 @@ curl.exe -sS -N `
 
 ##### 推送到 ACR 的建議命名規則
 
-若你要把這個 sample 的容器映像推到 **Azure Container Registry (ACR)**，建議使用下列格式：
+若你要把這個 sample 的 **main / ACA rollout** 容器映像推到 **Azure Container Registry (ACR)**，建議使用下列格式：
 
-`<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`
+`<acr-login-server>/fet-outlook-email-ca:<taipei-timestamp>`
 
 若目標是 **Azure Container Apps (ACA)**，或是任何會經過 **`az acr build`**、**ACR Task**、`azd` containerapp remote build 的路徑，請固定使用 **`Dockerfile.outlook-email-azure`**。`Dockerfile.outlook-email` 內含 `FROM --platform=$BUILDPLATFORM ...`，目前容易在 ACR dependency scanner 階段失敗，不建議再拿去做 ACR / ACA 建置。
 
-- `fet-mcp-server-dotnet`：固定 repository root
-- `branch-path`：用 repository path 模擬 branch 分目錄，例如 `main`、`develop`、`feature/pptx-mailer`
-- `utc-timestamp`：建議使用 UTC `yyyyMMdd-HHmmss`，例如 `20260418-101011`
+- `fet-outlook-email-ca`：直接沿用 live ACA 名稱，方便一眼對照 Container App revision
+- `taipei-timestamp`：使用 Asia/Taipei `yyyyMMdd-HHmmss`，例如 `20260423-095146`
 
-> ACR / OCI tag 是平的；若要做 branch 分目錄，請把 branch 放在 **repository path**，不要塞進 tag。
+> `main` 這條路徑不再把 branch 名塞進 image ref，而是直接以 **ACA 名稱 + 台北時區時間戳** 當作 deploy artifact 名稱。
 
-| Branch | 完整 image ref 範例 |
+| 路徑 | 完整 image ref 範例 |
 | --- | --- |
-| `main` | `myacr.azurecr.io/fet-mcp-server-dotnet/main:20260418-101011` |
-| `develop` | `myacr.azurecr.io/fet-mcp-server-dotnet/develop:20260418-101011` |
-| `feature/pptx-mailer` | `myacr.azurecr.io/fet-mcp-server-dotnet/feature/pptx-mailer:20260418-101011` |
-| `release/2026-04` | `myacr.azurecr.io/fet-mcp-server-dotnet/release/2026-04:20260418-101011` |
+| `main` / ACA rollout | `myacr.azurecr.io/fet-outlook-email-ca:20260423-095146` |
 
 ```bash
 # bash / zsh
 ACR_LOGIN_SERVER="myacr.azurecr.io"
-IMAGE_NAME="fet-mcp-server-dotnet"
-BRANCH_NAME="${GITHUB_REF_NAME:-main}"
-
-BRANCH_PATH=$(echo "$BRANCH_NAME" \
-  | tr '[:upper:]' '[:lower:]' \
-  | sed 's#^refs/heads/##' \
-  | sed 's#[^a-z0-9/_\.-]#-#g' \
-  | sed 's#//*#/#g' \
-  | sed 's#^/*##; s#/*$##')
-
-TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
-IMAGE_REF="${ACR_LOGIN_SERVER}/${IMAGE_NAME}/${BRANCH_PATH}:${TIMESTAMP}"
+IMAGE_NAME="fet-outlook-email-ca"
+TIMESTAMP=$(TZ=Asia/Taipei date +%Y%m%d-%H%M%S)
+IMAGE_REF="${ACR_LOGIN_SERVER}/${IMAGE_NAME}:${TIMESTAMP}"
 
 docker build -t "$IMAGE_REF" -f Dockerfile.outlook-email-azure .
 docker push "$IMAGE_REF"
@@ -610,16 +597,10 @@ docker push "$IMAGE_REF"
 ```powershell
 # PowerShell
 $acrLoginServer = "myacr.azurecr.io"
-$imageName = "fet-mcp-server-dotnet"
-$branchName = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "main" }
-
-$branchPath = $branchName.ToLower()
-$branchPath = $branchPath -replace "^refs/heads/", ""
-$branchPath = [regex]::Replace($branchPath, "[^a-z0-9/_\.-]", "-")
-$branchPath = [regex]::Replace($branchPath, "/+", "/").Trim("/")
-
-$timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd-HHmmss")
-$imageRef = "$acrLoginServer/$imageName/$branchPath`:$timestamp"
+$imageName = "fet-outlook-email-ca"
+$taipeiTimeZone = [TimeZoneInfo]::FindSystemTimeZoneById("Taipei Standard Time")
+$timestamp = [TimeZoneInfo]::ConvertTime([DateTimeOffset]::UtcNow, $taipeiTimeZone).ToString("yyyyMMdd-HHmmss")
+$imageRef = "$acrLoginServer/$imageName`:$timestamp"
 
 docker build -t $imageRef -f Dockerfile.outlook-email-azure .
 docker push $imageRef
@@ -629,15 +610,14 @@ docker push $imageRef
 
 | 踩雷點 | 常見症狀 | 建議做法 |
 | --- | --- | --- |
-| 把 branch 塞進 tag | `docker build -t ...` / `docker push` 出現 `invalid reference format` | branch 分目錄放在 repository path，例如 `fet-mcp-server-dotnet/feature/pptx-mailer:20260418-101011` |
-| 直接拿 Git branch 名稱組 image ref | `refs/heads/main`、大寫、空白、`#`、中文等字元造成 ref 非法或不一致 | 先轉小寫、移除 `refs/heads/`，其餘不安全字元轉成 `-` |
+| 讓 `main` / ACA rollout 的 image 名和 ACA 名稱脫鉤 | 對帳時只看得出 service/env，看不出它對應哪個 Container App | `main` 這條路徑固定用 `fet-outlook-email-ca:<taipei-timestamp>` |
 | GitHub Actions / GHCR 直接用 `${{ github.repository }}` 組 image ref | `docker buildx build` 報 `repository name must be lowercase`，常見例子是 `ghcr.io/Fet-ycliang/...:latest` | 先把 owner / repo 全轉小寫，再用同一個 normalized name 產生 `metadata-action` images、手動 `latest` / version tags，以及 attestation subject |
-| 用本地時區當 tag | 跨時區比對版本時很難對帳 | tag 一律用 UTC `yyyyMMdd-HHmmss` |
+| tag 不帶明確台北時區時間 | 維運對帳時需要另外換算時間 | tag 一律用 Asia/Taipei `yyyyMMdd-HHmmss` |
 | 同一秒內產出多個映像 | 後推的映像覆蓋前一個 tag | 若 CI 有高併發需求，可改成 `yyyyMMdd-HHmmss-<short-sha>` |
 | 用 `Dockerfile.outlook-email` 建 ACR / ACA 映像 | `az acr build` / ACR Task 卡在 dependency scanner，常見訊息是 `unable to understand line FROM --platform=$BUILDPLATFORM ...` | ACA / ACR 路線固定改用 `Dockerfile.outlook-email-azure` |
-| 把 `azd up` 當成可完全自訂 image naming 的流程 | 以為 `azd` 會照你想要的 repository / tag 命名規則產生 image | `azure.yaml` 現在會用 `host: containerapp` + `remoteBuild: true` 自動推到 azd 管理的 ACR；若你要精準控制 image naming，仍請改走手動 `docker build/push` 或 CI pipeline |
+| 把 `azd up` 當成可完全自訂 image naming 的流程 | 以為 `azd` 會照你想要的 repository / tag 命名規則產生 image，結果出現像 `outlook-email-fet-outlook-email-bst:azd-deploy-1776907010` | `azd` 的預設 remote build naming 不能拿來當正式命名規則；若你要固定成 `fet-outlook-email-ca:<taipei-timestamp>`，請改走 `az acr build` + `azd deploy --from-package` |
 | workflow matrix 沒留意 `fail-fast` | 同一個 run 只有一個 image 真失敗，其餘 job 卻顯示 `cancelled` / `The operation was canceled.` | 先找第一個 `failure` job 當根因；若要保留每個 image 的完整結果、不要讓其他 image 被連帶取消，請設定 `strategy.fail-fast: false` |
-| 以為 `Build MCP Servers` 成功就代表 Azure 已更新 | `main` push 的 GitHub run 顯示 success，但 live ACA 還停在舊 revision / 舊 branch image | `build.yaml` 只負責 GHCR matrix build；`main` 真正 rollout 到 azd-managed ACR + ACA 要看 `.github/workflows/deploy-outlook-email-main.yaml` |
+| 以為 `Build MCP Servers` 成功就代表 Azure 已更新 | `main` push 的 GitHub run 顯示 success，但 live ACA 還停在舊 revision / 舊 branch image | `build.yaml` 只負責 GHCR matrix build；`main` 真正 rollout 到既有 ACR `fetimageacr` + ACA 要看 `.github/workflows/deploy-outlook-email-main.yaml` |
 
 <a id="on-azure"></a>
 #### 在 Azure 上
@@ -667,7 +647,7 @@ docker push $imageRef
 
     在佈建與部署過程中，系統會要求提供 subscription ID、location 與 環境名稱。
 
-    > 目前 `azure.yaml` 已改成 `host: containerapp`，並使用 `Dockerfile.outlook-email-azure` + `remoteBuild: true`。因此 `azd up` / `azd deploy` 會自動把映像建到 azd 管理的 ACR，然後 rollout 到 Container App。若你要完全自訂 repository path / tag naming，仍請改走手動 `docker build` / `docker push` 或你自己的 CI pipeline。
+    > 目前 `azure.yaml` 已改成 `host: containerapp`，並使用 `Dockerfile.outlook-email-azure` + `remoteBuild: true`。因此 `azd up` / `azd deploy` 會自動把映像建到既有 ACR `fetimageacr`，然後 rollout 到 Container App。若你要完全自訂 repository path / tag naming，仍請改走手動 `docker build` / `docker push` 或你自己的 CI pipeline。
     >
     > 這也代表 `azd` 主要會更新 **ACA backend**；repo 內仍保留部分 Function-based 資源 / 設定是為了既有路徑與文件參考，但它不再是這條部署流程的 primary rollout target。
 
@@ -675,10 +655,11 @@ docker push $imageRef
 
 - repo 內現在把 `main` 的 Azure rollout 拆成兩條：
   - `.github/workflows/build.yaml`：`push main` 後做 repo-level GHCR matrix build
-  - `.github/workflows/deploy-outlook-email-main.yaml`：`push main` / `workflow_dispatch` 後，針對 `outlook-email` 重建 azd env，然後執行 `azd up`
+  - `.github/workflows/deploy-outlook-email-main.yaml`：`push main` / `workflow_dispatch` 後，針對 `outlook-email` 重建 azd env，然後執行 `azd provision`、`az acr build`、`azd deploy --from-package`
 - `deploy-outlook-email-main.yaml` 會直接對既有環境 `fet-outlook-email-bst` 下手，目標是 live ACA `fet-outlook-email-ca`
 - workflow 目前依賴 GitHub repo secret **`AZURE_CREDENTIALS`** 做 Azure 登入
 - workflow 目前固定帶 `AZURE_DEPLOY_APIM=false`，讓 routine app rollout 只更新 live ACA；既有 retained APIM path 會繼續沿用同一個 ACA backend，不在每次 `main` push 時重跑 APIM / private DNS provisioning
+- workflow 目前會先在 `fetimageacr` 建一個 **`fet-outlook-email-ca:<taipei-timestamp>`** image，再把這個 image ref 交給 `azd deploy --from-package`
 - 若你有另外準備 direct ACA smoke test 用的 caller app，也可以在 repo secret 補上：
 
   ```text
@@ -687,7 +668,7 @@ docker push $imageRef
   MCP_VALIDATION_TENANT_ID   # optional, omitted 時會沿用 live env 內的 MCP_OAUTH_TENANT_ID
   ```
 
-- 若上面三個 validation secrets 沒有配置，workflow 仍會完成 `azd up`，但會自動把 `MCP_SKIP_POSTDEPLOY_VALIDATION=true` 傳給 hook，避免 GitHub deployment service principal 卡在 `user_impersonation` fallback
+- 若上面三個 validation secrets 沒有配置，workflow 仍會完成 deploy，但會自動把 `MCP_SKIP_POSTDEPLOY_VALIDATION=true` 傳給 hook，避免 GitHub deployment service principal 卡在 `user_impersonation` fallback
 - workflow 會同步重建 live env 內的 `MCP_OAUTH_CLIENT_ID` / `MCP_OAUTH_TENANT_ID`，因此只要 validation client id / secret 補齊，就能自動恢復 direct ACA `/mcp initialize` / `tools/list` smoke test，不需要再改 YAML
 - 若你這次真的要連 **APIM / private DNS / retained facade** 一起變更，不要走這條 routine workflow；請改用人工 `azd up` 並把 `AZURE_DEPLOY_APIM=true` 帶回來
 
@@ -759,7 +740,7 @@ docker push $imageRef
       > 這組 naming / tag baseline 套用後，預期名稱會像：
       > - Container App：`ca-fet-outlook-email-bst`
       > - Container Apps Environment：`cae-fet-outlook-email-bst`
-      > - Azure Container Registry：`crfetoutlookemailbstacr`
+      > - Azure Container Registry：`fetimageacr`（既有，共用，不再由 stem 衍生命名）
       > - API Management：`apim-fet-outlook-email-bst`
       > - Application Insights：`appi-fet-outlook-email-bst`
       > - Log Analytics：`log-fet-outlook-email-bst`
@@ -892,20 +873,31 @@ docker push $imageRef
     ```bash
     azd env set MCP_OAUTH_TENANT_ID "{{TENANT_ID}}"
     azd env set MCP_OAUTH_CLIENT_ID "{{EXISTING_MCP_APP_CLIENT_ID}}"
+    azd env set MCP_OAUTH_CLIENT_SECRET "{{CLIENT_SECRET_OR_KEYVAULT_REFERENCE}}"
     azd env set MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV "{{DATABRICKS_OR_DIRECT_CALLER_APP_ID}}"
     ```
 
-      > `MCP_OAUTH_TENANT_ID` / `MCP_OAUTH_CLIENT_ID` 這兩個值現在會同時用在：
-      > - **APIM inbound OAuth / bearer token 驗證**
+       > `MCP_OAUTH_TENANT_ID` / `MCP_OAUTH_CLIENT_ID` 這兩個值現在會同時用在：
+       > - **APIM inbound OAuth / bearer token 驗證**
       > - **Function App direct path 的 Easy Auth audience / issuer**
       >
-      > 它們跟上面 `MCP_ENTRA_*` 那組 **Function App 出站呼叫 Graph** 的 service principal 設定不同。
-      >
-      > 當 `MCP_OAUTH_TENANT_ID` 與 `MCP_OAUTH_CLIENT_ID` 都有提供時，Bicep 會**直接重用**該既有 app，不再嘗試建立 `mcpEntraApp`。
-      >
-      > 你提供的既有 app 需要已經能代表這條 MCP resource path：至少要有 delegated scope `user_impersonation`，若還要支援 client credentials / M2M，還要再補 application role `access_as_application`；否則部署可過，但 client 端拿 token 時仍會失敗。
-      >
-      > `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是可選的 direct caller allowlist；若有設定，只有列在這裡的 caller app 才能直接打 Function App private endpoint。APIM backend 自己使用的 managed identity 會由模板自動加入，不需要手動再填一次。
+       > 它們跟上面 `MCP_ENTRA_*` 那組 **Function App 出站呼叫 Graph** 的 service principal 設定不同。
+       >
+       > 當 `MCP_OAUTH_TENANT_ID` 與 `MCP_OAUTH_CLIENT_ID` 都有提供時，Bicep 會**直接重用**該既有 app，不再嘗試建立 `mcpEntraApp`。
+       >
+        > `MCP_OAUTH_CLIENT_SECRET` 會被投影成 ACA secret name **`mcp-oauth-client-secret`**。請把它與 `MCP_ENTRA_CLIENT_SECRET` 分開管理，前者是 **inbound MCP OAuth**，後者是 **backend outbound Graph auth**。
+        >
+        > 正式環境建議把 `MCP_OAUTH_CLIENT_SECRET` 與 `MCP_ENTRA_CLIENT_SECRET` 都設成 **Key Vault reference 字串**，格式同樣是 `@Microsoft.KeyVault(SecretUri=https://<vault-name>.vault.azure.net/secrets/<secret-name>/<secret-version>)`。
+        >
+        > `main` branch 的 `deploy-outlook-email-main.yaml` 與 `deploy-containerapp-ready-image.ps1` 現在都會先同步 ACA secrets `graph-client-secret` / `mcp-oauth-client-secret`，避免未來 rollout 再把其中一個 secret name 洗掉。
+        >
+        > 目前 live 例子已改成 `outlook-email-kv` + Key Vault reference；這顆 vault 在這次環境是 **RBAC mode**，不是 access policy mode。若你之後重建或搬移 Key Vault，請改用 Azure RBAC（例如 operator / pipeline 用 `Key Vault Secrets Officer`、user-assigned managed identity 用 `Key Vault Secrets User`），`az keyvault set-policy` 不會生效。
+        >
+        > 目前這組 Key Vault reference 用的是 **versioned SecretUri**。若你之後 rotate secret，除了更新 Key Vault secret value，還要同步更新 `azd env` 與 GitHub Actions secrets 裡的 `@Microsoft.KeyVault(SecretUri=...)` 到新的 secret version URI，不然 deploy 仍會抓舊版。
+        >
+        > 你提供的既有 app 需要已經能代表這條 MCP resource path：至少要有 delegated scope `user_impersonation`，若還要支援 client credentials / M2M，還要再補 application role `access_as_application`；否則部署可過，但 client 端拿 token 時仍會失敗。
+        >
+        > `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是可選的 direct caller allowlist；若有設定，只有列在這裡的 caller app 才能直接打 Function App private endpoint。APIM backend 自己使用的 managed identity 會由模板自動加入，不需要手動再填一次。
 
 1. 若你要請 administrator 一次補齊 **OAuth / sendMail** 權限，可直接用下面這份需求：
 
@@ -928,10 +920,11 @@ docker push $imageRef
 
      **B. Function App 出站 `sendMail`（Microsoft Graph）**
 
-     - 若目前繼續用 service principal（`MCP_ENTRA_USE_MANAGED_IDENTITY=false`）：
-       - `MCP_ENTRA_CLIENT_ID` 對應的 app / enterprise app 需要 Microsoft Graph **Application** permission：`Mail.Send`
-       - 這個 `Mail.Send` 需要 administrator 完成 **admin consent**
-       - 需提供 secret 或 certificate 給 Function App；目前 sample 吃 `MCP_ENTRA_CLIENT_SECRET`，正式環境建議改成 **Key Vault reference**
+      - 若目前繼續用 service principal（`MCP_ENTRA_USE_MANAGED_IDENTITY=false`）：
+        - `MCP_ENTRA_CLIENT_ID` 對應的 app / enterprise app 需要 Microsoft Graph **Application** permission：`Mail.Send`
+        - 這個 `Mail.Send` 需要 administrator 完成 **admin consent**
+        - 需提供 secret 或 certificate 給 Function App；目前 sample 吃 `MCP_ENTRA_CLIENT_SECRET`，正式環境建議改成 **Key Vault reference**
+        - 若 live ACA 仍要保留 inbound MCP OAuth，請不要只更新 `MCP_ENTRA_CLIENT_SECRET`；`MCP_OAUTH_CLIENT_SECRET` 也要一起維護，不然會再把 `mcp-oauth-client-secret` 這條 ACA auth secret contract 打斷
      - 若之後改用 managed identity：
        - 仍然需要 administrator 對 **Function App 使用的 user-assigned managed identity service principal** 授與 Microsoft Graph **Application** permission：`Mail.Send`
        - 同樣需要 **admin consent**
@@ -940,6 +933,10 @@ docker push $imageRef
        - 還需要把實際寄件者 mailbox，或對應的 mail-enabled security group，納入允許範圍；否則即使 `Mail.Send` 已授權，Graph 仍可能回 `AccessDenied`
 
      > 這次實際遇到的錯誤是 Graph `Forbidden`，發生在 `mcpEntraApp` 建立與 app role assignment；這是 **Entra / Microsoft Graph 權限** 問題，不是 Azure subscription RBAC 問題。
+     >
+     > 這次另一個實際踩雷是：`outlook-email-kv` 雖然補了 private endpoint，但 `privatelink.vaultcore.azure.net` zone 一開始只有 SOA、沒有 `outlook-email-kv` 的 A record。若你之後也要把 Key Vault 納進 private networking，請把 **private endpoint connection / zone group / DNS A record** 都當成獨立檢查點，不要只看其中一項。
+     >
+     > 目前 migration 階段的 live vault 仍保留 `publicNetworkAccess=Enabled`。若要往下收斂成 private-only，先確認 ACA、jumpbox 與 deploy runner 都能穩定走 private DNS / private endpoint，再決定要不要關公網。
 
 1. 若你要保留 **APIM + OAuth** 的遠端 MCP 路徑，但開發 / 測試階段想先壓低固定成本，可再設定：
 

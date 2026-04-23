@@ -84,7 +84,7 @@ azd up
 
 也就是說：
 
-- `azd up` / `azd deploy` 會先把映像建到 azd 管理的 ACR
+- `azd up` / `azd deploy` 會先把映像建到既有 ACR `fetimageacr`
 - 再把新 revision rollout 到 ACA
 - `postdeploy` hook 會驗 direct ACA `/mcp` 的 `initialize` 與 `tools/list`
 
@@ -101,10 +101,17 @@ azd up
 
 - `MCP_OAUTH_TENANT_ID`
 - `MCP_OAUTH_CLIENT_ID`
+- `MCP_OAUTH_CLIENT_SECRET`
 
 > 這組值是給 APIM inbound token 驗證用的，和上面的 `MCP_ENTRA_*`（目前由 ACA backend 出站呼叫 Graph）不是同一組 credential。
 >
 > 只要 `MCP_OAUTH_TENANT_ID` 與 `MCP_OAUTH_CLIENT_ID` 同時存在，部署就會重用既有 app，而不再建立 `mcpEntraApp`。
+>
+> `MCP_OAUTH_CLIENT_SECRET` 會落成 ACA secret name `mcp-oauth-client-secret`。它要跟 `MCP_ENTRA_CLIENT_SECRET` 分開保管，兩者都建議直接放 `@Microsoft.KeyVault(SecretUri=...)`。
+>
+> 目前 live `outlook-email-kv` 是 **RBAC mode**。若你要重建或遷移這顆 vault，operator / pipeline 要用 Azure RBAC 寫 secret，ACA 的 user-assigned managed identity 要用 Azure RBAC 讀 secret；`az keyvault set-policy` 不適用。
+>
+> 目前 repo / azd env / GitHub Actions secrets 內放的是 **versioned SecretUri**。rotate `graph-client-secret` 或 `mcp-oauth-client-secret` 時，不只要寫新 secret value，還要同步更新 `@Microsoft.KeyVault(SecretUri=...)` 指到新的 version。
 
 若要請 administrator 補齊權限，請分開看：
 
@@ -125,7 +132,15 @@ azd up
 - 不要同時保留 `MCP_ENTRA_TENANT_ID` / `MCP_ENTRA_CLIENT_ID` / `MCP_ENTRA_CLIENT_SECRET`
 - 若先前曾用過 service principal，切回 managed identity 時要一併清掉這些值
 
-若 Azure 走 service principal，**優先建議把 `MCP_ENTRA_CLIENT_SECRET` 改成 Key Vault reference**；raw env var 只適合短期 bootstrap。
+若 Azure 走 service principal，**優先建議把 `MCP_ENTRA_CLIENT_SECRET` 與 `MCP_OAUTH_CLIENT_SECRET` 都改成 Key Vault reference**；raw env var 只適合短期 bootstrap。
+
+若要把 Key Vault 也收進 private networking：
+
+- 目前 live 例子是 `outlook-email-kv` + private endpoint `pe-outlook-email-kv`
+- subnet 用 `apim-bst-vnet/PE_Subnet`
+- private DNS zone 用 `aibde-common-rg/privatelink.vaultcore.azure.net`
+- 建完 private endpoint 後，不要只看 connection `Approved`；要再確認 zone 內真的有 `outlook-email-kv` 的 A record
+- 若 caller 沒有 private DNS / VNet reachability，就算補 `NO_PROXY`，Key Vault data plane 仍可能 `getaddrinfo failed`
 
 若你要走 **APIM + OAuth** 的遠端 MCP 路徑：
 
@@ -186,11 +201,11 @@ azd env get-value AZURE_CONTAINER_REGISTRY_ENDPOINT
 
 ### ACR image naming 快速記憶點
 
-- 目前 `azure.yaml` 是 `host: containerapp`，所以 `azd up` / `azd deploy` 會自動把容器映像推到 azd 管理的 ACR，然後 rollout 到 ACA。
+- 目前 `azure.yaml` 是 `host: containerapp`，所以你手動跑 `azd up` / `azd deploy` 時，仍會自動把容器映像推到既有 ACR `fetimageacr`，然後 rollout 到 ACA。
 - 若你要**精準控制** repository path / tag naming，請改走手動 `docker build` / `docker push` 或 CI pipeline；不要把 azd remote build 當成可完全客製命名的發版流程。
-- 若要手動或用 CI 發布容器映像，命名規則使用：`<acr-login-server>/fet-mcp-server-dotnet/<branch-path>:<utc-timestamp>`
+- `main` 這條 ACA rollout 若要手動或用 CI 發布容器映像，命名規則使用：`<acr-login-server>/fet-outlook-email-ca:<taipei-timestamp>`
 - ACA / ACR 這條線固定使用 `Dockerfile.outlook-email-azure`；不要再把 `Dockerfile.outlook-email` 丟給 `az acr build` / ACR Task，否則容易卡在 dependency scanner 的 `FROM --platform=$BUILDPLATFORM ...`
-- branch 分目錄放 **repository path**，不要放進 tag；tag 建議固定用 UTC `yyyyMMdd-HHmmss`
+- `main` 這條路徑直接沿用 ACA 名稱當 repository；tag 建議固定用 Asia/Taipei `yyyyMMdd-HHmmss`
 - branch 名稱先轉小寫、移除 `refs/heads/`，其餘不安全字元轉成 `-`
 - 若同一秒可能產出多個映像，tag 再補一段 short SHA，避免碰撞
 

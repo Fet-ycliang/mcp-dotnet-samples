@@ -14,6 +14,9 @@
       "resourceNameStem": {
         "value": "${AZURE_RESOURCE_NAME_STEM=}"
       },
+      "existingContainerRegistryName": {
+        "value": "${AZURE_CONTAINER_REGISTRY_NAME=fetimageacr}"
+      },
       "tagCostCenter": {
         "value": "${AZURE_TAG_COST_CENTER=3901}"
       },
@@ -62,12 +65,15 @@
       "existingMcpOauthTenantId": {
         "value": "${MCP_OAUTH_TENANT_ID=}"
       },
-       "existingMcpOauthClientId": {
-         "value": "${MCP_OAUTH_CLIENT_ID=}"
-       },
-       "directAllowedClientApplicationsCsv": {
-         "value": "${MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV=}"
-       },
+      "existingMcpOauthClientId": {
+        "value": "${MCP_OAUTH_CLIENT_ID=}"
+      },
+      "mcpOauthClientSecret": {
+        "value": "${MCP_OAUTH_CLIENT_SECRET=}"
+      },
+      "directAllowedClientApplicationsCsv": {
+        "value": "${MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV=}"
+      },
        "existingVirtualNetworkName": {
          "value": "${AZURE_EXISTING_VNET_NAME=}"
        },
