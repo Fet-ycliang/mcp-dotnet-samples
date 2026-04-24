@@ -1,6 +1,44 @@
 <policies>
     <inbound>
         <base />
+        <!-- Read form-urlencoded body and strip the resource parameter before forwarding.
+             MCP clients send resource=<mcp-server-url> per RFC 8707; Entra v2 doesn't honor
+             resource indicators and will reject with AADSTS9010010 when resource doesn't
+             match the scope's app identifier URI. Audience enforcement lives on /mcp. -->
+        <set-variable name="tokenBody" value="@{
+            string body;
+            try
+            {
+                body = context.Request.Body.As<string>(preserveContent: true);
+            }
+            catch
+            {
+                body = string.Empty;
+            }
+
+            if (string.IsNullOrEmpty(body))
+            {
+                return string.Empty;
+            }
+
+            var kept = new System.Collections.Generic.List<string>();
+            foreach (var pair in body.Split('&amp;'))
+            {
+                if (string.IsNullOrEmpty(pair))
+                {
+                    continue;
+                }
+                var eq = pair.IndexOf('=');
+                var key = eq &gt;= 0 ? pair.Substring(0, eq) : pair;
+                if (string.Equals(key, &quot;resource&quot;, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                kept.Add(pair);
+            }
+            return string.Join(&quot;&amp;&quot;, kept);
+        }" />
+        <set-body>@((string)context.Variables["tokenBody"])</set-body>
         <set-backend-service base-url="https://login.microsoftonline.com/{{McpTenantId}}/oauth2/v2.0" />
         <rewrite-uri template="/token" />
         <set-header name="Host" exists-action="override">

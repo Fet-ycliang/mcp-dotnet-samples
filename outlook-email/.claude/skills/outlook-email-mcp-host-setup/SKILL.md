@@ -1,8 +1,8 @@
 ---
 name: outlook-email-mcp-host-setup
 description: |
-  outlook-email 的 MCP host/client 設定與排錯指引。用於 Claude Code、Copilot CLI、VS Code 連到 APIM-backed remote MCP server；目前正式路徑以 APIM inbound OAuth、Bearer token、NO_PROXY 與 SSE 除錯為主，stdio / localhost 配置只保留做 UT 與開發參考。
-  觸發詞："Claude Code", "Copilot CLI", ".mcp.json", ".claude/mcp.json", "mcp-config.json", "Bearer token", "Authorization", "NO_PROXY", "Connecting", "remote MCP", "APIM"。
+  outlook-email 的 MCP host/client 設定與排錯指引。用於 Claude Code、Copilot CLI、VS Code 連到 APIM-backed remote MCP server；目前正式路徑以 APIM OAuth auto-discovery 為主（不帶 static Bearer header），NO_PROXY 與 SSE 除錯並重；stdio / localhost 配置只保留做 UT 與開發參考。
+  觸發詞："Claude Code", "Copilot CLI", ".mcp.json", ".claude/mcp.json", "mcp-config.json", "Bearer token", "Authorization", "NO_PROXY", "Connecting", "remote MCP", "APIM", "Auth: ✔", "Status: ✘"。
 ---
 
 # Outlook Email MCP host/client 設定與排錯
@@ -33,11 +33,28 @@ description: |
 
 ## APIM remote MCP 連線必要條件
 
-### 1. `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN`
+### 1. 優先走 OAuth auto-discovery（不帶 static Bearer header）
 
-若設定檔使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`，請在**啟動 Claude Code / Copilot CLI 的同一個 shell** 先刷新 token。
+**推薦設定**：`.mcp.json` 只寫 URL，不加 `headers.Authorization`：
 
-目前 repo 內的 `.claude\mcp.json` 是這類手動 Bearer header 的 APIM 範例；若你在 `.\.mcp.json` 內也採用相同做法，Claude Code 啟動前同樣需要先刷新這個 token。
+```json
+{
+  "mcpServers": {
+    "outlook-email": {
+      "type": "http",
+      "url": "https://apim-fet-outlook-email.azure-api.net/mcp"
+    }
+  }
+}
+```
+
+**原因（踩雷紀錄）**：client 只要看到 `headers.Authorization`，就**一律**用靜態 header 送 request，即使 OAuth flow 已完成（UI 顯示 `Auth: ✔ authenticated`），實際每次 request 仍套設定檔的靜態 header。若 env var 展開為空，就變 `Bearer `（空 token），結果 APIM 回 401，UI 顯示 `Status: ✘ failed`。移除 `headers` 後，client 改用 `~/.claude/.credentials.json` 裡已存的 OAuth token，`/mcp initialize` 才正常回 200。
+
+> 症狀：OAuth 授權成功（`Auth: ✔`）、但 server 仍顯示 `Status: ✘ failed` → 先查 `.mcp.json` / `mcp-config.json` 有沒有 `headers.Authorization`。
+
+### 2. `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN`（靜態 Bearer，fallback 用）
+
+若因特殊原因（手動 curl 除錯、非 OAuth 路徑）仍要用靜態 Bearer，請在**啟動 Claude Code / Copilot CLI 的同一個 shell** 先刷新 token。
 
 ```powershell
 $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
@@ -45,9 +62,9 @@ $env:OUTLOOK_EMAIL_APIM_ACCESS_TOKEN = az account get-access-token `
   --query accessToken -o tsv
 ```
 
-> 目前已驗證 Copilot CLI 可以正常展開 header 內的 `${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`。但 token 本身有時效，不要把短效 access token 直接寫死在 JSON 檔裡。
+> token 有時效（通常 1 小時），不要把短效 access token 寫死在 JSON 檔裡。OAuth auto-discovery 沒有這個問題。
 
-### 2. `NO_PROXY`
+### 3. `NO_PROXY`
 
 若 APIM gateway 只走 private route，且本機有公司 proxy，請把下列 host 加進 `NO_PROXY`：
 

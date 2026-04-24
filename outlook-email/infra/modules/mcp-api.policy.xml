@@ -38,9 +38,14 @@
             <audiences>
                 <audience>{{McpClientId}}</audience>
                 <audience>{{McpAppIdUri}}</audience>
+                <!-- Transitional: accept legacy direct-path audience so callers (e.g. Databricks external MCP) still using app role on the backend app can call APIM until they migrate to the new apim-mcp resource. -->
+                <audience>{{BackendMcpClientId}}</audience>
+                <audience>{{BackendMcpAppIdUri}}</audience>
             </audiences>
             <issuers>
                 <issuer>https://login.microsoftonline.com/{{McpTenantId}}/v2.0</issuer>
+                <!-- Transitional: v1 tokens (iss=sts.windows.net/<tenant>/) are still issued for the legacy backend app 87123f9d-... because its accessTokenAcceptedVersion=null defaults to v1. Databricks external MCP currently hits this path. Remove after migrating all callers off the legacy audience. -->
+                <issuer>https://sts.windows.net/{{McpTenantId}}/</issuer>
             </issuers>
         </validate-jwt>
 

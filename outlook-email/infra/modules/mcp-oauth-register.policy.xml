@@ -7,10 +7,32 @@
                 <value>application/json</value>
             </set-header>
             <set-body>@{
-                var redirectUris = new JArray();
-                foreach (var redirectUri in "{{McpClaudeRedirectUrisCsv}}".Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                JArray redirectUris = null;
+                try
                 {
-                    redirectUris.Add(redirectUri.Trim());
+                    var requestBody = context.Request.Body.As<JObject>(preserveContent: true);
+                    var urisToken = requestBody != null ? requestBody["redirect_uris"] : null;
+                    if (urisToken != null &amp;&amp; urisToken.Type == JTokenType.Array)
+                    {
+                        var parsed = (JArray)urisToken;
+                        if (parsed.Count > 0)
+                        {
+                            redirectUris = parsed;
+                        }
+                    }
+                }
+                catch
+                {
+                    redirectUris = null;
+                }
+
+                if (redirectUris == null)
+                {
+                    redirectUris = new JArray();
+                    foreach (var redirectUri in "{{McpClaudeRedirectUrisCsv}}".Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        redirectUris.Add(redirectUri.Trim());
+                    }
                 }
 
                 return JObject.FromObject(new {
