@@ -1,5 +1,16 @@
 # outlook-email
 
+## 最高準則（Top Priority — overrides everything below）
+- **Every mistake → write a rule.**
+- **Every correction → permanent memory.**
+- **Every session → smarter than the last.**
+
+只要犯錯，就要寫下一條規則；只要被修正，就要化為永久記憶；要讓下一個 session 比上一個更聰明。這是凌駕本文件所有指引之上的元準則：
+1. 當使用者指出錯誤或提出修正，**立刻**把它記下（這份 CLAUDE.md 的對應章節 + memory 系統），不要留到「之後再整理」。
+2. 記得成功：若使用者明確肯定某個非顯而易見的做法，也要寫下來，避免下次又退回錯誤的預設行為。
+3. 寫規則時要附 **Why** 與 **How to apply**，讓未來的我能判斷邊界情境，不是盲從。
+4. 不確定要寫到 CLAUDE.md 還是 memory 時，兩邊都寫：CLAUDE.md 保存專案層級規範，memory 保存跨 session 的人機互動準則。
+
 ## 範圍
 - 目前工作預設只針對 `outlook-email` 這個 專案。
 - 不要主動規劃或修改其他 專案。
@@ -58,6 +69,13 @@
 - 目前 repo / azd env / GitHub Actions secrets 內的 `@Microsoft.KeyVault(SecretUri=...)` 都是 **versioned URI**。之後 rotate `graph-client-secret` 或 `mcp-oauth-client-secret` 時，除了寫新值到 Key Vault，也要同步更新 reference 字串本身。
 - repo 內的 checked-in infra 現在已支援用 `AZURE_DEPLOY_KEY_VAULT=true`、`AZURE_KEY_VAULT_NAME=outlook-email-kv`、`AZURE_DEPLOY_KEY_VAULT_PRIVATE_ENDPOINT=true`、`AZURE_KEY_VAULT_PUBLIC_NETWORK_ACCESS=Enabled|Disabled` 來接手管理 vault / RBAC / private endpoint；`main` workflow 目前預設把 Key Vault public network access 關成 `Disabled`。
 - repo 內的 checked-in APIM Bicep 現在已補上 `mcp-oauth` API（`register` / well-known / `authorize` / `token` / `oauth-protected-resource`）、`mcp` API 的 `validate-jwt` + App Insights diagnostics；`validate-jwt` 目前仍暫時接受新 `mcp.access` 與 legacy `user_impersonation` / `access_as_application`，但 retained path 已多了 caller-app allowlist、`/authorize` client/redirect-uri 檢查，以及 OAuth facade rate limit。
+- `mcp-api.policy.xml` 的 `<audiences>` 目前同時接受 `{{McpClientId}}` / `{{McpAppIdUri}}`（新 APIM resource app `apim-mcp`）**與** `{{BackendMcpClientId}}` / `{{BackendMcpAppIdUri}}`（舊 direct path app `mcpEntraApp`）。這是刻意為了 split-auth 後過渡期保留的 legacy audience，Databricks SP `4c2d441f-...`（DatabricksExternalMcp）目前仍只有 `access_as_application` 角色在 `87123f9d-...`（`mcpEntraApp`），所以它拿到的 token `aud=api://87123f9d-...` 需要被允許；等 Databricks 端改成請求 `api://apim-mcp` 並把 role 重新指派到新 app 後，再把這兩個 legacy audience 拿掉。
+- `mcp-api.policy.xml` 的 `<issuers>` 同時接受 v2（`https://login.microsoftonline.com/<tenant>/v2.0`）**與** v1（`https://sts.windows.net/<tenant>/`）。舊 `mcpEntraApp` (`87123f9d-...`) 的 `api.requestedAccessTokenVersion` 是 null → 預設 v1，Databricks 用 `api://87123f9d-.../.default` 取得的 token 就是 v1（`iss=sts.windows.net`）。新 `apim-mcp` (`ddfcc64c-...`) 明確設 `requestedAccessTokenVersion=2`，所以是 v2 token。兩條路同時在跑時 validate-jwt 必須兩個 issuer 都接受；未來統一到 v2 後可以把 v1 issuer 拿掉。
+- `/authorize` redirect_uri 檢查已支援 **RFC 8252 loopback wildcard**：當 `McpClaudeRedirectUrisCsv` 裡有裸的 `http://localhost` 或 `http://127.0.0.1`（沒帶 port），policy 會比對任何 `http://localhost:<port>/...` / `http://127.0.0.1:<port>/...`；這樣 Claude Code / Copilot CLI 這種每次開不同 port 的 native client 不用重複註冊。非 loopback 的 redirect（例如 Databricks workspace 的 `https://<workspace>/login/oauth/http.html`）**還是 exact match**，要逐個加進 CSV。
+- `/register`（DCR）policy 已改成 **RFC 7591 compliant**：讀 request body 的 `redirect_uris`，有效就 echo 回去；沒送就 fallback 回 `McpClaudeRedirectUrisCsv` 預設清單。這是為了讓 Databricks Genie Code 這種 web client 的 DCR 不會收到錯誤的 `http://localhost` 回應。
+- `/authorize` 跟 `/token` policy 會**剝掉 `resource` 參數**再轉 forward 到 Entra。MCP 規範（RFC 8707 Resource Indicators）要 client 帶 `resource=<mcp-server-url>`，但 Entra v2 不吃 resource indicator；只要 `resource` value 不等於 scope 對應 app 的 identifier URI，Entra 會回 `AADSTS9010010: The resource parameter provided in the request doesn't match with the requested scopes`。所以在 APIM facade 層吃掉 `resource`，讓 Entra 只看 scope；audience 靠下游 `/mcp` 的 `validate-jwt` 驗。
+- `/authorize` 也會把 scope 裡的 `+` 在 split 前換成空白（form-urlencoded 風格 `+` 代表空白，但 `Uri.UnescapeDataString` 不處理），避免 `api://apim-mcp/mcp.access+offline_access` 被當一個 token，導致 scope 清單裡塞進一筆怪字串。
+- 目前 `MCP_CLAUDE_REDIRECT_URIS_CSV` azd env 值為 `http://localhost;https://adb-2654999172504234.14.azuredatabricks.net/login/oauth/http.html`（Claude Code loopback + FET 共用 Databricks workspace）；如需新增其他 web caller（Copilot Studio / VS Code Web 等）要同步三處：(a) `azd env set MCP_CLAUDE_REDIRECT_URIS_CSV`、(b) 把同一個 URI 加進 Entra public client app `f4d7461b-...` 的 web redirect URIs、(c) 要不要重跑 `azd provision` 視 branch 而定。
 - split-auth 後請分開看三條線：`MCP_DIRECT_*` = direct Function / ACA resource app，`MCP_APIM_RESOURCE_*` = APIM retained path resource app，`MCP_CLAUDE_CLIENT_ID` = Claude public client app（PKCE / `http://localhost`）。
 - `MCP_CLAUDE_CLIENT_ID` 在 retained APIM OAuth 路徑下應視為必填；不要再讓它 fallback 成 APIM resource app 自己的 client ID，否則 `/register` 會回錯 client metadata。
 - retained APIM path 目前預設只自動放行 `MCP_CLAUDE_CLIENT_ID`；若你還要讓 Azure CLI / Copilot CLI / 其他 caller app 直接帶 Bearer token 打 `/mcp`，請另外補 `MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV`。
@@ -130,6 +148,7 @@
 - `send_email` 目前會把 service 例外轉成 `errorMessage` 放在 tool 結果內，因此 `tools/call` 不一定會用 MCP envelope 的 `isError=true` 呈現；排查時要一起看 `result.content[0].text` 與 server log。
 - private Function App / SCM 在有公司 proxy 的環境下，通常要補 `NO_PROXY`；否則看起來像是 server 壞了，其實是流量被送去公網。
 - 若 APIM remote MCP 使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`（例如 `.claude\mcp.json` 內的範例），啟動 Claude Code / Copilot CLI 前，先在同一個 shell 刷新 access token。
+- **但更推薦直接走 OAuth auto-discovery**：APIM `/mcp-oauth/*` facade 已完整；Claude Code / Copilot CLI 的 `.mcp.json` 對 outlook-email 只要寫 `{"type":"http","url":"https://apim-fet-outlook-email.azure-api.net/mcp"}`，**不要**再放 `headers.Authorization` 或 env var 的 bearer。原因：client 看到 `headers.Authorization` 時優先用它送 request；就算 OAuth flow 已完成並在 `~/.claude/.credentials.json` 存了 token，UI 顯示 `Auth: ✔ authenticated`，實際 request 仍會套設定檔的靜態 header（env var 展開為空就變 `Bearer `），結果 APIM 回 401 → UI `Status: ✘ failed`。移除 `headers` 後，client 會改用已存的 OAuth token，`/mcp initialize` 回 200 SSE 正常。
 - 若要重用既有 `MCP_APIM_RESOURCE_CLIENT_ID`，這裡必須填 **Application (client) ID / `appId`**，不是 Entra object ID；這輪 live migration 就曾把 `7dfdd946-...` object ID 誤填進 env，結果 APIM policy / token audience 全部接錯，最後才改回真正的 client ID `ddfcc64c-b3c5-419f-a2c6-c3abed72b64d`。
 - `generate_pptx_attachment` 的建議流程是：先產出 `generatedAttachmentId`，再交給 `send_email.generatedAttachmentIds`；不要在遠端 APIM 路徑搬整份 `.pptx` Base64。
 - `generate_xlsx_attachment` 與 `generate_pptx_attachment` 共用 `send_email.generatedAttachmentIds`；若附件是伺服器端生成，優先傳 `generatedAttachmentId`，不要把整份 `.xlsx` Base64 搬進 remote MCP payload。
@@ -161,6 +180,11 @@
 - **`az role assignment list --assignee <managed-identity-resource-id>` 會因 Graph API 限制報錯**；查 managed identity 的角色指派時，需先用 `az identity show --query principalId` 取得 `principalId`，再用 `--assignee-object-id <principalId>` 查詢。
 - **`remove-apim.bicep` 的 deploymentScript 需要 managed identity 具備 Contributor 以上權限**；若指定的 identity 沒有足夠 RBAC，script 會在 Azure 端靜默失敗或卡住。
 - **APIM subnet 不會隨 APIM 一起刪除**；重建前先確認 subnet 仍存在且 prefix 正確，不要重複建立。
+
+### APIM policy expression 陷阱（Razor / CSHTML）
+- **單行 `if`/`else` 必須加大括號**：APIM policy expression 是 Razor/CSHTML syntax，不接受 `if (cond) return false;` 這種無大括號寫法，PUT 時會回 `ValidationError: Block statements must be enclosed in "{" and "}"`。一律寫成 `if (cond) { return false; }`。
+- **字串裡的 `//` 會被 Razor lexer 誤判為 line comment**：像 `"http://localhost"` 放在 `var x = foo.StartsWith("http://localhost", ...)` 這種 `var =` 右值裡，APIM parser 會從 `//` 開始把剩下的當註解，最後報 `( missing )`。已知 workaround：用 `"http:\u002F\u002Flocalhost"` 或把 `/` 拆開字串拼接；放進 `.Any(lambda => ...)` 的 lambda body 內**不會**踩到這個問題，因為 parser 對 lambda body 有不同 tokenization。若要改 `mcp-oauth-authorize.policy.xml` 這類檔案，優先把含 `//` 的 URL 字串抽成 `var localhostHost = "http:\u002F\u002Flocalhost";` 再組合，不要直接 inline `"http://..."`。
+- **改 policy 時直接用 ARM REST `az rest` / curl + Management API 比 `az apim` CLI 快**：`az apim api operation policy` 這個 subcommand 不存在（2.79 CLI）；改用 `PUT /subscriptions/.../apis/{id}/operations/{id}/policies/policy?api-version=2023-05-01-preview`，body 為 `{"properties":{"format":"rawxml","value":"<policies>..."}}`。Windows bash 下 `curl --data-binary @file` 的 file 路徑要用 Unix 樣式 `/tmp/...`，不要寫 Windows 絕對路徑。
 
 ## 這次建議用到的 local skills
 

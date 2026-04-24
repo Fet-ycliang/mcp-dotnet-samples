@@ -403,3 +403,4 @@ FodyWeavers.xsd
 /outlook-email/.mcp.json
 .mcpregistry_github_token
 .mcpregistry_registry_token
+.gstack/

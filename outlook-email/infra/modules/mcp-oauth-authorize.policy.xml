@@ -45,12 +45,11 @@
                 {
                     return true;
                 }
-
-                var allowedRedirectUris = &quot;{{McpClaudeRedirectUrisCsv}}&quot;
-                    .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(uri =&gt; uri.Trim());
-
-                return !allowedRedirectUris.Any(uri =&gt; string.Equals(uri, redirectUri, StringComparison.OrdinalIgnoreCase));
+                var allowedRedirectUris = &quot;{{McpClaudeRedirectUrisCsv}}&quot;.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Select(uri =&gt; uri.Trim()).Where(uri =&gt; !string.IsNullOrEmpty(uri));
+                var localhostHost = &quot;http:\u002F\u002Flocalhost&quot;;
+                var loopbackHost = &quot;http:\u002F\u002F127.0.0.1&quot;;
+                var isLoopbackRequestedUri = redirectUri.StartsWith(localhostHost + &quot;:&quot;, StringComparison.OrdinalIgnoreCase) || redirectUri.StartsWith(localhostHost + &quot;/&quot;, StringComparison.OrdinalIgnoreCase) || redirectUri.StartsWith(loopbackHost + &quot;:&quot;, StringComparison.OrdinalIgnoreCase) || redirectUri.StartsWith(loopbackHost + &quot;/&quot;, StringComparison.OrdinalIgnoreCase);
+                return !allowedRedirectUris.Any(uri =&gt; string.Equals(uri, redirectUri, StringComparison.OrdinalIgnoreCase) || ((string.Equals(uri, localhostHost, StringComparison.OrdinalIgnoreCase) || string.Equals(uri, loopbackHost, StringComparison.OrdinalIgnoreCase)) &amp;&amp; isLoopbackRequestedUri));
             }">
                 <return-response>
                     <set-status code="400" reason="Bad Request" />
@@ -71,7 +70,8 @@
         <set-variable name="authorizeQueryString" value="@{
             var query = context.Request.Url.Query;
             var scopeValues = query.ContainsKey(&quot;scope&quot;) ? query[&quot;scope&quot;] : new string[0];
-            var scope = scopeValues.Length &gt; 0 ? Uri.UnescapeDataString(scopeValues[0]) : &quot;&quot;;
+            // MCP clients may send scope with + as space (form-urlencoded style); normalize to real space before splitting.
+            var scope = scopeValues.Length &gt; 0 ? Uri.UnescapeDataString(scopeValues[0].Replace(&quot;+&quot;, &quot;%20&quot;)) : &quot;&quot;;
             if (string.IsNullOrWhiteSpace(scope))
             {
                 scope = &quot;{{McpScope}} offline_access&quot;;
@@ -98,7 +98,12 @@
             var pairs = new System.Collections.Generic.List<string>();
             foreach (var item in query)
             {
-                if (string.Equals(item.Key, &quot;scope&quot;, StringComparison.OrdinalIgnoreCase))
+                // Drop scope (re-added below with the normalized value) and resource.
+                // Entra v2 doesn't honor RFC 8707 resource indicators; leaving resource= in
+                // the forwarded URL triggers AADSTS9010010 when it doesn't match the scope's
+                // app identifier URI. APIM validates audience downstream at /mcp instead.
+                if (string.Equals(item.Key, &quot;scope&quot;, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(item.Key, &quot;resource&quot;, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
