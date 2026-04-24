@@ -11,7 +11,7 @@
             </set-header>
             <set-body>@{
                 return JObject.FromObject(new {
-                    issuer = "https://login.microsoftonline.com/{{McpTenantId}}/v2.0",
+                    issuer = "{{McpOAuthBaseUrl}}",
                     authorization_endpoint = "{{McpOAuthBaseUrl}}/authorize",
                     token_endpoint = "{{McpOAuthBaseUrl}}/token",
                     registration_endpoint = "{{McpOAuthBaseUrl}}/register",
