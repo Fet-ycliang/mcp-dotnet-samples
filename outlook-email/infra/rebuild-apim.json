@@ -1,0 +1,652 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.39.26.7824",
+      "templateHash": "5059926580465126772"
+    }
+  },
+  "parameters": {
+    "resourceNameStem": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource naming stem, e.g. fet-outlook-email-bst. Used to derive apimName when apimNameOverride is empty."
+      }
+    },
+    "apimNameOverride": {
+      "type": "string",
+      "defaultValue": "",
+      "maxLength": 50,
+      "metadata": {
+        "description": "Optional. Explicit APIM service name. Overrides the apim-<resourceNameStem> default."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for the APIM instance."
+      }
+    },
+    "apimSku": {
+      "type": "string",
+      "defaultValue": "Developer",
+      "allowedValues": [
+        "Consumption",
+        "Developer",
+        "Basic",
+        "Basicv2",
+        "Standard",
+        "Standardv2",
+        "Premium"
+      ],
+      "metadata": {
+        "description": "APIM SKU. Developer is required for Internal VNet mode."
+      }
+    },
+    "apimVirtualNetworkType": {
+      "type": "string",
+      "defaultValue": "Internal",
+      "allowedValues": [
+        "None",
+        "External",
+        "Internal"
+      ],
+      "metadata": {
+        "description": "APIM virtual network deployment mode."
+      }
+    },
+    "virtualNetworkName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Name of the existing virtual network that contains the APIM subnet."
+      }
+    },
+    "apimSubnetName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Name of the existing subnet for APIM injection. The subnet must already have the correct prefix, NSG, and route table."
+      }
+    },
+    "publisherEmail": {
+      "type": "string",
+      "defaultValue": "noreply@microsoft.com",
+      "metadata": {
+        "description": "Publisher e-mail shown in the APIM portal."
+      }
+    },
+    "publisherName": {
+      "type": "string",
+      "defaultValue": "Microsoft",
+      "metadata": {
+        "description": "Publisher name shown in the APIM portal."
+      }
+    },
+    "managedIdentityResourceId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional. Resource ID of a user-assigned managed identity for APIM backend token acquisition."
+      }
+    },
+    "appInsightsInstrumentationKey": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional. Application Insights instrumentation key for APIM diagnostics logging."
+      }
+    },
+    "appInsightsId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional. Application Insights resource ID for APIM diagnostics logging."
+      }
+    },
+    "deployApimPrivateDns": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether to also (re-)create the private DNS A-records for this APIM instance."
+      }
+    },
+    "virtualNetworkResourceId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Resource ID of the virtual network to link the private DNS zones to. Required when deployApimPrivateDns is true."
+      }
+    },
+    "privateDnsZoneResourceGroupName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Resource group that hosts the APIM private DNS zones. Leave empty if the DNS zones are in the same resource group."
+      }
+    },
+    "existingVirtualNetworkLinkName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Existing VNet link name in the APIM private DNS zones. Supply this to reuse an existing link instead of creating a new one (avoids \"already linked\" conflicts)."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Tags applied to all resources."
+      }
+    }
+  },
+  "variables": {
+    "$fxv#0": {
+      "analysisServicesServers": "as",
+      "apiManagementService": "apim-",
+      "appConfigurationStores": "appcs-",
+      "appManagedEnvironments": "cae-",
+      "appContainerApps": "ca-",
+      "authorizationPolicyDefinitions": "policy-",
+      "automationAutomationAccounts": "aa-",
+      "blueprintBlueprints": "bp-",
+      "blueprintBlueprintsArtifacts": "bpa-",
+      "cacheRedis": "redis-",
+      "cdnProfiles": "cdnp-",
+      "cdnProfilesEndpoints": "cdne-",
+      "cognitiveServicesAccounts": "cog-",
+      "cognitiveServicesFormRecognizer": "cog-fr-",
+      "cognitiveServicesTextAnalytics": "cog-ta-",
+      "computeAvailabilitySets": "avail-",
+      "computeCloudServices": "cld-",
+      "computeDiskEncryptionSets": "des",
+      "computeDisks": "disk",
+      "computeDisksOs": "osdisk",
+      "computeGalleries": "gal",
+      "computeSnapshots": "snap-",
+      "computeVirtualMachines": "vm",
+      "computeVirtualMachineScaleSets": "vmss-",
+      "containerInstanceContainerGroups": "ci",
+      "containerRegistryRegistries": "cr",
+      "containerServiceManagedClusters": "aks-",
+      "databricksWorkspaces": "dbw-",
+      "dataFactoryFactories": "adf-",
+      "dataLakeAnalyticsAccounts": "dla",
+      "dataLakeStoreAccounts": "dls",
+      "dataMigrationServices": "dms-",
+      "dBforMySQLServers": "mysql-",
+      "dBforPostgreSQLServers": "psql-",
+      "devicesIotHubs": "iot-",
+      "devicesProvisioningServices": "provs-",
+      "devicesProvisioningServicesCertificates": "pcert-",
+      "documentDBDatabaseAccounts": "cosmos-",
+      "documentDBMongoDatabaseAccounts": "cosmon-",
+      "eventGridDomains": "evgd-",
+      "eventGridDomainsTopics": "evgt-",
+      "eventGridEventSubscriptions": "evgs-",
+      "eventHubNamespaces": "evhns-",
+      "eventHubNamespacesEventHubs": "evh-",
+      "hdInsightClustersHadoop": "hadoop-",
+      "hdInsightClustersHbase": "hbase-",
+      "hdInsightClustersKafka": "kafka-",
+      "hdInsightClustersMl": "mls-",
+      "hdInsightClustersSpark": "spark-",
+      "hdInsightClustersStorm": "storm-",
+      "hybridComputeMachines": "arcs-",
+      "insightsActionGroups": "ag-",
+      "insightsComponents": "appi-",
+      "keyVaultVaults": "kv-",
+      "kubernetesConnectedClusters": "arck",
+      "kustoClusters": "dec",
+      "kustoClustersDatabases": "dedb",
+      "logicIntegrationAccounts": "ia-",
+      "logicWorkflows": "logic-",
+      "machineLearningServicesWorkspaces": "mlw-",
+      "managedIdentityUserAssignedIdentities": "id-",
+      "managementManagementGroups": "mg-",
+      "migrateAssessmentProjects": "migr-",
+      "networkApplicationGateways": "agw-",
+      "networkApplicationSecurityGroups": "asg-",
+      "networkAzureFirewalls": "afw-",
+      "networkBastionHosts": "bas-",
+      "networkConnections": "con-",
+      "networkDnsZones": "dnsz-",
+      "networkExpressRouteCircuits": "erc-",
+      "networkFirewallPolicies": "afwp-",
+      "networkFirewallPoliciesWebApplication": "waf",
+      "networkFirewallPoliciesRuleGroups": "wafrg",
+      "networkFrontDoors": "fd-",
+      "networkFrontdoorWebApplicationFirewallPolicies": "fdfp-",
+      "networkLoadBalancersExternal": "lbe-",
+      "networkLoadBalancersInternal": "lbi-",
+      "networkLoadBalancersInboundNatRules": "rule-",
+      "networkLocalNetworkGateways": "lgw-",
+      "networkNatGateways": "ng-",
+      "networkNetworkInterfaces": "nic-",
+      "networkNetworkSecurityGroups": "nsg-",
+      "networkNetworkSecurityGroupsSecurityRules": "nsgsr-",
+      "networkNetworkWatchers": "nw-",
+      "networkPrivateDnsZones": "pdnsz-",
+      "networkPrivateLinkServices": "pl-",
+      "networkPublicIPAddresses": "pip-",
+      "networkPublicIPPrefixes": "ippre-",
+      "networkRouteFilters": "rf-",
+      "networkRouteTables": "rt-",
+      "networkRouteTablesRoutes": "udr-",
+      "networkTrafficManagerProfiles": "traf-",
+      "networkVirtualNetworkGateways": "vgw-",
+      "networkVirtualNetworks": "vnet-",
+      "networkVirtualNetworksSubnets": "snet-",
+      "networkVirtualNetworksVirtualNetworkPeerings": "peer-",
+      "networkVirtualWans": "vwan-",
+      "networkVpnGateways": "vpng-",
+      "networkVpnGatewaysVpnConnections": "vcn-",
+      "networkVpnGatewaysVpnSites": "vst-",
+      "notificationHubsNamespaces": "ntfns-",
+      "notificationHubsNamespacesNotificationHubs": "ntf-",
+      "operationalInsightsWorkspaces": "log-",
+      "portalDashboards": "dash-",
+      "powerBIDedicatedCapacities": "pbi-",
+      "purviewAccounts": "pview-",
+      "recoveryServicesVaults": "rsv-",
+      "resourcesResourceGroups": "rg-",
+      "searchSearchServices": "srch-",
+      "serviceBusNamespaces": "sb-",
+      "serviceBusNamespacesQueues": "sbq-",
+      "serviceBusNamespacesTopics": "sbt-",
+      "serviceEndPointPolicies": "se-",
+      "serviceFabricClusters": "sf-",
+      "signalRServiceSignalR": "sigr",
+      "sqlManagedInstances": "sqlmi-",
+      "sqlServers": "sql-",
+      "sqlServersDataWarehouse": "sqldw-",
+      "sqlServersDatabases": "sqldb-",
+      "sqlServersDatabasesStretch": "sqlstrdb-",
+      "storageStorageAccounts": "st",
+      "storageStorageAccountsVm": "stvm",
+      "storSimpleManagers": "ssimp",
+      "streamAnalyticsCluster": "asa-",
+      "synapseWorkspaces": "syn",
+      "synapseWorkspacesAnalyticsWorkspaces": "synw",
+      "synapseWorkspacesSqlPoolsDedicated": "syndp",
+      "synapseWorkspacesSqlPoolsSpark": "synsp",
+      "timeSeriesInsightsEnvironments": "tsi-",
+      "webServerFarms": "plan-",
+      "webSitesAppService": "app-",
+      "webSitesAppServiceEnvironment": "ase-",
+      "webSitesFunctions": "func-",
+      "webStaticSites": "stapp-"
+    },
+    "abbrs": "[variables('$fxv#0')]",
+    "normalizedStem": "[toLower(parameters('resourceNameStem'))]",
+    "apiManagementName": "[if(not(empty(parameters('apimNameOverride'))), parameters('apimNameOverride'), format('{0}{1}', variables('abbrs').apiManagementService, variables('normalizedStem')))]",
+    "apimSubnetResourceId": "[if(and(and(not(equals(parameters('apimVirtualNetworkType'), 'None')), not(empty(parameters('virtualNetworkName')))), not(empty(parameters('apimSubnetName')))), resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('virtualNetworkName'), parameters('apimSubnetName')), '')]",
+    "effectiveDnsRg": "[if(empty(parameters('privateDnsZoneResourceGroupName')), resourceGroup().name, parameters('privateDnsZoneResourceGroupName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('rebuild-apim-{0}', take(uniqueString(variables('apiManagementName'), resourceGroup().id), 8))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "apiManagementName": {
+            "value": "[variables('apiManagementName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "apimSku": {
+            "value": "[parameters('apimSku')]"
+          },
+          "apimVirtualNetworkType": {
+            "value": "[parameters('apimVirtualNetworkType')]"
+          },
+          "apimSubnetResourceId": {
+            "value": "[variables('apimSubnetResourceId')]"
+          },
+          "publisherEmail": {
+            "value": "[parameters('publisherEmail')]"
+          },
+          "publisherName": {
+            "value": "[parameters('publisherName')]"
+          },
+          "managedIdentityResourceId": {
+            "value": "[parameters('managedIdentityResourceId')]"
+          },
+          "appInsightsInstrumentationKey": {
+            "value": "[parameters('appInsightsInstrumentationKey')]"
+          },
+          "appInsightsId": {
+            "value": "[parameters('appInsightsId')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "3968038274386486219"
+            }
+          },
+          "parameters": {
+            "apiManagementName": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the API Management instance. Defaults to \"apim-<resourceSuffix>\"."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "The location of the API Management instance. Defaults to the resource group location."
+              }
+            },
+            "publisherEmail": {
+              "type": "string",
+              "defaultValue": "noreply@microsoft.com",
+              "metadata": {
+                "description": "The email address of the publisher. Defaults to \"noreply@microsoft.com\"."
+              }
+            },
+            "publisherName": {
+              "type": "string",
+              "defaultValue": "Microsoft",
+              "metadata": {
+                "description": "The name of the publisher. Defaults to \"Microsoft\"."
+              }
+            },
+            "apimLoggerName": {
+              "type": "string",
+              "defaultValue": "apim-logger",
+              "metadata": {
+                "description": "Name of the APIM Logger"
+              }
+            },
+            "apimLoggerDescription": {
+              "type": "string",
+              "defaultValue": "APIM Logger for OpenAI API",
+              "metadata": {
+                "description": "Description of the APIM Logger"
+              }
+            },
+            "apimSku": {
+              "type": "string",
+              "defaultValue": "Basicv2",
+              "allowedValues": [
+                "Consumption",
+                "Developer",
+                "Basic",
+                "Basicv2",
+                "Standard",
+                "Standardv2",
+                "Premium"
+              ],
+              "metadata": {
+                "description": "The pricing tier of this API Management service"
+              }
+            },
+            "appInsightsInstrumentationKey": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "The instrumentation key for Application Insights"
+              }
+            },
+            "appInsightsId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "The resource ID for Application Insights"
+              }
+            },
+            "apimVirtualNetworkType": {
+              "type": "string",
+              "defaultValue": "None",
+              "allowedValues": [
+                "None",
+                "External",
+                "Internal"
+              ],
+              "metadata": {
+                "description": "The APIM virtual network deployment mode."
+              }
+            },
+            "apimSubnetResourceId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional subnet resource ID used when APIM is deployed in a virtual network."
+              }
+            },
+            "managedIdentityResourceId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional user-assigned managed identity resource ID that APIM should use for backend token acquisition."
+              }
+            }
+          },
+          "variables": {
+            "apimNetworkProperties": "[if(not(equals(parameters('apimVirtualNetworkType'), 'None')), createObject('virtualNetworkType', parameters('apimVirtualNetworkType'), 'virtualNetworkConfiguration', createObject('subnetResourceId', parameters('apimSubnetResourceId'))), createObject('virtualNetworkType', 'None'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.ApiManagement/service",
+              "apiVersion": "2024-06-01-preview",
+              "name": "[parameters('apiManagementName')]",
+              "location": "[parameters('location')]",
+              "identity": "[if(not(empty(parameters('managedIdentityResourceId'))), createObject('type', 'UserAssigned', 'userAssignedIdentities', createObject(format('{0}', parameters('managedIdentityResourceId')), createObject())), null())]",
+              "sku": {
+                "name": "[parameters('apimSku')]",
+                "capacity": 1
+              },
+              "properties": "[union(createObject('publisherEmail', parameters('publisherEmail'), 'publisherName', parameters('publisherName')), variables('apimNetworkProperties'))]"
+            },
+            {
+              "condition": "[and(not(empty(parameters('appInsightsId'))), not(empty(parameters('appInsightsInstrumentationKey'))))]",
+              "type": "Microsoft.ApiManagement/service/loggers",
+              "apiVersion": "2021-12-01-preview",
+              "name": "[format('{0}/{1}', parameters('apiManagementName'), parameters('apimLoggerName'))]",
+              "properties": {
+                "credentials": {
+                  "instrumentationKey": "[parameters('appInsightsInstrumentationKey')]"
+                },
+                "description": "[parameters('apimLoggerDescription')]",
+                "isBuffered": false,
+                "loggerType": "applicationInsights",
+                "resourceId": "[parameters('appInsightsId')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.ApiManagement/service', parameters('apiManagementName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.ApiManagement/service', parameters('apiManagementName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('apiManagementName')]"
+            },
+            "gatewayUrl": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.ApiManagement/service', parameters('apiManagementName')), '2024-06-01-preview').gatewayUrl]"
+            },
+            "privateIpAddress": {
+              "type": "string",
+              "value": "[if(empty(reference(resourceId('Microsoft.ApiManagement/service', parameters('apiManagementName')), '2024-06-01-preview').privateIPAddresses), '', reference(resourceId('Microsoft.ApiManagement/service', parameters('apiManagementName')), '2024-06-01-preview').privateIPAddresses[0])]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "condition": "[and(parameters('deployApimPrivateDns'), not(empty(parameters('virtualNetworkResourceId'))))]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('rebuild-apim-dns-{0}', take(uniqueString(variables('apiManagementName'), resourceGroup().id), 8))]",
+      "resourceGroup": "[variables('effectiveDnsRg')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "apiManagementName": {
+            "value": "[variables('apiManagementName')]"
+          },
+          "privateIpAddress": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('rebuild-apim-{0}', take(uniqueString(variables('apiManagementName'), resourceGroup().id), 8))), '2025-04-01').outputs.privateIpAddress.value]"
+          },
+          "virtualNetworkResourceId": {
+            "value": "[parameters('virtualNetworkResourceId')]"
+          },
+          "existingVirtualNetworkLinkName": {
+            "value": "[parameters('existingVirtualNetworkLinkName')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "15382745633763128476"
+            }
+          },
+          "parameters": {
+            "apiManagementName": {
+              "type": "string",
+              "metadata": {
+                "description": "The API Management service name used in the default internal hostnames."
+              }
+            },
+            "privateIpAddress": {
+              "type": "string",
+              "metadata": {
+                "description": "The internal private IP address of the APIM instance."
+              }
+            },
+            "virtualNetworkResourceId": {
+              "type": "string",
+              "metadata": {
+                "description": "The virtual network resource ID that should resolve the APIM private hostnames."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags applied to the private DNS resources."
+              }
+            },
+            "existingVirtualNetworkLinkName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional existing private DNS virtual network link name to adopt when the shared zones are already linked to the target VNet."
+              }
+            }
+          },
+          "variables": {
+            "zoneNames": [
+              "azure-api.net",
+              "portal.azure-api.net",
+              "developer.azure-api.net",
+              "management.azure-api.net",
+              "scm.azure-api.net"
+            ],
+            "linkName": "[if(not(empty(parameters('existingVirtualNetworkLinkName'))), parameters('existingVirtualNetworkLinkName'), format('link-{0}', take(uniqueString(parameters('apiManagementName'), parameters('virtualNetworkResourceId')), 16)))]"
+          },
+          "resources": [
+            {
+              "copy": {
+                "name": "privateDnsZones",
+                "count": "[length(variables('zoneNames'))]"
+              },
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2020-06-01",
+              "name": "[variables('zoneNames')[copyIndex()]]",
+              "location": "global",
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "copy": {
+                "name": "privateDnsZoneLinks",
+                "count": "[length(variables('zoneNames'))]"
+              },
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2020-06-01",
+              "name": "[format('{0}/{1}', variables('zoneNames')[copyIndex()], variables('linkName'))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "registrationEnabled": false,
+                "virtualNetwork": {
+                  "id": "[parameters('virtualNetworkResourceId')]"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', variables('zoneNames')[copyIndex()])]"
+              ]
+            },
+            {
+              "copy": {
+                "name": "apimHostRecords",
+                "count": "[length(variables('zoneNames'))]"
+              },
+              "type": "Microsoft.Network/privateDnsZones/A",
+              "apiVersion": "2020-06-01",
+              "name": "[format('{0}/{1}', variables('zoneNames')[copyIndex()], parameters('apiManagementName'))]",
+              "properties": {
+                "ttl": 3600,
+                "aRecords": [
+                  {
+                    "ipv4Address": "[parameters('privateIpAddress')]"
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', variables('zoneNames')[copyIndex()])]"
+              ]
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', format('rebuild-apim-{0}', take(uniqueString(variables('apiManagementName'), resourceGroup().id), 8)))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "apimName": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', format('rebuild-apim-{0}', take(uniqueString(variables('apiManagementName'), resourceGroup().id), 8))), '2025-04-01').outputs.name.value]"
+    },
+    "apimGatewayUrl": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', format('rebuild-apim-{0}', take(uniqueString(variables('apiManagementName'), resourceGroup().id), 8))), '2025-04-01').outputs.gatewayUrl.value]"
+    },
+    "apimPrivateIpAddress": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', format('rebuild-apim-{0}', take(uniqueString(variables('apiManagementName'), resourceGroup().id), 8))), '2025-04-01').outputs.privateIpAddress.value]"
+    }
+  }
+}

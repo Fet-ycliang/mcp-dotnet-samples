@@ -33,6 +33,8 @@
 | `src\McpSamples.OutlookEmail.HybridApp\Configurations\OutlookEmailAppSettings.cs` | `--tenant-id`、`--client-id`、`--client-secret` 解析 |
 | `src\McpSamples.OutlookEmail.HybridApp\Tools\OutlookEmailTool.cs` | `send_email` MCP tool 介面、描述與結果處理 |
 | `src\McpSamples.OutlookEmail.HybridApp\Services\OutlookEmailService.cs` | 驗證、地址解析、附件處理、Graph `SendMail` 呼叫 |
+| `src\McpSamples.OutlookEmail.HybridApp\Tools\PptxPresentationTool.cs` | `generate_pptx_attachment` MCP tool 介面、參數描述與結果處理 |
+| `src\McpSamples.OutlookEmail.HybridApp\Services\PptxPresentationService.cs` | 投影片排版、Open XML PowerPoint 產生與 `GeneratedAttachmentStore` 暫存 |
 | `src\McpSamples.OutlookEmail.HybridApp\Tools\XlsxAttachmentTool.cs` | `generate_xlsx_attachment` MCP tool 介面、參數描述與結果處理 |
 | `src\McpSamples.OutlookEmail.HybridApp\Services\XlsxAttachmentService.cs` | 工作表/資料表/圖表驗證、Open XML Excel 產生與 `GeneratedAttachmentStore` 暫存 |
 | `src\McpSamples.OutlookEmail.HybridApp\Models\` | tool input / output models |
@@ -64,7 +66,7 @@
 - `main` workflow 已改成 **重建 azd env + 同步 ACA secrets + `az acr build` + `deploy-containerapp-ready-image.ps1`**，故意避開 `azd` 預設產生的 `outlook-email-fet-outlook-email-bst:azd-deploy-<unix>` naming，改用 **`fetimageacr.azurecr.io/fet-outlook-email-ca:<taipei-timestamp>`**。
 - ACA secret contract 目前固定保留兩顆：`graph-client-secret` 與 `mcp-oauth-client-secret`。前者給 **Graph outbound auth**，後者給 **ACA inbound MCP OAuth**；不要混用，也不要只更新其中一顆。
 - `MCP_ENTRA_CLIENT_SECRET` 與 `MCP_DIRECT_CLIENT_SECRET` 都支援 `@Microsoft.KeyVault(SecretUri=...)`，`main` workflow 與 `deploy-containerapp-ready-image.ps1` 會先同步這兩顆 ACA secret，再做 image rollout；`MCP_OAUTH_CLIENT_SECRET` 只保留 legacy fallback。
-- **目前 live Key Vault** 是 `outlook-email-kv`，位於 `apim-app-bst-rg`。它目前已補上 private endpoint `pe-outlook-email-kv`（`PE_Subnet`）與 `aibde-common-rg/privatelink.vaultcore.azure.net`，但 migration 期間仍暫時保留 `publicNetworkAccess=Enabled`。
+- **目前 live Key Vault** 是 `outlook-email-kv`，位於 `apim-app-bst-rg`。它目前已補上 private endpoint `pe-outlook-email-kv`（`PE_Subnet`）與 `aibde-common-rg/privatelink.vaultcore.azure.net`；`main` workflow 已預設把 `publicNetworkAccess` 關成 `Disabled`。若本機 / jumpbox 沒有 private DNS / VNet reachability，請先在自己的 env 覆寫 `AZURE_KEY_VAULT_PUBLIC_NETWORK_ACCESS=Enabled`，再 provision。
 - `outlook-email-kv` 目前是 **RBAC mode**；不要再用 `az keyvault set-policy`。operator / pipeline 若要寫 secret，走 Azure RBAC；ACA 的 user-assigned managed identity 若要讀 secret，也走 Azure RBAC。
 - 目前 repo / azd env / GitHub Actions secrets 內的 `@Microsoft.KeyVault(SecretUri=...)` 都是 **versioned URI**。之後 rotate `graph-client-secret` 或 `mcp-oauth-client-secret` 時，除了寫新值到 Key Vault，也要同步更新 reference 字串本身。
 - repo 內的 checked-in infra 現在已支援用 `AZURE_DEPLOY_KEY_VAULT=true`、`AZURE_KEY_VAULT_NAME=outlook-email-kv`、`AZURE_DEPLOY_KEY_VAULT_PRIVATE_ENDPOINT=true`、`AZURE_KEY_VAULT_PUBLIC_NETWORK_ACCESS=Enabled|Disabled` 來接手管理 vault / RBAC / private endpoint；`main` workflow 目前預設把 Key Vault public network access 關成 `Disabled`。
@@ -96,6 +98,10 @@
   - `OutlookEmailService`：驗證、地址解析、附件 Base64 檢查、Graph payload 建立與發送
   - `GraphServiceClient`：在 `Program.cs` 註冊
 - `host.json` 與 `mcp-handler\function.json` 代表此 sample 可作為 Azure Functions custom handler，並以 catch-all route 將 HTTP 要求轉送給 app。
+- **天條（公司業務資料必須走 intranet）的 SaaS 例外**：Exchange Online（`Mail.Send`）與 Microsoft Entra ID（`login.microsoftonline.com`）本質上只有 internet 入口，走 internet + TLS 是合規設計，不視為天條違規。天條的保護對象是「公司擁有的業務資料」，OAuth token 本身不屬之。若要審查 data path 合規，重點放在 email content 是否透過私網（NCC / private endpoint）抵達 ACA，而不是 Entra token endpoint 的 routing。
+- **ACA direct path 的 inbound 安全性 = 純網路隔離**：direct ACA 無 `authV2`（platform Easy Auth），也沒有在 ASP.NET Core pipeline 加 `UseAuthentication()`；security 完全依賴 **private ingress（external 值設為 managedContainerAppIngressExternal）+ NCC private link**。`McpAuth__*` env var 系列（`McpAuth__Enabled`、`McpAuth__TrustEasyAuthHeaders`、`McpAuth__TenantId`、`McpAuth__ClientId`、`McpAuth__AllowedCallerAppIds__*`）**已從 `resources.bicep` 移除**，它們只存在 `ModelContextProtocol.AspNetCore.dll` binary 中，從未被 app 讀取，不影響任何行為。
+- **外部 M2M caller 的 role grant 已模組化**：`infra/modules/entra-app-role-assignment.bicep` 可獨立執行或由 `resources.bicep` 迴圈呼叫；`resources.bicep` 新增 `externalCallerAppIdsCsv` 參數（對應 `MCP_EXTERNAL_CALLER_APP_IDS_CSV` azd env）。Grant 清單與時機說明在 `README.md` 的「Grant 作業清單」小節。
+- **Databricks intranet-only 與 `login.microsoftonline.com`**：若 Databricks subnet 的 egress 完全封在 intranet，token 取得（`login.microsoftonline.com`）仍需要 internet 出口；可在 Databricks subnet 加 `Microsoft.AzureActiveDirectory` Service Endpoint 讓流量走 Azure backbone 而不繞出公網，或透過公司 proxy 轉送。NCC M2M path 本身的 MCP traffic（`/mcp`）是走 private link，不受此影響。
 
 ## MCP 連線模式
 - `.vscode\mcp.stdio.local.json`：本機 STDIO
@@ -129,8 +135,8 @@
 
 | 變更類型 | 至少同步檢查哪些檔案 |
 | --- | --- |
-| Tool 參數、描述或輸出結果 | `Tools\OutlookEmailTool.cs`、`Interfaces\IOutlookEmailTool.cs`、相關 `Models\`、`README.md` |
-| 驗證、地址解析、附件處理、Graph payload | `Services\OutlookEmailService.cs`、`Interfaces\IOutlookEmailService.cs`、相關 `Models\` |
+| Tool 參數、描述或輸出結果 | `Tools\OutlookEmailTool.cs`（含 `IOutlookEmailTool`）、相關 `Models\`、`README.md` |
+| 驗證、地址解析、附件處理、Graph payload | `Services\OutlookEmailService.cs`（含 `IOutlookEmailService`）、相關 `Models\` |
 | CLI 參數或設定欄位 | `Configurations\OutlookEmailAppSettings.cs`、`README.md`、`local.settings.sample.json` |
 | Graph 認證或寄信流程 | `Program.cs`、`README.md`、`Register-App.ps1`、`register-app.sh` |
 | MCP 連線模式、本機啟動方式或 Functions 路由 | `README.md`、`.vscode\mcp*.json`、必要時 `host.json`、`mcp-handler\function.json` |
@@ -154,6 +160,8 @@
 - `generate_xlsx_attachment` 與 `generate_pptx_attachment` 共用 `send_email.generatedAttachmentIds`；若附件是伺服器端生成，優先傳 `generatedAttachmentId`，不要把整份 `.xlsx` Base64 搬進 remote MCP payload。
 - `generate_xlsx_attachment` 目前是 **chart-first**：`tables[].rows` 每格值都用字串輸入，再依 `columns[].type` 解析；圖表的 `valueColumns` 必須指向 `number` 欄位，且 `pie` 只能指定一個 value column。
 - Databricks external MCP 若要打 internal/private APIM，M2M 欄位就算填對，仍可能因 private DNS / reachability 卡在 `tools/list`；若同一組 caller app 直打 APIM `/mcp initialize` / `/mcp tools/list` 成功，先把問題歸在 Databricks 到 private APIM 的可達性，而不是 tool 定義本身。
+- **`McpAuth__*` env var 是 dead code**：`resources.bicep` 曾把 `McpAuth__Enabled`、`McpAuth__TrustEasyAuthHeaders`、`McpAuth__TenantId`、`McpAuth__ClientId`、`McpAuth__AllowedCallerAppIds__*` 注入 ACA env，但 `BuildApp()` 從未呼叫 `UseAuthentication()` / `UseAuthorization()`，這些值永遠不被讀取。已確認移除，不影響任何功能。日後若要在 direct ACA 路徑加 inbound auth，必須同時在 `Program.cs` 加 auth middleware 才會生效。
+- **`directMcpServicePrincipal` 的觸發條件要包含外部 caller grant 需求**：原條件 `deployApimFacade && !empty(effectiveDirectMcpClientId)` 不足——只有外部 M2M caller（`externalCallerAppIdsCsv`）需要 grant 卻不部署 APIM facade 時，SP lookup 會被跳過。正確做法：引入 `needDirectMcpServicePrincipal = !empty(effectiveDirectMcpClientId) && (deployApimFacade || !empty(externalCallerAppIdList))`。
 - 遠端 `/mcp` 目前是 SSE 回應；若用 `curl` / PowerShell 除錯，記得解析 `data:` 行。
 - 但 `initialize` 也可能直接回一般 JSON；remote MCP parser 不要只假設一種 response shape。
 - `tools/call` 的結果在某些 remote path 下可能被包在 `result.content[0].text`，不要只讀 `structuredContent`。

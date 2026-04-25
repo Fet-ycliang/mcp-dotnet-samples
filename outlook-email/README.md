@@ -785,13 +785,13 @@ docker push $imageRef
      azd env set AZURE_APIM_INTERNAL_VNET true
      azd env set AZURE_EXISTING_VNET_NAME "apim-bst-vnet"
      azd env set AZURE_APIM_SUBNET_NAME "apim-subnet"
-     azd env set AZURE_APIM_SUBNET_ADDRESS_PREFIX "172.18.78.0/25"
+     azd env set AZURE_APIM_SUBNET_ADDRESS_PREFIX "172.18.78.0/28"
      azd env set AZURE_APIM_SUBNET_ROUTE_TABLE_RESOURCE_ID "/subscriptions/<subscription-id>/resourceGroups/NetworkWatcherRG/providers/Microsoft.Network/routeTables/DG-Route-APIM"
      azd env set AZURE_APIM_SUBNET_NSG_RESOURCE_ID "/subscriptions/<subscription-id>/resourceGroups/<network-rg>/providers/Microsoft.Network/networkSecurityGroups/<apim-subnet-nsg>"
      azd env set AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME "aibde-common-rg"
      ```
 
-      > 這條 internal APIM 路徑目前仍假設你是**重用既有 VNet / subnet**。若只提供 `AZURE_APIM_SUBNET_NAME`，Bicep 只會直接參考既有 subnet；若 `AZURE_APIM_SUBNET_ADDRESS_PREFIX` 也有值，Bicep 會在該既有 VNet 內**更新 APIM subnet 的 address prefix**，適合像 `172.18.78.0/25` 這種調整。
+      > 這條 internal APIM 路徑目前仍假設你是**重用既有 VNet / subnet**。若只提供 `AZURE_APIM_SUBNET_NAME`，Bicep 只會直接參考既有 subnet；若 `AZURE_APIM_SUBNET_ADDRESS_PREFIX` 也有值，Bicep 會在該既有 VNet 內**更新 APIM subnet 的 address prefix**，適合像 `172.18.78.0/28` 這種調整。注意：若該 subnet 上已有 active allocations，Azure 不允許原地縮編，應改走新 subnet 建立 + APIM 遷移。
       >
       > 這條更新路徑仍要求 `AZURE_APIM_SUBNET_NAME` 對應的 subnet **不能有 delegation**。template 會把 delegation 明確設為空陣列；若 Azure 不接受該 subnet 原地縮編 / 調整，部署就會失敗，這時應改走**新 subnet 遷移**而不是只改參數。
       >
@@ -799,11 +799,11 @@ docker push $imageRef
       >
       > 若這條 APIM subnet 還依賴額外的 service endpoints 或其他 subnet 細節，請先盤點並在變更前明確處理；不要假設 template 會自動保留所有既有屬性。
       >
-      > **這次實測結果（`apim-app-bst-rg / apim-bst-vnet / apim-subnet`）**：目前 live `apim-subnet` 是 **`172.18.78.0/24`**，且已有 APIM 產生的 active allocations。嘗試直接改成 **`172.18.78.0/25`** 時，不論是 `az network vnet subnet update` 還是 `azd provision`，Azure 都回：
+      > **歷史實測記錄（`apim-app-bst-rg / apim-bst-vnet / apim-subnet`）**：初始 `apim-subnet` 是 **`172.18.78.0/24`**，曾嘗試直接縮成 **`172.18.78.0/25`**，不論是 `az network vnet subnet update` 還是 `azd provision`，Azure 都回：
       >
       > `InUsePrefixCannotBeDeleted: IpPrefix 172.18.78.0/24 on Subnet apim-subnet has active allocations and cannot be deleted.`
       >
-      > 這代表目前這條 subnet **不能原地縮編**；若目標真的要 `/25`，應改走 **新 subnet 建立 + APIM 遷移**，不要再預期只靠改 env / Bicep 參數就能直接收斂。
+      > 最終改走 **新 subnet 建立 + APIM 遷移**，目前 live `apim-subnet` 已為 **`172.18.78.0/28`**。遇到相同情境不要再預期只靠改 env / Bicep 參數就能直接原地縮編。
       >
       > **IP sizing 參考（給後面的人快速估算）**：
       >
@@ -819,7 +819,7 @@ docker push $imageRef
       > - **`/25`**：128 個總 IP，扣掉 Azure 保留 5 個後，剩 **123 個可用 IP**
       > - **`/24`**：256 個總 IP，扣掉 Azure 保留 5 個後，剩 **251 個可用 IP**
       >
-      > 換句話說，這次卡住的原因**不是 `/25` 容量不夠**；真正的問題是目前 live `apim-subnet` 的 **`/24` prefix 已有 active allocations**，Azure 不允許直接刪掉舊 prefix 後原地縮成 `/25`。
+      > 換句話說，當時卡住的原因**不是 `/28` 容量不夠**；真正的問題是原有 `/24` prefix 已有 active allocations，Azure 不允許直接刪掉舊 prefix 後原地縮編。最終解法是建新 subnet 並遷移 APIM。
       >
       > 目前實際踩到的最小必要規則至少包含：
       > - **Inbound** `ApiManagement` -> `VirtualNetwork` TCP `3443`
@@ -1403,6 +1403,254 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 
 > 若在 **Windows PowerShell** 下用 `curl.exe` 送中文 JSON，**不要直接用 `--data-raw`**。這次實測最穩定的方式是：先把 request body 寫成 **UTF-8 檔案**，再用 `curl.exe --data-binary @body.json`；否則很容易在主旨 / 內文 / slide text 上看到亂碼。
 
+<a id="auth-identity-design"></a>
+## 認證身份設計一覽
+
+本章節集中說明這套系統裡**所有用到的 Microsoft Entra service principal 與 Microsoft Entra managed identity**，並用端對端資料流圖比較兩條進站路徑的差異。目的是讓讀者不需要反覆翻閱各操作章節，就能掌握整體的權限設計與技術債全景。
+
+> [!NOTE]
+> **天條：公司業務資料必須透過 intranet 傳輸**
+>
+> 凡是屬於**公司業務資料**（電子郵件主旨、內文、附件等）的傳輸路徑，原則上一律透過私有網路（Azure VNet、Private Link、NCC Serverless）傳遞，**不得在非必要情況下走公開 internet**。
+>
+> **例外：SaaS 服務的固有網路路徑**
+> 若目標系統是 Microsoft 365（Exchange Online）、Databricks 等**雲端 SaaS 服務**，其服務端點本身僅透過公開 internet 提供（不提供 Azure Private Link 或 VNet integration），則以 **TLS 加密**透過 internet 存取此類 SaaS 服務屬於**合規的設計**，不算天條違例。
+>
+> Microsoft Entra ID 認證流程（OAuth 2.0 token exchange）使用的 JWT token 屬於 **Microsoft 平台認證基礎設施的憑證**，不是本公司的業務資料，亦不在此天條管制範圍之內。
+
+### 設計原則
+
+這個系統有**四個獨立的認證責任面**，彼此不共用身份：
+
+| 責任面 | 流向 | 說明 |
+| --- | --- | --- |
+| MCP inbound（APIM retained path） | 外部 client → APIM | APIM `validate-jwt` 策略驗證 Bearer token；resource application = `apim-mcp` |
+| MCP inbound（direct ACA path） | 外部 client → ACA | Azure Container Apps 的 Microsoft Entra ID 認證（Easy Auth）驗 Bearer token；resource application = `mcpEntraApp` |
+| APIM → ACA backend | APIM → ACA | APIM 以 user-assigned managed identity 向 Microsoft Entra ID 取 ACA 的 Bearer token，再轉發 |
+| ACA / Function → Microsoft Graph | ACA → Graph | 實際寄信；以 Microsoft Entra managed identity 或 service principal 取得 `Mail.Send` 應用程式權限 |
+
+**split-auth 前**是一顆 app 全包，**split-auth 後**直接路徑（`MCP_DIRECT_*`）與 APIM 路徑（`MCP_APIM_RESOURCE_*`）已分開。每條線的 client ID、scope、token 版本都不同，不能混用。
+
+---
+
+### Service Principal 全景表
+
+| # | 身份 | App 名稱 | Client ID | 應用程式類型 | Access token 版本 | 角色定位 | 對應 azd env |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | **APIM resource application** | `apim-mcp` | `ddfcc64c-b3c5-419f-a2c6-c3abed72b64d` | Confidential client | v2.0（`requestedAccessTokenVersion=2`，Microsoft identity platform） | APIM `validate-jwt` 策略的 token audience；對外暴露 delegated permission scope `mcp.access` 及 application role `access_as_application` | `MCP_APIM_RESOURCE_CLIENT_ID` |
+| 2 | **Direct ACA resource application** | `mcpEntraApp` | `87123f9d-6cf0-4672-9003-c8eba016749d` | Confidential client | v1.0（`requestedAccessTokenVersion=null`，Azure AD v1.0 endpoint） | ACA Easy Auth 的 token audience；對外暴露 delegated permission scope `user_impersonation` / `mcp.access` 及 application role `access_as_application` | `MCP_DIRECT_CLIENT_ID` |
+| 3 | **Claude Code public client application** | *(組織 Entra tenant 內已建)* | `f4d7461b-...` | Public client（無 client secret） | v2.0 | Authorization Code Grant with PKCE（RFC 7636）的 client；使用 `http://localhost` loopback redirect URI wildcard（RFC 8252 §7.3）；僅設定 client ID，不保存 client secret | `MCP_CLAUDE_CLIENT_ID` |
+| 4 | **Databricks external MCP caller application** | `DatabricksAgent` | `e11ff460-a5c8-47a8-8d10-9e0a04233a4e` | Confidential client | v1.0（因 resource application 為 `mcpEntraApp`） | Client Credentials Grant（RFC 6749 §4.4）的呼叫端；須預先在目標 resource application 完成 `access_as_application` application role assignment | `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` |
+| 5 | **Microsoft Graph 出站身份** | User-assigned managed identity（優先）或 service principal（`MCP_ENTRA_*`） | *(由 ACA / Function App 的 managed identity 物件決定)* | Microsoft Entra managed identity 優先 | 不適用（outbound 向 Graph 取 token） | 實際向 Microsoft Graph 呼叫 `Mail.Send`（Application permission）完成寄信；與 MCP transport 進站認證的 #1~#4 完全隔離 | `MCP_ENTRA_*`（service principal 模式）；managed identity 模式不需要此組設定 |
+
+> **重要區分**：`#1~#4` 是 MCP transport 層的 Microsoft Entra application identity（進站驗證）；`#5` 是 application 層出站呼叫 Microsoft Graph 的身份（寄信）。這兩個層次的 credential 必須分開管理：不要讓 Databricks caller application 同時持有 `access_as_application`（MCP transport 進站）與 `Mail.Send`（Microsoft Graph 出站）兩種權限，否則將違反最小權限原則（Principle of Least Privilege）。
+
+---
+
+### 路徑 A：Databricks External MCP — Client Credentials Grant (RFC 6749 §4.4)
+
+Databricks 使用 **Client Credentials Grant（RFC 6749 §4.4，即 Machine-to-Machine / M2M）**，無需使用者互動。呼叫端以 service principal 的 client ID + client secret 直接向 Microsoft Entra ID token endpoint 換取 application access token（app-only access token），再以 Bearer scheme 呼叫 MCP server。MCP spec 在此路徑下不需要 OAuth Authorization Server Metadata 自動發現（RFC 8414），token 由 Databricks 外部自行取得後夾帶進 HTTP 請求。
+
+**目前 live 路徑：Databricks → ACA direct path（走 intranet / NCC private link）**
+
+> APIM 部署模式為 VNet internal injection（Developer SKU），閘道 IP `172.18.78.4` 屬於公司內部私有 IP，透過 Azure Private DNS 解析；Databricks managed proxy 無法到達這條 intranet APIM 路徑，因此改走 ACA direct path。Databricks 透過 NCC（Serverless Network Connectivity）建立 private link 到 ACA，整條流量**不經過公開 internet**。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant DB as Databricks Genie<br/>(DatabricksAgent e11ff460)
+    participant Entra as Entra ID<br/>tenant bb5ad653
+    participant ACA as ACA direct path<br/>fet-outlook-email-ca<br/>Easy Auth (mcpEntraApp 87123f9d)
+    participant Graph as Microsoft Graph<br/>Mail.Send
+
+    DB->>Entra: POST /oauth2/v2.0/token (internet → Microsoft Entra ID)<br/>grant_type=client_credentials<br/>scope=api://87123f9d-.../.default<br/>client_id=e11ff460 / client_secret=***
+    Note over Entra: 驗 DatabricksAgent 已在<br/>mcpEntraApp 完成 access_as_application<br/>application role assignment
+    Entra-->>DB: application access token（app-only）<br/>aud=api://87123f9d-...<br/>iss=https://sts.windows.net/&lt;tenant&gt;/ (v1.0 token)<br/>roles=[access_as_application]
+
+    DB->>ACA: POST /mcp（intranet：NCC private link → ACA private endpoint）<br/>Authorization: Bearer &lt;token&gt;<br/>MCP-Protocol-Version: 2025-03-26
+
+    Note over ACA: Microsoft Entra ID-based authentication（Easy Auth）<br/>驗 audience=api://87123f9d-...<br/>驗 issuer=sts.windows.net<br/>MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV<br/>caller allowlist 放行 e11ff460
+
+    ACA-->>DB: initialize / tools/list
+
+    DB->>ACA: tools/call send_email
+    ACA->>Graph: Mail.Send（internet — Exchange Online 是 SaaS，TLS 加密；合規）
+    Graph-->>ACA: 202 Accepted
+    ACA-->>DB: MCP tool result
+```
+
+**填表對照（Databricks external MCP 連線 UI）**
+
+| 欄位 | 填什麼 | 說明 |
+| --- | --- | --- |
+| Host | ACA private FQDN（intranet，走 NCC private link） | 不是 APIM gateway（private/internal，Databricks managed proxy 不可達）；不是 Microsoft Entra token endpoint |
+| Port | 443 | HTTPS over TLS |
+| Client ID | `e11ff460-a5c8-47a8-8d10-9e0a04233a4e`（DatabricksAgent） | Caller application 的 Application (client) ID，不是 resource application 的 ID |
+| Client secret | DatabricksAgent 的 client secret（password credential） | 對應 Client Credentials Grant 的 `client_secret` 參數 |
+| OAuth scope | `api://87123f9d-6cf0-4672-9003-c8eba016749d/.default` | Resource application 的 `.default` scope；Microsoft Entra ID 會自動帶入所有已 consent 的 application permissions（含 `access_as_application` role） |
+| Token endpoint | `https://login.microsoftonline.com/bb5ad653-221f-4b94-9c26-f815e04eef40/oauth2/v2.0/token` | Microsoft Entra ID v2.0 token endpoint（Microsoft identity platform） |
+| Base path | `/mcp` | MCP Streamable HTTP transport 的入口路徑 |
+
+---
+
+### 路徑 B：Claude Code / Copilot CLI — Authorization Code Grant with PKCE (RFC 7636)
+
+Claude Code 使用 **Authorization Code Grant with Proof Key for Code Exchange（PKCE，RFC 7636）**，這是 MCP spec 2025-03-26 版定義的標準 transport 認證機制。MCP client 首先透過 **OAuth 2.0 Protected Resource Metadata（RFC 9728，`/.well-known/oauth-protected-resource`）** 自動發現授權伺服器位置，再透過 **Dynamic Client Registration Protocol（DCR，RFC 7591）** 向 APIM OAuth facade 登錄 redirect URI；使用者在瀏覽器完成 Microsoft Entra ID 互動式登入後，取得的 access token 與 refresh token 由 Claude Code 自動管理（存於 `~/.claude/.credentials.json`）。
+
+**目前 live 路徑：Claude Code → APIM retained path（intranet）→ ACA backend（intranet）**
+
+> Claude Code 與 APIM 的通訊**走 intranet 路徑**：APIM gateway `apim-fet-outlook-email.azure-api.net` 透過 Azure Private DNS 解析到私有 IP `172.18.78.4`，整條從 Claude Code 開發機到 ACA backend 的 MCP 請求均在公司私有網路內完成。OAuth 授權流程的 `/authorize` redirect 與 token exchange 仍需要 Claude Code 開發機能存取 Microsoft Entra ID 端點（`login.microsoftonline.com`，走 internet 或 corporate proxy）。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant CC as Claude Code<br/>(MCP v2 client)
+    participant APIM as APIM OAuth facade<br/>apim-fet-outlook-email<br/>/mcp-oauth/*
+    participant Entra as Entra ID<br/>tenant bb5ad653
+    participant ACA as ACA backend<br/>fet-outlook-email-ca
+    participant Graph as Microsoft Graph<br/>Mail.Send
+
+    CC->>APIM: GET /mcp-oauth/.well-known/oauth-protected-resource（intranet）
+    Note over APIM: OAuth 2.0 Protected Resource Metadata（RFC 9728）
+    APIM-->>CC: { authorization_servers: [".../mcp-oauth"] }<br/>MCP client 從此知道授權伺服器入口
+
+    CC->>APIM: POST /mcp-oauth/register（intranet）<br/>Dynamic Client Registration（RFC 7591）<br/>{ redirect_uris: ["http://localhost:PORT/cb"] }
+    Note over APIM: /register policy 讀取 request body redirect_uris<br/>echo 回去（RFC 7591 compliant）
+    APIM-->>CC: { client_id: f4d7461b-..., redirect_uris: [...] }
+
+    CC->>APIM: GET /mcp-oauth/authorize?（intranet）<br/>client_id=f4d7461b-...&code_challenge=PKCE（RFC 7636）<br/>&scope=api://ddfcc64c-.../mcp.access offline_access<br/>&redirect_uri=http://localhost:PORT/cb
+    Note over APIM: /authorize policy 移除 resource 參數<br/>（MCP RFC 8707 Resource Indicators，<br/>Entra v2 不支援，須在 APIM facade 層剝除）<br/>scope '+' form-urlencoded 轉空白後 forward
+    APIM->>Entra: GET /oauth2/v2.0/authorize（internet → Microsoft Entra ID）
+
+    Entra-->>CC: 302 redirect → 瀏覽器互動式登入頁面（internet）
+    CC->>Entra: 使用者完成 Microsoft Entra ID 互動式登入（internet，含 MFA / Conditional Access）
+    Entra-->>CC: 302 redirect to http://localhost:PORT/cb（loopback，RFC 8252 §7.3）<br/>with authorization code
+
+    CC->>APIM: POST /mcp-oauth/token（intranet）<br/>authorization_code + code_verifier (PKCE)
+    Note over APIM: /token policy 移除 resource 參數後 forward
+    APIM->>Entra: POST /oauth2/v2.0/token（internet → Microsoft Entra ID）
+    Entra-->>APIM: access_token + refresh_token（delegated access）<br/>aud=api://ddfcc64c-... (apim-mcp)<br/>iss=https://login.microsoftonline.com/&lt;tenant&gt;/v2.0 (v2.0 token)
+    APIM-->>CC: access_token + refresh_token<br/>Claude Code 存入 ~/.claude/.credentials.json
+
+    CC->>APIM: POST /mcp（intranet）<br/>Authorization: Bearer &lt;access_token&gt;
+    Note over APIM: validate-jwt 策略<br/>aud 接受 apim-mcp (ddfcc64c) 與 mcpEntraApp (87123f9d)【過渡期相容】<br/>iss 接受 v2.0 與 v1.0【過渡期相容】<br/>caller application allowlist 驗 f4d7461b-...
+
+    APIM->>ACA: forward /mcp（intranet）<br/>APIM 以 user-assigned managed identity 向 Entra ID 換取 ACA Bearer token
+    ACA-->>CC: initialize / tools/list
+
+    CC->>APIM: tools/call send_email（intranet）
+    APIM->>ACA: forward（intranet）
+    ACA->>Graph: Mail.Send（internet — Exchange Online 是 SaaS，TLS 加密；合規）<br/>以 managed identity 或 MCP_ENTRA service principal 取 token
+    Graph-->>ACA: 202 Accepted
+    ACA-->>CC: MCP tool result
+```
+
+> **為什麼 `.mcp.json` 不能帶靜態 `headers.Authorization`**：Claude Code 看到 `headers.Authorization` 就用它送 request，就算 OAuth flow 已完成也一樣。移除 `headers` 後，Claude Code 才會改用 `~/.claude/.credentials.json` 裡的 OAuth token，`/mcp initialize` 才會成功。
+
+---
+
+### 路徑比較：Client Credentials Grant (M2M) vs Authorization Code Grant with PKCE
+
+| 比較維度 | Path A：Databricks（Client Credentials Grant） | Path B：Claude Code（Authorization Code Grant with PKCE） |
+| --- | --- | --- |
+| OAuth 2.0 grant type | Client Credentials Grant（RFC 6749 §4.4） | Authorization Code Grant with PKCE（RFC 7636） |
+| 是否需要使用者互動 | 否（全自動 / unattended） | 是（首次需完成 Microsoft Entra ID 互動式登入，含 MFA / Conditional Access） |
+| Access token 類型 | Application access token（app-only access）<br/>`roles=[access_as_application]` | Delegated access token（user context）<br/>`scp=[mcp.access]` |
+| Resource application | `mcpEntraApp` (`87123f9d`)，v1.0 token | `apim-mcp` (`ddfcc64c`)，v2.0 token |
+| Token issuer | `https://sts.windows.net/<tenant>/`（Azure AD v1.0 endpoint） | `https://login.microsoftonline.com/<tenant>/v2.0`（Microsoft identity platform） |
+| Refresh token | 無（Client Credentials Grant 每次重新取 token） | 有；Claude Code 以 Refresh Token Grant（RFC 6749 §6）自動續期，存於 `~/.claude/.credentials.json` |
+| MCP server 進站端點 | ACA direct path（`/mcp`，intranet via NCC private link） | APIM retained path（`/mcp`，intranet via Private DNS + VNet injection） |
+| OAuth server metadata 自動發現 | 無（token endpoint 需手動設定） | 支援：透過 Protected Resource Metadata（RFC 9728）自動發現授權伺服器，再執行 DCR（RFC 7591）與 PKCE flow |
+| 主要限制 | caller application 必須先完成 `access_as_application` application role assignment；ACA private endpoint 需透過 NCC 可達 | APIM internal VNet gateway 僅私網可達（需要 Azure Private DNS 解析 `172.18.78.4`）；OAuth `/authorize` redirect 仍需從開發機存取 internet（`login.microsoftonline.com`） |
+
+---
+
+### Grant 作業清單
+
+以下列出所有需要在 Microsoft Entra ID 執行的授權（grant）動作，標示哪些已透過 Bicep 自動化、哪些仍需手動操作，以及每個 grant 的執行者與時機。
+
+#### 自動化 vs 手動一覽
+
+| # | Grant 動作 | 目標 | 執行者 | 自動化方式 | 觸發時機 |
+| --- | --- | --- | --- | --- | --- |
+| G-1 | Resource app 定義（`access_as_application` role + `mcp.access` scope） | `apim-mcp`（APIM resource app） | Azure 部署 | `infra/modules/mcp-entra-app.bicep` ✅ | `azd provision` / `deployApimFacade=true` |
+| G-2 | APIM managed identity → `mcpEntraApp` `access_as_application` | `mcpEntraApp`（direct path resource app） | Azure 部署 | `infra/resources.bicep` `apimGatewayAppRoleAssignment` ✅ | `azd provision` / `deployApimFacade=true` |
+| G-3 | **Databricks SP → `mcpEntraApp` `access_as_application`** | `mcpEntraApp`（direct path resource app） | Application Admin | `infra/modules/entra-app-role-assignment.bicep` ✅（需 `MCP_EXTERNAL_CALLER_APP_IDS_CSV`） | 新增 M2M caller 時（一次性） |
+| G-4 | `Mail.Send` Microsoft Graph application permission 定義 + admin consent | `graph.microsoft.com`（Microsoft Graph） | **Global Admin（必要）** | `Register-App.ps1` 引導，admin consent 仍需人工 ⚠️ | 初次部署 / 更換 Graph 出站身份時（一次性） |
+| G-5 | Claude public client app 的 `mcp.access` delegated permission pre-authorize | `apim-mcp`（APIM resource app） | Application Admin | `mcp-entra-app.bicep` 中的 `preAuthorizedApplications` ✅（需 `MCP_CLAUDE_CLIENT_ID`） | Claude client ID 變更時 |
+| G-6 | Databricks SP → `apim-mcp` `access_as_application`（TD-2 遷移後需要） | `apim-mcp`（APIM resource app） | Application Admin | 尚未自動化；可重用 `entra-app-role-assignment.bicep` ⚠️ | Databricks 完成 APIM retained path 遷移時 |
+
+#### 手動步驟說明
+
+**G-4 — `Mail.Send` admin consent（必須由 Global Admin 執行）**
+
+```bash
+# 方式 A：透過 Register-App.ps1（本機開發 service principal）
+./Register-App.ps1
+
+# 方式 B：Azure Portal → Entra ID → 企業應用程式
+# → 找到 Function App 使用的 managed identity / service principal
+# → API permissions → Add permission → Microsoft Graph → Application → Mail.Send
+# → Grant admin consent for <tenant>
+```
+
+> Admin consent 只需執行一次。若更換 Graph 出站身份（從 service principal 改為 managed identity，或反向），需要對**新身份**重新執行。
+
+**G-3 — 新增 Databricks caller（自動化方式）**
+
+```bash
+# 設定 azd env，將 Databricks app ID 加入 CSV
+azd env set MCP_EXTERNAL_CALLER_APP_IDS_CSV "e11ff460-a5c8-47a8-8d10-9e0a04233a4e"
+
+# 重新 provision — resources.bicep 會用 Microsoft.Graph/appRoleAssignedTo@v1.0 自動建立 grant
+azd provision
+```
+
+或直接用獨立 Bicep 執行一次性 grant（不需重跑 full provision）：
+
+```bash
+az deployment group create \
+  --resource-group <rg-name> \
+  --template-file infra/modules/entra-app-role-assignment.bicep \
+  --parameters callerAppId="e11ff460-a5c8-47a8-8d10-9e0a04233a4e" \
+               resourceAppId="87123f9d-6cf0-4672-9003-c8eba016749d"
+```
+
+> 需要的 RBAC：執行者必須在目標 resource app 的 Microsoft Entra ID 中具備 **Application Administrator** 或 **Global Administrator** 角色，或有對應的 Microsoft Graph `Application.ReadWrite.All` 委派權限。
+
+---
+
+### 技術債與改善建議
+
+#### 已知技術債
+
+| # | 技術債項目 | 目前狀況 | 風險 |
+| --- | --- | --- | --- |
+| TD-1 | APIM `validate-jwt` 策略同時接受 Azure AD v1.0 issuer（`https://sts.windows.net/<tenant>/`）與 Microsoft identity platform v2.0 issuer（`https://login.microsoftonline.com/<tenant>/v2.0`） | 過渡期相容設計；`mcpEntraApp` 的 `requestedAccessTokenVersion=null` 導致 Databricks 透過 v2.0 token endpoint 取得的仍是 v1.0 token（Azure AD v1.0 格式） | Issuer 驗證範圍過寬；未來若有新 application 使用 v1.0 token 呼叫，可能意外通過 `validate-jwt` 進入 APIM |
+| TD-2 | APIM `validate-jwt` 策略同時接受 `apim-mcp`（`ddfcc64c`，新 APIM resource application）與 `mcpEntraApp`（`87123f9d`，舊 direct path resource application）兩個 token audience | Databricks service principal `4c2d441f-...`（DatabricksExternalMcp）目前的 `access_as_application` application role assignment 仍僅在舊的 `mcpEntraApp` | 舊 audience 相容導致 APIM 的 audience 驗證邊界模糊；Databricks 完成遷移後應立即移除 `mcpEntraApp` 作為 APIM 的 accepted audience |
+| TD-3 | APIM `validate-jwt` 策略仍暫時接受 legacy delegated permission scope `user_impersonation` | Migration 相容層設計；目標 delegated permission scope 已改為 `mcp.access` | 舊 scope 持續有效會讓 caller 誤以為不需遷移；應訂定明確的移除日期，並通知所有 caller application 改用 `mcp.access` |
+| TD-4 | Databricks 可能有兩顆 caller application：`DatabricksAgent`（`e11ff460`）與 `DatabricksExternalMcp`（`4c2d441f`） | 前者已確認在 `mcpEntraApp` 完成 `access_as_application` application role assignment；後者亦在 CLAUDE.md 中記錄，兩者的用途與有效期未完整說明 | 使用到未完成 role assignment 的 application 直接導致 `403 Forbidden`；應明確廢棄其中一顆，或在文件中說明各自的職責範圍 |
+| TD-5 | Azure Key Vault secret reference 使用**具版本（versioned）的 Secret URI** | 每次 rotate secret 需同步更新 Key Vault secret value、`azd env` 設定、GitHub Actions secrets 三個位置 | 三處不同步容易導致 deployment 後 ACA 仍讀取到舊版 secret value，且錯誤不易察覺 |
+| TD-6 | `MCP_CLAUDE_REDIRECT_URIS_CSV` 新增 web client redirect URI 需手動同步三個位置：`azd env`、Microsoft Entra ID application registration redirect URIs、APIM OAuth facade `/authorize` policy allowlist | 目前 Databricks workspace redirect URI 已手動維護在三處 | 新增 Copilot Studio / VS Code Web 等 web client 時，漏更新任何一處都會導致 Microsoft Entra ID 回傳 `AADSTS50011 Invalid redirect URI` |
+
+#### 建議改善方向
+
+**短期（不破壞現有流程）**
+
+1. **移除 TD-1 / TD-2 的 v1 legacy compat**：讓 `DatabricksExternalMcp`（`4c2d441f`）的 `access_as_application` 也指派到 `apim-mcp`（`ddfcc64c`），讓它能走 APIM retained path 取 v2 token；完成後把 v1 issuer 與 `mcpEntraApp` audience 從 `validate-jwt` 移除。
+2. **移除 TD-3 legacy `user_impersonation`**：通知所有 caller 改用 `mcp.access`，設定移除日期。
+3. **釐清 TD-4 caller app**：決定保留 `DatabricksAgent` 或 `DatabricksExternalMcp`，廢棄另一顆，並更新 CLAUDE.md / README 記錄的 ID。
+
+**中期（需要一次性改動）**
+
+4. **Key Vault 改用 unversioned URI（TD-5）**：把 KV reference 字串改為不帶 version 的格式，只在 KV 內管理版本，rotate 後不需更新 `azd env`。前提是 ACA 的 managed identity 有 `Key Vault Secrets User` RBAC。
+5. **redirect_uris 自動化管理（TD-6）**：把 `MCP_CLAUDE_REDIRECT_URIS_CSV` 的值自動同步到 Entra app reg 的 redirect URIs（可在 `azd provision` 的 `postprovision` hook 裡用 Graph API 更新），減少三處同步的手工維護。
+
+**長期（架構強化）**
+
+6. **Databricks 走 APIM retained path**：目前 Databricks 因 private APIM 可達性問題改走 direct path，繞過了 APIM 的 policy / rate limit / observability。長期應補齊 Databricks workspace 到 private APIM 的網路路徑（NCC Serverless 或 private endpoint），或考慮在 Databricks 可達網段架設 public/restricted APIM facade。
+7. **統一到 MCP v2 + PKCE**：M2M 路徑目前走 MCP v1（沒有 `/.well-known` discovery）。若 Databricks 支援 MCP v2 的 client credentials 流程，可考慮統一走 APIM `/mcp-oauth/` facade，讓所有 caller 都透過同一個 entry point 進入，簡化 policy 維護。
+
 <a id="common-troubleshooting"></a>
 ## 常見陷阱與排錯入口
 
@@ -1445,7 +1693,7 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 | Credential hygiene | 走 managed identity 時仍把 SP secret 留在 app settings | 部署雖然能跑，但把不必要的 secret 長期留在 Azure | 走 managed identity 就不要設定 `MCP_ENTRA_*`；走 service principal 則優先用 Key Vault reference |
 | Function runtime 版本 | Flex runtime 與 app target framework 不一致 | `/mcp` 回 `502` | `net10.0` app 要對齊 `dotnet-isolated 10.0` |
 | 既有 VNet / subnet 重用 | Flex integration subnet 名稱、delegation、既有關聯不符 | subnet 不能用、或更新時意外掉 NSG / route table 關聯 | integration subnet 名稱不要用 `_`，要用 `Microsoft.App/environments` delegation；若 Bicep 會更新 subnet，也要一併帶入 NSG / route table ID |
-| APIM subnet prefix 調整 | 直接把現有 `apim-subnet` 從 `/24` 縮到 `/25`，但該 subnet 上其實已有 APIM active allocations | Azure 直接回 `InUsePrefixCannotBeDeleted`，例如：`IpPrefix 172.18.78.0/24 on Subnet apim-subnet has active allocations and cannot be deleted.` | 先把這條路徑視為 **不可原地縮編**；若要 `/25`，改走 **新 subnet 建立 + APIM 遷移**。另外先區分「容量」和「縮編」：Azure 每個 subnet 先保留 5 個 IP；目前這條 classic Developer internal 路徑可把 **`/29 = 3 usable IP`** 視為理論最小值，`/25 ≈ 123 usable IP`、`/24 ≈ 251 usable IP`。這次失敗不是容量不足，而是舊 prefix 已 in use |
+| APIM subnet prefix 調整 | 直接把現有 `apim-subnet` 從舊 prefix 原地縮編，但該 subnet 上已有 APIM active allocations | Azure 直接回 `InUsePrefixCannotBeDeleted`（例如：`IpPrefix 172.18.78.0/24 on Subnet apim-subnet has active allocations and cannot be deleted.`）。此環境已完成遷移，live `apim-subnet` 現為 `172.18.78.0/28` | 有 active allocations 的 subnet **不可原地縮編**，應改走 **新 subnet 建立 + APIM 遷移**。IP sizing 心智模型：Azure 保留 5 IP；classic Developer internal 路徑理論最小值為 **`/29`（3 usable IP）**；`/28` = 11 usable IP；`/24` = 251 usable IP。失敗原因是舊 prefix in use，不是容量不足 |
 | 既有 VNet 跨 RG | 目前 template 仍預設既有 VNet 與部署 RG 同一個 resource group | 跨 RG reuse 時找不到 VNet | 若要跨 RG 重用既有 VNet，先擴充 template，再部署；不要先假設目前版本支援 |
 | PPTX part relationship | 自己手寫 `PresentationPart` / `ThemePart` 的 relationship ID | 簡報在 4 張以上時可能壞檔或打不開 | 不要把 theme 掛回 `PresentationPart`，也不要自己保證 slide `rId`；改用 SDK 自動指派的 relationship ID |
 | PPTX footer baseline | 改模板時把封面頁也當內容頁處理，或忽略既有 deck 視覺基線 | 封面頁突然出現 deck title / page number，整份簡報風格不一致 | 目前 baseline 是 **封面頁不帶 footer**、內容頁才帶 deck title + page number；若要改模板，請連同 README、skills 與驗收基準一起同步 |

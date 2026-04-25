@@ -92,6 +92,9 @@
       "directAllowedClientApplicationsCsv": {
         "value": "${MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV=}"
       },
+      "externalCallerAppIdsCsv": {
+        "value": "${MCP_EXTERNAL_CALLER_APP_IDS_CSV=}"
+      },
       "apimResourceTenantId": {
         "value": "${MCP_APIM_RESOURCE_TENANT_ID=}"
       },

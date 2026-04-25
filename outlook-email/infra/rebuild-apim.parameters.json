@@ -1,0 +1,48 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceNameStem": {
+      "value": "${AZURE_RESOURCE_NAME_STEM=}"
+    },
+    "apimNameOverride": {
+      "value": "${AZURE_APIM_NAME=}"
+    },
+    "location": {
+      "value": "${AZURE_LOCATION}"
+    },
+    "apimSku": {
+      "value": "${AZURE_APIM_SKU=Developer}"
+    },
+    "apimVirtualNetworkType": {
+      "value": "${AZURE_APIM_VIRTUAL_NETWORK_TYPE=Internal}"
+    },
+    "virtualNetworkName": {
+      "value": "${AZURE_VNET_NAME=}"
+    },
+    "apimSubnetName": {
+      "value": "${AZURE_APIM_SUBNET_NAME=apim-subnet}"
+    },
+    "managedIdentityResourceId": {
+      "value": "${AZURE_APIM_MANAGED_IDENTITY_RESOURCE_ID=}"
+    },
+    "appInsightsInstrumentationKey": {
+      "value": "${AZURE_APP_INSIGHTS_INSTRUMENTATION_KEY=}"
+    },
+    "appInsightsId": {
+      "value": "${AZURE_APP_INSIGHTS_ID=}"
+    },
+    "deployApimPrivateDns": {
+      "value": "${AZURE_DEPLOY_APIM_PRIVATE_DNS=false}"
+    },
+    "virtualNetworkResourceId": {
+      "value": "${AZURE_VNET_RESOURCE_ID=}"
+    },
+    "privateDnsZoneResourceGroupName": {
+      "value": "${AZURE_PRIVATE_DNS_ZONE_RESOURCE_GROUP_NAME=}"
+    },
+    "existingVirtualNetworkLinkName": {
+      "value": "${AZURE_APIM_PRIVATE_DNS_VNET_LINK_NAME=}"
+    }
+  }
+}
