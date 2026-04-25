@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpSamples.Shared", "..\sha
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpSamples.OutlookEmail.HybridApp", "src\McpSamples.OutlookEmail.HybridApp\McpSamples.OutlookEmail.HybridApp.csproj", "{C4196F38-5E95-4AD9-9341-CA1D1B56EF66}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McpSamples.OutlookEmail.Tests", "src\McpSamples.OutlookEmail.Tests\McpSamples.OutlookEmail.Tests.csproj", "{13E6E312-CAD1-4947-9950-2B4D223A1704}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -43,6 +45,18 @@ Global
 		{C4196F38-5E95-4AD9-9341-CA1D1B56EF66}.Release|x64.Build.0 = Release|Any CPU
 		{C4196F38-5E95-4AD9-9341-CA1D1B56EF66}.Release|x86.ActiveCfg = Release|Any CPU
 		{C4196F38-5E95-4AD9-9341-CA1D1B56EF66}.Release|x86.Build.0 = Release|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Debug|x64.Build.0 = Debug|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Debug|x86.Build.0 = Debug|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Release|Any CPU.Build.0 = Release|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Release|x64.ActiveCfg = Release|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Release|x64.Build.0 = Release|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Release|x86.ActiveCfg = Release|Any CPU
+		{13E6E312-CAD1-4947-9950-2B4D223A1704}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -50,5 +64,6 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{292EB192-54A4-4FD7-9206-9E32D3CA092B} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{C4196F38-5E95-4AD9-9341-CA1D1B56EF66} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{13E6E312-CAD1-4947-9950-2B4D223A1704} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

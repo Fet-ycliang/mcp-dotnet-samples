@@ -1,0 +1,16 @@
+root = true
+
+[*.cs]
+# ASP.NET Core 不需要 ConfigureAwait(false)
+dotnet_diagnostic.CA2007.severity = none
+# LoggerMessage 高效能 delegate — sample 不強制
+dotnet_diagnostic.CA1848.severity = none
+# Nullable 已啟用，不需再做 null 參數檢查警告
+dotnet_diagnostic.CA1062.severity = none
+# 簡化型別名稱（樣式，不影響功能）
+dotnet_diagnostic.IDE0001.severity = suggestion
+dotnet_diagnostic.IDE0002.severity = suggestion
+
+[*Tests.cs]
+# 測試方法慣例用底線分隔情境與預期結果（xunit 標準命名），不適用此規則
+dotnet_diagnostic.CA1707.severity = none
