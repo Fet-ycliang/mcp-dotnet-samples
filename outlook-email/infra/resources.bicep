@@ -70,6 +70,9 @@ param directMcpClientSecret string = ''
 @description('Optional. Semicolon-separated Entra client/application IDs allowed to call the Function App private endpoint directly with MCP OAuth tokens.')
 param directAllowedClientApplicationsCsv string = ''
 
+@description('Optional. Semicolon-separated Application (client) IDs of external M2M caller applications (e.g., Databricks service principal) that should receive the access_as_application role on the direct MCP resource application. Each ID triggers a Microsoft.Graph/appRoleAssignedTo grant.')
+param externalCallerAppIdsCsv string = ''
+
 @description('Optional. Existing Entra tenant ID for the APIM MCP resource application. When paired with apimResourceClientId, deployment reuses that app instead of creating a new APIM MCP resource app.')
 param apimResourceTenantId string = ''
 
@@ -229,16 +232,6 @@ var effectiveApimResourceClientId = reuseExistingApimResourceApp ? configuredApi
 var effectiveApimResourceApplicationIdUri = reuseExistingApimResourceApp ? configuredApimResourceApplicationIdUri : (deployApimFacade ? mcpEntraApp!.outputs.mcpAppIdUri : '')
 var effectiveMcpClaudeClientId = mcpClaudeClientId
 var effectiveDirectAllowedClientApplications = deployApimFacade && !empty(directAllowedClientApplications) ? concat(directAllowedClientApplications, [mcpApimGatewayIdentity!.outputs.clientId]) : directAllowedClientApplications
-var directAllowedClientApplicationEnvVars = [for (clientAppId, i) in directAllowedClientApplications: {
-  name: 'McpAuth__AllowedCallerAppIds__${i}'
-  value: clientAppId
-}]
-var apimGatewayAllowedClientApplicationEnvVars = deployApimFacade && !empty(directAllowedClientApplications) ? [
-  {
-    name: 'McpAuth__AllowedCallerAppIds__${length(directAllowedClientApplications)}'
-    value: mcpApimGatewayIdentity!.outputs.clientId
-  }
-] : []
 var allowedSenderAppSettings = reduce(
   allowedSenders,
   {},
@@ -321,29 +314,6 @@ var graphAuthEnvVars = graphUseManagedIdentity ? [
     }
   ] : []
 )
-var directMcpAuthEnvVars = !empty(effectiveDirectMcpTenantId) && !empty(effectiveDirectMcpClientId) ? concat(
-  [
-    {
-      name: 'McpAuth__Enabled'
-      value: 'True'
-    }
-    {
-      name: 'McpAuth__TrustEasyAuthHeaders'
-      value: 'True'
-    }
-    {
-      name: 'McpAuth__TenantId'
-      value: effectiveDirectMcpTenantId
-    }
-    {
-      name: 'McpAuth__ClientId'
-      value: effectiveDirectMcpClientId
-    }
-  ],
-  directAllowedClientApplicationEnvVars,
-  apimGatewayAllowedClientApplicationEnvVars
-) : []
-
 // Monitor application with Azure Monitor
 module monitoring 'br/public:avm/ptn/azd/monitoring:0.1.0' = {
   name: 'monitoring'
@@ -502,7 +472,14 @@ module mcpEntraApp './modules/mcp-entra-app.bicep' = if (deployApimFacade && !re
   }
 }
 
-resource directMcpServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = if (deployApimFacade && !empty(effectiveDirectMcpClientId)) {
+var externalCallerAppIdList = !empty(externalCallerAppIdsCsv)
+  ? filter(map(split(externalCallerAppIdsCsv, ';'), id => trim(id)), id => !empty(id))
+  : []
+
+// Lookup the direct MCP resource SP when: APIM facade needs it, or external caller grants are requested.
+var needDirectMcpServicePrincipal = !empty(effectiveDirectMcpClientId) && (deployApimFacade || !empty(externalCallerAppIdList))
+
+resource directMcpServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = if (needDirectMcpServicePrincipal) {
   appId: effectiveDirectMcpClientId
 }
 
@@ -510,13 +487,24 @@ resource apimGatewayServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' ex
   appId: mcpApimGatewayIdentity!.outputs.clientId
 }
 
-var directMcpApplicationRoleId = deployApimFacade && !empty(effectiveDirectMcpClientId) ? first(filter(directMcpServicePrincipal!.appRoles, role => role.value == 'access_as_application'))!.id : ''
+var directMcpApplicationRoleId = needDirectMcpServicePrincipal ? first(filter(directMcpServicePrincipal!.appRoles, role => role.value == 'access_as_application'))!.id : ''
 
 resource apimGatewayAppRoleAssignment 'Microsoft.Graph/appRoleAssignedTo@v1.0' = if (deployApimFacade && !empty(effectiveDirectMcpClientId)) {
   resourceId: directMcpServicePrincipal!.id
   appRoleId: directMcpApplicationRoleId
   principalId: apimGatewayServicePrincipal!.id
 }
+
+// Grant access_as_application to each external M2M caller (e.g., Databricks service principal).
+resource externalCallerServicePrincipals 'Microsoft.Graph/servicePrincipals@v1.0' existing = [for appId in externalCallerAppIdList: {
+  appId: appId
+}]
+
+resource externalCallerAppRoleAssignments 'Microsoft.Graph/appRoleAssignedTo@v1.0' = [for (appId, i) in externalCallerAppIdList: if (needDirectMcpServicePrincipal) {
+  resourceId: directMcpServicePrincipal!.id
+  appRoleId: directMcpApplicationRoleId
+  principalId: externalCallerServicePrincipals[i].id
+}]
 
 // MCP server API endpoints
 module mcpApiModule './modules/mcp-api.bicep' = if (deployApimFacade) {
@@ -892,7 +880,6 @@ resource mcpOutlookEmail 'Microsoft.App/containerApps@2024-03-01' = {
               }
             ],
             graphAuthEnvVars,
-            directMcpAuthEnvVars,
             allowedSenderEnvVars,
             allowedReplyToEnvVars
           )

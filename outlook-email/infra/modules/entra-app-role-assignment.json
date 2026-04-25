@@ -1,0 +1,84 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "languageVersion": "2.0",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.39.26.7824",
+      "templateHash": "3940622074301300095"
+    }
+  },
+  "parameters": {
+    "callerAppId": {
+      "type": "string",
+      "metadata": {
+        "description": "Application (client) ID of the caller application that needs the role assigned. For Databricks, this is the DatabricksAgent / DatabricksExternalMcp app ID."
+      }
+    },
+    "resourceAppId": {
+      "type": "string",
+      "metadata": {
+        "description": "Application (client) ID of the resource application that defines the role. For the MCP direct path, this is the mcpEntraApp (MCP_DIRECT_CLIENT_ID) app ID."
+      }
+    },
+    "roleValue": {
+      "type": "string",
+      "defaultValue": "access_as_application",
+      "metadata": {
+        "description": "Value of the application role to assign. Use access_as_application for M2M callers (Client Credentials Grant)."
+      }
+    }
+  },
+  "imports": {
+    "microsoftGraphV1": {
+      "provider": "MicrosoftGraph",
+      "version": "1.0.0"
+    }
+  },
+  "resources": {
+    "callerServicePrincipal": {
+      "existing": true,
+      "import": "microsoftGraphV1",
+      "type": "Microsoft.Graph/servicePrincipals@v1.0",
+      "properties": {
+        "appId": "[parameters('callerAppId')]"
+      }
+    },
+    "resourceServicePrincipal": {
+      "existing": true,
+      "import": "microsoftGraphV1",
+      "type": "Microsoft.Graph/servicePrincipals@v1.0",
+      "properties": {
+        "appId": "[parameters('resourceAppId')]"
+      }
+    },
+    "appRoleAssignment": {
+      "import": "microsoftGraphV1",
+      "type": "Microsoft.Graph/appRoleAssignedTo@v1.0",
+      "properties": {
+        "resourceId": "[reference('resourceServicePrincipal').id]",
+        "appRoleId": "[first(filter(reference('resourceServicePrincipal').appRoles, lambda('r', equals(lambdaVariables('r').value, parameters('roleValue'))))).id]",
+        "principalId": "[reference('callerServicePrincipal').id]"
+      },
+      "dependsOn": [
+        "callerServicePrincipal",
+        "resourceServicePrincipal"
+      ]
+    }
+  },
+  "outputs": {
+    "assignmentId": {
+      "type": "string",
+      "value": "[reference('appRoleAssignment').id]"
+    },
+    "callerPrincipalId": {
+      "type": "string",
+      "value": "[reference('callerServicePrincipal').id]"
+    },
+    "appRoleId": {
+      "type": "string",
+      "value": "[first(filter(reference('resourceServicePrincipal').appRoles, lambda('r', equals(lambdaVariables('r').value, parameters('roleValue'))))).id]"
+    }
+  }
+}

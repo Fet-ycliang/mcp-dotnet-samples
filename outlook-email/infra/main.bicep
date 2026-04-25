@@ -112,6 +112,9 @@ param directMcpClientSecret string = ''
 @description('Optional. Semicolon-separated Entra client/application IDs allowed to call the Function App private endpoint directly with MCP OAuth tokens.')
 param directAllowedClientApplicationsCsv string = ''
 
+@description('Optional. Semicolon-separated Application (client) IDs of external M2M caller applications (e.g., Databricks service principal) that should receive the access_as_application role on the direct MCP resource application. Corresponds to MCP_EXTERNAL_CALLER_APP_IDS_CSV.')
+param externalCallerAppIdsCsv string = ''
+
 @description('Optional. Existing Entra tenant ID for the APIM MCP resource application. When paired with apimResourceClientId, deployment reuses that app instead of creating a new APIM MCP resource app.')
 param apimResourceTenantId string = ''
 
@@ -268,6 +271,7 @@ module resources 'resources.bicep' = {
     directMcpApplicationIdUri: directMcpApplicationIdUri
     directMcpClientSecret: directMcpClientSecret
     directAllowedClientApplicationsCsv: directAllowedClientApplicationsCsv
+    externalCallerAppIdsCsv: externalCallerAppIdsCsv
     apimResourceTenantId: apimResourceTenantId
     apimResourceClientId: apimResourceClientId
     apimResourceApplicationIdUri: apimResourceApplicationIdUri
