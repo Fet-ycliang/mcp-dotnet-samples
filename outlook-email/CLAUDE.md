@@ -184,6 +184,7 @@
 - 若調整內容框大小或文字上限，記得保留 auto-fit 或同步收緊 validation；不然 deck 雖然能開，但長標題 / 長 bullets 會被裁掉。
 
 ### APIM 維運相關陷阱
+- **APIM OAuth AS metadata 的 `issuer` 要用 `{{McpOAuthBaseUrl}}`，不是 Entra tenant issuer**：`mcp-oauth-authorization-server.policy.xml` 與 `mcp-oauth-openid-configuration.policy.xml` 的 `issuer` 欄位要填 APIM facade 自己的 URL（`{{McpOAuthBaseUrl}}`）。若誤填成 Entra issuer（例如 `https://login.microsoftonline.com/{tenant}/v2.0`），AS metadata 會宣告一個錯誤的身份；OAuth client 在 discovery 後會對 APIM 發出以 Entra URL 為 `iss` 的驗證請求，或在 issuer binding 時失敗。`<issuers>` 裡接受 Entra issuer 是給下游 `validate-jwt` 驗 JWT token 用的——那是兩個不同層次，不要混淆。
 - **APIM 刪除是長時間操作**（實測約 10 分鐘），不要中途 Ctrl+C；中斷後資源狀態會卡在 Deleting，需在 Portal 確認完成。
 - **`az role assignment list --assignee <managed-identity-resource-id>` 會因 Graph API 限制報錯**；查 managed identity 的角色指派時，需先用 `az identity show --query principalId` 取得 `principalId`，再用 `--assignee-object-id <principalId>` 查詢。
 - **`remove-apim.bicep` 的 deploymentScript 需要 managed identity 具備 Contributor 以上權限**；若指定的 identity 沒有足夠 RBAC，script 會在 Azure 端靜默失敗或卡住。
@@ -193,6 +194,86 @@
 - **單行 `if`/`else` 必須加大括號**：APIM policy expression 是 Razor/CSHTML syntax，不接受 `if (cond) return false;` 這種無大括號寫法，PUT 時會回 `ValidationError: Block statements must be enclosed in "{" and "}"`。一律寫成 `if (cond) { return false; }`。
 - **字串裡的 `//` 會被 Razor lexer 誤判為 line comment**：像 `"http://localhost"` 放在 `var x = foo.StartsWith("http://localhost", ...)` 這種 `var =` 右值裡，APIM parser 會從 `//` 開始把剩下的當註解，最後報 `( missing )`。已知 workaround：用 `"http:\u002F\u002Flocalhost"` 或把 `/` 拆開字串拼接；放進 `.Any(lambda => ...)` 的 lambda body 內**不會**踩到這個問題，因為 parser 對 lambda body 有不同 tokenization。若要改 `mcp-oauth-authorize.policy.xml` 這類檔案，優先把含 `//` 的 URL 字串抽成 `var localhostHost = "http:\u002F\u002Flocalhost";` 再組合，不要直接 inline `"http://..."`。
 - **改 policy 時直接用 ARM REST `az rest` / curl + Management API 比 `az apim` CLI 快**：`az apim api operation policy` 這個 subcommand 不存在（2.79 CLI）；改用 `PUT /subscriptions/.../apis/{id}/operations/{id}/policies/policy?api-version=2023-05-01-preview`，body 為 `{"properties":{"format":"rawxml","value":"<policies>..."}}`。Windows bash 下 `curl --data-binary @file` 的 file 路徑要用 Unix 樣式 `/tmp/...`，不要寫 Windows 絕對路徑。
+
+## 踩坑筆記（ADO MCP 實戰）
+
+以下為實際操作中踩過的坑，下次使用前必讀。
+
+### 坑 1：`wit_add_child_work_items` 觸發 403（Area Path 不繼承）
+
+**症狀**：`TF237111: The work item does not have permissions to save work items under the specified area path`
+
+**根因**：此工具不會從父工項繼承 area path，會以 ADO 帳號的預設根路徑建立，若 team 設定的 area path 不在根路徑下就會 403。
+
+**解法**：棄用此工具，改為：
+1. `wit_create_work_item`（每筆帶 `System.AreaPath`）
+2. `wit_work_items_link`（批次掛 parent）
+
+**本專案的正確 AreaPath**：`FET-Delivery\\PJT-1375-DataOps-Assistant`
+
+---
+
+### 坑 2：描述含罕用字元觸發 JSON 解析失敗
+
+**症狀**：`MCP error -32602: Input validation error: Expected array, received string`
+
+**根因**：描述文字含罕用 Unicode 字元（如 `囬`），導致 MCP 工具的 JSON 序列化將整個 `fields` array 誤解為字串型別。
+
+**解法**：
+- 只使用 BMP 範圍的常見繁體中文字（U+0000–U+9FFF 以內）
+- 若收到此錯誤，立刻檢查描述有無非常規字元並重新撰寫
+
+---
+
+### 坑 3：批次連結的正確語法
+
+`wit_work_items_link` 接受 `updates` array，可在一次呼叫中連結多個 children 到同一個 parent：
+
+```json
+{
+  "project": "FET-Delivery",
+  "updates": [
+    {"id": 159437, "linkToId": 159426, "type": "parent"},
+    {"id": 159438, "linkToId": 159426, "type": "parent"},
+    {"id": 159439, "linkToId": 159426, "type": "parent"}
+  ]
+}
+```
+
+每筆回傳 `code: 200` 表示成功。若全批次只有部分成功，會回傳混合的 200/4xx。
+
+---
+
+### 坑 4：描述欄位格式（HTML vs Markdown）—— 兩個常見錯誤
+
+ADO 的 `System.Description` 欄位預設為 **HTML 格式**，有兩個常犯錯誤必須避免：
+
+#### 錯誤一：使用純文字 Markdown 語法
+
+`##`、`- [x]`、反引號等 Markdown 符號在 ADO description 中**不會被渲染**，會原樣顯示。
+
+#### 錯誤二：把所有句子塞進單一 `<p>` 標籤
+
+ADO 的 RTE 看到單一 `<p>` 不會自動換行，所有句子連成一牆文字。
+
+#### 正確寫法
+
+**每個邏輯點獨立一個 `<p>` 標籤**，章節用 `<h3>`，條列用 `<ul>/<ol>`：
+
+```html
+<p>任務摘要說明。</p>
+<h3>執行步驟</h3>
+<ol>
+  <li>步驟 1</li>
+  <li>步驟 2</li>
+</ol>
+<h3>驗收條件</h3>
+<ul>
+  <li>條件 1</li>
+</ul>
+```
+
+`Microsoft.VSTS.Common.AcceptanceCriteria` 同樣是 HTML 欄位，適用相同規則。
 
 ## 這次建議用到的 local skills
 
@@ -206,9 +287,36 @@
 - `outlook-email-sendmail-e2e`：做 local 真實寄信、`replyTo` 驗證、CSV / XLSX 附件驗證時
 - `outlook-email-mcp-host-setup`：設定 Claude Code / Copilot CLI / remote MCP 連線與排錯時
 
+### 週期性覆盤與發布後
+- `retro`：session 結束、每週，或剛完成一段大工作後；覆盤近期 commits、補規則、同步 memory 與待辦
+- `document-release`：每次 `main` rollout 或 `azd up` 完成後；同步 README、CLAUDE.md、ADO Release Notes、memory
+- `azdo-release-manager`：產生 Release Notes、Sprint 總結、Wiki 文檔時
+
+### Skill routing 快查
+
+| 觸發詞 | 呼叫 skill |
+|--------|-----------|
+| "retro", "覆盤", "週會", "session review" | `retro` |
+| "deploy 完了", "rollout 完成", "發布文檔", "release notes" | `document-release` |
+| "generate release notes", "sprint review", "ADO release" | `azdo-release-manager` |
+| "create PR", "review pull request", "PR 檢查" | `azdo-code-review-assistant` |
+| "check build", "pipeline status", "CI 失敗" | `azdo-pipeline-monitor` |
+| "semantic caching", "token limit", "AI Gateway", "content safety", "MCP rate limit" | `azure-aigateway` |
+| "build MCP server", "new MCP tool", "MCP server 設計" | `mcp-builder` |
+| "APIM Python SDK", "管理 APIM 用 Python" | `azure-mgmt-apimanagement-py` |
+| "APIM .NET SDK", "管理 APIM 用 dotnet" | `azure-mgmt-apimanagement-dotnet` |
+| "Azure Identity Python", "Python 認證設定" | `azure-identity-py` |
+| 動到 `.claude\` 技能本身時 | `skill-creator` |
+
 ### 視需求再用
 - `skill-creator`：動到 `.claude\` 技能本身時
+- `azure-aigateway`：APIM AI Gateway policy（semantic cache / token limit / content safety）
+- `mcp-builder`：新建或重構 MCP server（TypeScript / Python / C#）
+- `azure-mgmt-apimanagement-py` / `azure-mgmt-apimanagement-dotnet`：用 SDK 程式化管理 APIM
+- `azure-identity-py`：Python 端 Azure Identity / credential chain 設定
 
 ## 目前 skill 狀態
 - `outlook-email` 已具備本機開發、認證部署、工具實作，以及 `send_email` local E2E 驗證用的技能入口。
+- `retro` 與 `document-release` 涵蓋週期性覆盤與部署後文件同步。
+- `azure-aigateway`、`mcp-builder`、`azure-mgmt-apimanagement-*`、`azure-identity-py` 為 2026-04-25 從 Aurora 搬入的平台共用 skills。
 - 適合抽成 skill、避免在 `README.md` / `CLAUDE.md` 重複堆疊的內容：**host/client MCP 設定流程、remote MCP 連線排錯、private endpoint + proxy 注意事項**。

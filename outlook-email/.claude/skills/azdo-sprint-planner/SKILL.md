@@ -17,85 +17,74 @@ description: |
 
 **基本工作流程：**
 
+**⚠️ 重要：建立工作項目的正確工具組合**
+
+> `wit_add_child_work_items` **已知會觸發 403 錯誤**（Area Path 未繼承），請勿使用。
+> 正確做法為三步驟：`wit_create_work_item`（含明確 AreaPath）→ `wit_work_items_link`（批次連結）。
+
 ```python
 # 範例：Epic 拆解
 # 需使用的 MCP 工具：
-# - mcp_microsoft_azu_wit_get_work_item
-# - mcp_microsoft_azu_wit_create_work_item
-# - mcp_microsoft_azu_wit_add_child_work_items
-# - mcp_microsoft_azu_wit_work_items_link
+# - wit_get_work_item        ← 讀取 Epic 資訊
+# - wit_create_work_item     ← 建立每個 PBI / Task（必須帶 System.AreaPath）
+# - wit_work_items_link      ← 批次建立 parent 連結（取代 wit_add_child_work_items）
 
-async def breakdown_epic_to_user_stories(
-    project,
-    epic_id,
-    breakdown_criteria="feature"
-):
+async def breakdown_epic_to_user_stories(project, epic_id, area_path, breakdown_criteria="feature"):
     """
     將 Epic 拆解為 User Stories 和 Tasks
     
     Args:
-        project: 專案名稱
+        project: 專案名稱（例如 "FET-Delivery"）
         epic_id: Epic 的 work item ID
+        area_path: 完整的 area path（例如 "FET-Delivery\\PJT-1375-DataOps-Assistant"）
+                   必須明確指定，不可省略——工具不會自動繼承父工項的 area path！
         breakdown_criteria: 拆解標準（feature, module, user-role）
-    
-    Returns:
-        創建的 work items 列表
     """
     # 1. 取得 Epic 詳細資訊
-    epic = get_work_item(project, epic_id)
-    epic_title = epic.fields['System.Title']
-    epic_description = epic.fields.get('System.Description', '')
+    epic = wit_get_work_item(project, epic_id)
     
-    # 2. 分析 Epic 並設計拆解結構
-    breakdown_structure = analyze_and_design_breakdown(
-        epic_title, 
-        epic_description,
-        breakdown_criteria
-    )
+    # 2. 分析 Epic 並設計拆解結構（此步驟由 AI 推理完成）
     
-    # 3. 批次創建 Product Backlog Items (User Stories)
+    # 3. 建立 PBIs，每筆都帶 area_path
     created_pbis = []
     for pbi_spec in breakdown_structure['pbis']:
-        pbi = create_work_item(
-            project,
-            work_item_type="Product Backlog Item",
-            title=pbi_spec['title'],
-            description=pbi_spec['description'],
-            acceptance_criteria=pbi_spec['acceptance_criteria'],
-            tags=pbi_spec.get('tags', [])
+        pbi = wit_create_work_item(
+            project=project,
+            workItemType="Product Backlog Item",
+            fields=[
+                {"name": "System.Title", "value": pbi_spec['title']},
+                {"name": "System.AreaPath", "value": area_path},  # 必填！
+                {"name": "System.Description", "value": pbi_spec['description']},
+                {"name": "Microsoft.VSTS.Common.AcceptanceCriteria", "value": pbi_spec['ac']},
+                {"name": "System.Tags", "value": pbi_spec.get('tags', '')},
+            ]
         )
         
-        # 連結到 Epic
-        link_work_items(
-            pbi.id, 
-            epic_id, 
-            link_type="System.LinkTypes.Hierarchy-Reverse"
-        )
-        
-        # 4. 為每個 PBI 創建 Tasks
+        # 4. 建立所有 Tasks，同樣帶 area_path
+        task_ids = []
         for task_spec in pbi_spec['tasks']:
-            task = create_work_item(
-                project,
-                work_item_type="Task",
-                title=task_spec['title'],
-                description=task_spec['description'],
-                estimated_hours=task_spec.get('estimated_hours', 0)
+            task = wit_create_work_item(
+                project=project,
+                workItemType="Task",
+                fields=[
+                    {"name": "System.Title", "value": task_spec['title']},
+                    {"name": "System.AreaPath", "value": area_path},  # 必填！
+                    {"name": "System.Description", "value": task_spec['description']},
+                    {"name": "Microsoft.VSTS.Scheduling.RemainingWork", "value": str(task_spec['hours'])},
+                    {"name": "System.Tags", "value": task_spec.get('tags', '')},
+                ]
             )
-            
-            # 連結到 PBI
-            link_work_items(
-                task.id,
-                pbi.id,
-                link_type="System.LinkTypes.Hierarchy-Reverse"
-            )
+            task_ids.append(task['id'])
+        
+        # 5. 批次連結：Tasks → PBI，PBI → Epic（一次 API call）
+        wit_work_items_link(project=project, updates=[
+            *[{"id": tid, "linkToId": pbi['id'], "type": "parent"} for tid in task_ids],
+            {"id": pbi['id'], "linkToId": epic_id, "type": "parent"},
+        ])
         
         created_pbis.append(pbi)
     
-    return {
-        "epic": epic,
-        "pbis": created_pbis,
-        "summary": generate_breakdown_summary(created_pbis)
-    }
+    return {"epic": epic, "pbis": created_pbis}
 ```
 
 **拆解範例：**
@@ -428,11 +417,56 @@ async def manage_work_item_dependencies(
 }
 ```
 
+## PM 級工作項目品質流程（強制執行）
+
+**建立任何 ADO Work Item 前，必須先列草稿讓使用者確認，再執行建立。**
+
+### 草稿必要要素
+
+| 層級 | 必要內容 |
+|------|---------|
+| **Epic** | 業務背景 + 技術背景（引用相關 git commit hash/日期）+ 遷移/交付目標 |
+| **Feature** | 可交付成果範圍 + 與 Epic 的關係 + 前置依賴 |
+| **PBI（User Story）** | 格式：「身為 [角色]，我需要 [功能]，以便 [業務價值]」 + 至少 4-6 條驗收條件（具體可驗證） |
+| **Task** | 清晰的實作行動 + 步驟說明 + 工時估算（小時） |
+
+### 草稿格式範本（PBI）
+
+```markdown
+**User Story**
+身為 DevOps 工程師，我需要 Bicep IaC 檔案，以便能夠可重複地部署 Azure Container Apps 環境
+
+**技術背景**
+- `8c48cdf (2026-03-31)` 完成從 Databricks Apps 遷移至 ACA 的初始架構設計
+- `5b1d6ea (2026-04-15)` 恢復 SQLite 本地開發支援，確認雙模式 DB 切換正常
+
+**驗收條件**
+- [ ] ACA Environment Bicep 部署後 Log Analytics workspace 正常運作
+- [ ] Container App 資源建立且 health probe 回傳 200
+- [ ] ACR 建立且能正常 push/pull image
+- [ ] Key Vault 機密設定完成，Container App 能透過 secretRef 取得值
+- [ ] main.bicep + parameters file 可從 CI/CD pipeline 直接呼叫
+
+**Tasks（工時估算）**
+1. 撰寫 ACA Environment Bicep — 4h
+2. 撰寫 Container App Bicep — 6h
+...
+```
+
+### 流程規範
+
+1. 建立前，永遠先以 Markdown 格式列出完整草稿
+2. 描述中引用相關 git commit（`hash` + 日期 + 說明）作為技術背景
+3. Tags 包含：`ACA-Migration; AuroraOps; Y26`（依專案調整）
+4. 確認使用者回覆「可以建立」後才呼叫 ADO MCP 工具
+
+---
+
 ## 最佳實踐
 
 1. **適當粒度** - PBI 應該在 1-2 個 Sprint 內完成，Task 應該在 1-2 天內完成
 2. **INVEST 原則** - User Stories 應該是 Independent, Negotiable, Valuable, Estimable, Small, Testable
-3. **接受標準** - 每個 PBI 都應該有明確的接受標準
+3. **接受標準** - 每個 PBI 都應該有明確的接受標準（至少 4-6 條）
 4. **估算一致性** - 使用 Planning Poker 確保團隊對估算的共識
 5. **容量緩衝** - 保留 20-30% 的容量處理突發問題
 6. **依賴管理** - 優先處理有依賴關係的項目
@@ -440,6 +474,7 @@ async def manage_work_item_dependencies(
 8. **範本標準化** - 使用標準範本確保一致性
 9. **標籤管理** - 使用標籤便於篩選和報告
 10. **持續優化** - 根據實際執行情況持續優化規劃流程
+11. **Area Path 必須明確指定** - 每個 work item 都帶 `System.AreaPath`，從不依賴繼承
 
 ## 參考文件
 
@@ -530,3 +565,104 @@ Agent 執行流程：
 - **與 Analytics 整合** - 使用歷史數據改進估算
 - **與 Git 整合** - 從 commits 自動更新任務進度
 - **與 Teams/Slack 整合** - Sprint Planning 完成後自動通知團隊
+
+---
+
+## 踩坑筆記（ADO MCP 實戰）
+
+以下為實際操作中踩過的坑，下次使用前必讀。
+
+### 坑 1：`wit_add_child_work_items` 觸發 403（Area Path 不繼承）
+
+**症狀**：`TF237111: The work item does not have permissions to save work items under the specified area path`
+
+**根因**：此工具不會從父工項繼承 area path，會以 ADO 帳號的預設根路徑建立，若 team 設定的 area path 不在根路徑下就會 403。
+
+**解法**：棄用此工具，改為：
+1. `wit_create_work_item`（每筆帶 `System.AreaPath`）
+2. `wit_work_items_link`（批次掛 parent）
+
+**本專案的正確 AreaPath**：`FET-Delivery\\PJT-1375-DataOps-Assistant`
+
+---
+
+### 坑 2：描述含罕用字元觸發 JSON 解析失敗
+
+**症狀**：`MCP error -32602: Input validation error: Expected array, received string`
+
+**根因**：描述文字含罕用 Unicode 字元（如 `囬`），導致 MCP 工具的 JSON 序列化將整個 `fields` array 誤解為字串型別。
+
+**解法**：
+- 只使用 BMP 範圍的常見繁體中文字（U+0000–U+9FFF 以內）
+- 若收到此錯誤，立刻檢查描述有無非常規字元並重新撰寫
+
+---
+
+### 坑 3：批次連結的正確語法
+
+`wit_work_items_link` 接受 `updates` array，可在一次呼叫中連結多個 children 到同一個 parent：
+
+```json
+{
+  "project": "FET-Delivery",
+  "updates": [
+    {"id": 159437, "linkToId": 159426, "type": "parent"},
+    {"id": 159438, "linkToId": 159426, "type": "parent"},
+    {"id": 159439, "linkToId": 159426, "type": "parent"}
+  ]
+}
+```
+
+每筆回傳 `code: 200` 表示成功。若全批次只有部分成功，會回傳混合的 200/4xx。
+
+---
+
+### 坑 4：描述欄位格式（HTML vs Markdown）—— 兩個常見錯誤
+
+ADO 的 `System.Description` 欄位預設為 **HTML 格式**，有兩個常犯錯誤必須避免：
+
+#### 錯誤一：使用純文字 Markdown 語法
+
+`##`、`- [x]`、反引號等 Markdown 符號在 ADO description 中**不會被渲染**，會原樣顯示。
+
+```
+❌ 錯誤寫法（純文字 Markdown）：
+## 驗收條件
+- [x] 步驟 1
+- [x] 步驟 2
+
+`git commit: df19a5a`
+```
+
+#### 錯誤二：把所有句子塞進單一 `<p>` 標籤
+
+ADO 的 RTE 看到單一 `<p>` 不會自動換行，所有句子連成一牆文字：
+
+```
+❌ 錯誤寫法（單一大段落）：
+<p>做了步驟一。做了步驟二。做了步驟三。確認結果。</p>
+```
+
+#### 正確寫法
+
+**每個邏輯點獨立一個 `<p>` 標籤**，章節用 `<h3>`，條列用 `<ul>/<ol>`：
+
+```html
+✅ 正確寫法：
+<p>任務摘要說明。</p>
+<p>第二段說明文字（與上段邏輯不同就獨立一個 p）。</p>
+<h3>執行步驟</h3>
+<ol>
+  <li>步驟 1</li>
+  <li>步驟 2</li>
+</ol>
+<h3>驗收條件</h3>
+<ul>
+  <li>條件 1</li>
+  <li>條件 2</li>
+</ul>
+<h3>關聯 commits</h3>
+<p>df19a5a、431b37f</p>
+```
+
+`Microsoft.VSTS.Common.AcceptanceCriteria` 同樣是 HTML 欄位，適用相同規則。

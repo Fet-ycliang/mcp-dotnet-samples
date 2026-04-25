@@ -350,6 +350,55 @@ def 載入技能(技能目錄: str = "skills"):
 - **規則**：已完成項目使用 `actual_hours`，未完成項目使用 `estimated_hours`。
 - **規則**：對外報表命名優先使用「貢獻值」，避免使用較主觀的「努力點數」。
 
+### Azure DevOps Work Item 管理規範
+
+#### Task 狀態轉換流程（強制執行）
+
+所有 Task 的狀態變更必須遵循以下順序，**禁止跳過中間狀態**：
+
+```
+New → To Do → In Progress → Done
+```
+
+| 步驟 | 狀態 | 說明 |
+| --- | --- | --- |
+| 1 | New | Task 剛建立時的初始狀態（系統自動） |
+| 2 | **To Do** | 確認進入 Sprint，準備開始 |
+| 3 | **In Progress** | 正在進行開發／測試／部署 |
+| 4 | **Done** | 工作完全完成，驗收通過 |
+
+**禁止行為：**
+
+- ❌ 建立 Task 時直接設為 Done（ADO 不支援，且違反流程）
+- ❌ 從 To Do 直接跳到 Done（必須經過 In Progress）
+- ❌ 使用 `wit_add_child_work_items`（Area Path 權限問題，必然 403，無 workaround）
+- ❌ 更新 Task 時帶入 `RemainingWork=0`（ADO 視為無效值，回傳 `InvalidNotEmpty`）
+
+**正確的 Task 建立與完成流程：**
+
+```
+步驟 1：wit_create_work_item（帶 System.AreaPath，不指定 State，預設 To Do）
+步驟 2：wit_work_items_link（批次建立 parent 連結）
+步驟 3：wit_update_work_item → State = In Progress
+步驟 4：wit_update_work_item → State = Done，填入 CompletedWork（略過 RemainingWork）
+```
+
+`wit_update_work_items_batch` 可在同一批次陣列對同一 work item 傳多個 path，一次呼叫完成 State + CompletedWork 更新。
+
+#### PBI（Product Backlog Item）狀態
+
+```
+New → Approved → Committed → Done
+```
+
+- PBI 的 `Effort`（故事點數）欄位在 **Done 狀態下為唯讀**，須在 New / Approved 階段設定，不得在建立時同時設 `State=Done` 與 `Effort`。
+- Task 完成時只填 `CompletedWork`，**不填 `Effort`**。
+
+#### ADO 描述注意事項
+
+- 描述文字只使用**常見繁體中文字**，避免罕用／異體字（Unicode > U+9FFF）。
+- 若 `wit_create_work_item` 收到 `MCP error -32602: Input validation error: Expected array, received string`，先檢查描述內容是否含非標準字元。
+
 ## 3. 程式撰寫標準
 
 ### Python

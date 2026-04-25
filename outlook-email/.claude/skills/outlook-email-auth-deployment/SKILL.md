@@ -109,6 +109,7 @@ azd up
 - `MCP_CLAUDE_CLIENT_ID`
 - `MCP_CLAUDE_REDIRECT_URIS_CSV`（選填，預設 `http://localhost`）
 - `MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV`（選填）
+- `MCP_EXTERNAL_CALLER_APP_IDS_CSV`（選填）— 外部 M2M caller 的 Entra app ID 清單
 
 > `MCP_DIRECT_*` 是 direct Function / ACA 路徑的 resource app 與 secret contract。
 >
@@ -123,6 +124,8 @@ azd up
 > `MCP_CLAUDE_REDIRECT_URIS_CSV` 會同時決定 `/register` 回傳的 `redirect_uris`，以及 `/authorize` 允許前轉到 Entra 的 `redirect_uri` allowlist。實際 browser PKCE callback 若不是裸的 `http://localhost`，請把完整 URI 補進來。
 >
 > `MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV` 是 retained `/mcp` 的額外 caller allowlist。模板會自動把 `MCP_CLAUDE_CLIENT_ID` 放進去；若你還要讓 Azure CLI / Copilot CLI / 其他 dedicated caller app 帶 Bearer token 直打 APIM retained path，記得把那些 caller app 的 client ID 也加進來。
+>
+> `MCP_EXTERNAL_CALLER_APP_IDS_CSV` 是外部 M2M caller（例如 Databricks SP）的 Entra app ID 清單。部署時 `resources.bicep` 會用 `infra/modules/entra-app-role-assignment.bicep` 模組迴圈為每個外部 caller 授予 `access_as_application` role；若只有外部 M2M caller 需要 grant、不部署 APIM facade，這個參數也能獨立生效。完整的 Grant 作業清單（G-1 到 G-6）在 `README.md`。
 >
 > 若你要做實際的 localhost callback 測試，不要只註冊裸的 `http://localhost`。這輪 live E2E 就曾因為 `http://localhost:8765/callback` 沒被明確加入 redirect URIs 而撞到 `AADSTS50011`。
 >
@@ -153,6 +156,7 @@ azd up
   - 若用 service principal：`MCP_ENTRA_CLIENT_ID` 對應的 app 需要 Microsoft Graph **Application** permission `Mail.Send`，並完成 **admin consent**
   - 若改用 managed identity：backend 使用的 user-assigned managed identity service principal 一樣需要 Microsoft Graph **Application** permission `Mail.Send`，並完成 **admin consent**
   - 若 Exchange Online 有 **Application Access Policy / Application RBAC**，還要把寄件者 mailbox 或 mail-enabled security group 納入允許範圍
+  - **天條 SaaS 例外**：Exchange Online（`Mail.Send`）與 Microsoft Entra ID（`login.microsoftonline.com`）本質上只有 internet 入口，走 internet + TLS 是合規設計，不視為天條違規。天條保護的是「公司擁有的業務資料」；OAuth token 本身不屬之。若要審查 data path，重點放在 email content 是否透過私網（NCC / private endpoint）抵達 ACA，而不是 Entra token endpoint 的 routing。
 
 > 這些是 Entra / Microsoft Graph / Exchange Online 權限，不是 Azure subscription RBAC。
 
