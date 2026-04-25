@@ -554,9 +554,11 @@ print(f"\n✅ 成功創建 {len(created_tasks)} 個 Tasks")
 |----------------|----------|
 | Feature | New, Active, Resolved, Closed, Removed |
 | PBI | New, Approved, Committed, Done, Removed |
-| Task | To Do, In Progress, Done, Removed |
+| Task | **New → To Do → In Progress → Done**, Removed |
 | Bug | New, Active, Resolved, Closed |
 | Test Case | Design, Ready, Closed |
+
+> **⚠️ Task 狀態轉換規則（強制）**：Task 必須依序經過 `New → To Do → In Progress → Done`，禁止跳過任何中間狀態。建立時預設為 To Do，完成前必須先轉為 In Progress。
 
 ### 優先級說明
 
