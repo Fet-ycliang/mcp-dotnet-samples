@@ -38,6 +38,7 @@
 | `src\McpSamples.OutlookEmail.HybridApp\Tools\XlsxAttachmentTool.cs` | `generate_xlsx_attachment` MCP tool 介面、參數描述與結果處理 |
 | `src\McpSamples.OutlookEmail.HybridApp\Services\XlsxAttachmentService.cs` | 工作表/資料表/圖表驗證、Open XML Excel 產生與 `GeneratedAttachmentStore` 暫存 |
 | `src\McpSamples.OutlookEmail.HybridApp\Models\` | tool input / output models |
+| `src\McpSamples.OutlookEmail.Tests\` | xUnit + NSubstitute + Coverlet；service-layer 單元測試（28 tests）|
 | `src\McpSamples.OutlookEmail.HybridApp\local.settings.sample.json` | 本機 Functions 設定範本 |
 | `src\McpSamples.OutlookEmail.HybridApp\host.json` / `mcp-handler\function.json` | Azure Functions custom handler 與路由轉送設定 |
 | `Register-App.ps1` / `register-app.sh` | Entra ID app 註冊腳本 |
@@ -53,6 +54,7 @@
 ## 常用指令
 
 - 建置：`dotnet build .\McpOutlookEmail.sln`
+- 執行測試：`dotnet test .\McpOutlookEmail.sln`
 - 本機 STDIO：`dotnet run --project .\src\McpSamples.OutlookEmail.HybridApp`
 - 本機 HTTP：`dotnet run --project .\src\McpSamples.OutlookEmail.HybridApp -- --http`
 - 詳細的 Entra 參數、user secrets、Functions、Docker、Azure 部署與 `.vscode\mcp*.json` 使用方式，請直接看 `README.md`
@@ -146,7 +148,7 @@
 - `dotnet run --project ... -- --http ...` 的 `--` 不能省略。
 - 若只是調整 `outlook-email` 功能，不要把其他 sample 一起納入 scope。
 - 不要把 `outlook-email` 專屬的 Graph / auth 邏輯搬進 shared。
-- 目前這個 sample 沒有專屬測試專案；預設驗證基線是 `dotnet build .\McpOutlookEmail.sln`，必要時再補跑 `dotnet run` 或 `func start`。
+- 測試基線是 `dotnet test .\McpOutlookEmail.sln`（`McpSamples.OutlookEmail.Tests`，28 tests，含 Coverlet 覆蓋率）；快速冒煙驗證可只跑 `dotnet build`，功能變動後要含測試。
 - 如果只改程式碼卻沒同步 README、設定範本或腳本，後續本機啟動與部署文件很容易失真。
 - `send_email` 的 `body` 就算看起來是 HTML，若沒明確提供 `bodyContentType=html`，Graph 仍會以純文字寄出，收件者會看到原始標記。
 - 本機直接打 HTTP `/mcp` 除錯時，回應可能是 SSE `text/event-stream`，而且不一定會帶 `mcp-session-id` header；PowerShell / curl 要直接解析 `event:` / `data:` 行，不要只假設是一般 JSON。
@@ -300,6 +302,7 @@ ADO 的 RTE 看到單一 `<p>` 不會自動換行，所有句子連成一牆文�
 | "deploy 完了", "rollout 完成", "發布文檔", "release notes" | `document-release` |
 | "generate release notes", "sprint review", "ADO release" | `azdo-release-manager` |
 | "create PR", "review pull request", "PR 檢查" | `azdo-code-review-assistant` |
+| "規劃 sprint", "創建工作項目", "拆解 epic" | `azdo-sprint-planner` |
 | "check build", "pipeline status", "CI 失敗" | `azdo-pipeline-monitor` |
 | "semantic caching", "token limit", "AI Gateway", "content safety", "MCP rate limit" | `azure-aigateway` |
 | "build MCP server", "new MCP tool", "MCP server 設計" | `mcp-builder` |
@@ -319,4 +322,5 @@ ADO 的 RTE 看到單一 `<p>` 不會自動換行，所有句子連成一牆文�
 - `outlook-email` 已具備本機開發、認證部署、工具實作，以及 `send_email` local E2E 驗證用的技能入口。
 - `retro` 與 `document-release` 涵蓋週期性覆盤與部署後文件同步。
 - `azure-aigateway`、`mcp-builder`、`azure-mgmt-apimanagement-*`、`azure-identity-py` 為 2026-04-25 從 Aurora 搬入的平台共用 skills。
+- `azdo-sprint-planner` 涵蓋 Sprint 規劃、工作項目創建與 Epic 拆解。
 - 適合抽成 skill、避免在 `README.md` / `CLAUDE.md` 重複堆疊的內容：**host/client MCP 設定流程、remote MCP 連線排錯、private endpoint + proxy 注意事項**。
