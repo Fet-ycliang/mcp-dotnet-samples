@@ -1,6 +1,8 @@
 ---
 name: skill-creator
-description: 建立 Agent 技能的指引，特別聚焦於 Azure SDK 與 Microsoft Foundry 服務。建立新技能或更新既有技能時使用。
+description: |
+  建立 Agent 技能的指引，特別聚焦於 Azure SDK 與 Microsoft Foundry 服務。建立新技能或更新既有技能時使用。
+  觸發詞：「動到 .claude 技能」、「新增技能」、「修改技能」、「優化技能」、「optimize skills」、「skill-creator」、「create skill」、「update skill」。
 ---
 
 # 技能建立指引

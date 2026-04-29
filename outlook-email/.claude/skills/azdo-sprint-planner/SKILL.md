@@ -371,51 +371,9 @@ async def manage_work_item_dependencies(
 
 ## 工作項目範本庫
 
-### Feature 範本
+Feature、Bug、Task、PBI、Spike 完整 JSON 範本（含欄位路徑、狀態轉換規則、優先級/Severity 說明）：
 
-```json
-{
-  "type": "Product Backlog Item",
-  "fields": {
-    "System.Title": "[功能名稱]",
-    "System.Description": "**使用者故事**: 身為 [角色]，我想要 [功能]，以便 [價值]\n\n**背景**: [為什麼需要此功能]\n\n**範圍**: [功能範圍說明]",
-    "Microsoft.VSTS.Common.AcceptanceCriteria": "- [ ] 條件 1\n- [ ] 條件 2\n- [ ] 條件 3",
-    "Microsoft.VSTS.Scheduling.StoryPoints": 5,
-    "System.Tags": "feature; sprint-{number}"
-  }
-}
-```
-
-### Bug 範本
-
-```json
-{
-  "type": "Bug",
-  "fields": {
-    "System.Title": "[簡短描述問題]",
-    "Microsoft.VSTS.TCM.ReproSteps": "**重現步驟**:\n1. 步驟 1\n2. 步驟 2\n3. 步驟 3",
-    "Microsoft.VSTS.Common.ExpectedResult": "[預期結果]",
-    "Microsoft.VSTS.Common.ActualResult": "[實際結果]",
-    "Microsoft.VSTS.Common.Severity": "3 - Medium",
-    "Microsoft.VSTS.Common.Priority": 2,
-    "System.Tags": "bug; need-triage"
-  }
-}
-```
-
-### Task 範本
-
-```json
-{
-  "type": "Task",
-  "fields": {
-    "System.Title": "[任務描述]",
-    "System.Description": "**目標**: [任務目標]\n\n**步驟**:\n1. 步驟 1\n2. 步驟 2\n\n**完成定義**: [如何判斷任務完成]",
-    "Microsoft.VSTS.Scheduling.RemainingWork": 8,
-    "System.Tags": "task"
-  }
-}
-```
+→ 請參閱 [references/work-item-templates.md](references/work-item-templates.md)
 
 ## PM 級工作項目品質流程（強制執行）
 
@@ -480,74 +438,17 @@ async def manage_work_item_dependencies(
 
 | 文件 | 內容 |
 |------|------|
-| [references/work-item-templates.md](references/work-item-templates.md) | 完整的工作項目範本集合 |
+| [references/work-item-templates.md](references/work-item-templates.md) | Feature / Bug / Task / PBI / Spike 完整 JSON 範本 |
 | [references/estimation-guide.md](references/estimation-guide.md) | 工作估算指南和技巧 |
 | [references/capacity-planning.md](references/capacity-planning.md) | 容量規劃詳細方法 |
+| [references/sprint-examples.md](references/sprint-examples.md) | Epic 拆解、Sprint 規劃、容量分析的完整執行流程範例 |
+| [references/ado-mcp-pitfalls.md](references/ado-mcp-pitfalls.md) | ADO MCP 實戰踩坑筆記（403、JSON 解析失敗、HTML 格式等） |
 
 ## 使用範例
 
-### 範例 1：拆解新功能 Epic
+Epic 拆解、Sprint 規劃、批次建 tasks、容量分析的完整執行流程範例：
 
-```plaintext
-User: 我有一個 Epic #12345 "電商結帳系統"，請幫我拆解成 User Stories
-
-Agent 執行流程：
-1. 取得 Epic 詳細資訊
-2. 分析功能範圍
-3. 設計拆解結構（購物車、結帳流程、付款整合、訂單管理）
-4. 創建 4 個 PBIs，每個包含 3-5 個 Tasks
-5. 建立階層連結
-6. 提供初步估算建議
-7. 生成拆解摘要報告
-```
-
-### 範例 2：規劃下一個 Sprint
-
-```plaintext
-User: 幫我規劃 Sprint 15，團隊有 6 個人
-
-Agent 執行流程：
-1. 取得團隊容量資訊
-2. 計算可用工時和目標速度
-3. 從 Backlog 選擇優先級高的項目
-4. 檢查工時和速度是否匹配
-5. 識別依賴關係
-6. 生成 Sprint 規劃建議
-7. 提供風險評估
-```
-
-### 範例 3：批次創建測試任務
-
-```plaintext
-User: 為 PBI #12346 創建完整的測試任務
-
-Agent 執行流程：
-1. 取得 PBI 資訊
-2. 使用測試任務範本
-3. 創建多個測試任務：
-   - 單元測試撰寫
-   - 整合測試
-   - UI 測試
-   - 效能測試
-   - 安全性測試
-4. 估算每個任務的工時
-5. 連結到 PBI
-6. 返回創建的任務列表
-```
-
-### 範例 4：分析 Sprint 容量
-
-```plaintext
-User: 分析 Sprint 15 的容量使用情況
-
-Agent 執行流程：
-1. 取得 Sprint 中的所有 work items
-2. 計算已分配的 Story Points 和工時
-3. 對比團隊容量
-4. 識別過度分配或分配不足
-5. 提供調整建議
-6. 生成視覺化報告
-```
+→ 請參閱 [references/sprint-examples.md](references/sprint-examples.md)
 
 ## 自動化建議
 
@@ -566,103 +467,8 @@ Agent 執行流程：
 - **與 Git 整合** - 從 commits 自動更新任務進度
 - **與 Teams/Slack 整合** - Sprint Planning 完成後自動通知團隊
 
----
+## 踩坑筆記
 
-## 踩坑筆記（ADO MCP 實戰）
+403 Area Path、罕用字元 JSON 解析失敗、批次連結語法、HTML vs Markdown 描述格式等：
 
-以下為實際操作中踩過的坑，下次使用前必讀。
-
-### 坑 1：`wit_add_child_work_items` 觸發 403（Area Path 不繼承）
-
-**症狀**：`TF237111: The work item does not have permissions to save work items under the specified area path`
-
-**根因**：此工具不會從父工項繼承 area path，會以 ADO 帳號的預設根路徑建立，若 team 設定的 area path 不在根路徑下就會 403。
-
-**解法**：棄用此工具，改為：
-1. `wit_create_work_item`（每筆帶 `System.AreaPath`）
-2. `wit_work_items_link`（批次掛 parent）
-
-**本專案的正確 AreaPath**：`FET-Delivery\\PJT-1375-DataOps-Assistant`
-
----
-
-### 坑 2：描述含罕用字元觸發 JSON 解析失敗
-
-**症狀**：`MCP error -32602: Input validation error: Expected array, received string`
-
-**根因**：描述文字含罕用 Unicode 字元（如 `囬`），導致 MCP 工具的 JSON 序列化將整個 `fields` array 誤解為字串型別。
-
-**解法**：
-- 只使用 BMP 範圍的常見繁體中文字（U+0000–U+9FFF 以內）
-- 若收到此錯誤，立刻檢查描述有無非常規字元並重新撰寫
-
----
-
-### 坑 3：批次連結的正確語法
-
-`wit_work_items_link` 接受 `updates` array，可在一次呼叫中連結多個 children 到同一個 parent：
-
-```json
-{
-  "project": "FET-Delivery",
-  "updates": [
-    {"id": 159437, "linkToId": 159426, "type": "parent"},
-    {"id": 159438, "linkToId": 159426, "type": "parent"},
-    {"id": 159439, "linkToId": 159426, "type": "parent"}
-  ]
-}
-```
-
-每筆回傳 `code: 200` 表示成功。若全批次只有部分成功，會回傳混合的 200/4xx。
-
----
-
-### 坑 4：描述欄位格式（HTML vs Markdown）—— 兩個常見錯誤
-
-ADO 的 `System.Description` 欄位預設為 **HTML 格式**，有兩個常犯錯誤必須避免：
-
-#### 錯誤一：使用純文字 Markdown 語法
-
-`##`、`- [x]`、反引號等 Markdown 符號在 ADO description 中**不會被渲染**，會原樣顯示。
-
-```
-❌ 錯誤寫法（純文字 Markdown）：
-## 驗收條件
-- [x] 步驟 1
-- [x] 步驟 2
-
-`git commit: df19a5a`
-```
-
-#### 錯誤二：把所有句子塞進單一 `<p>` 標籤
-
-ADO 的 RTE 看到單一 `<p>` 不會自動換行，所有句子連成一牆文字：
-
-```
-❌ 錯誤寫法（單一大段落）：
-<p>做了步驟一。做了步驟二。做了步驟三。確認結果。</p>
-```
-
-#### 正確寫法
-
-**每個邏輯點獨立一個 `<p>` 標籤**，章節用 `<h3>`，條列用 `<ul>/<ol>`：
-
-```html
-✅ 正確寫法：
-<p>任務摘要說明。</p>
-<p>第二段說明文字（與上段邏輯不同就獨立一個 p）。</p>
-<h3>執行步驟</h3>
-<ol>
-  <li>步驟 1</li>
-  <li>步驟 2</li>
-</ol>
-<h3>驗收條件</h3>
-<ul>
-  <li>條件 1</li>
-  <li>條件 2</li>
-</ul>
-<h3>關聯 commits</h3>
-<p>df19a5a、431b37f</p>
-```
-
-`Microsoft.VSTS.Common.AcceptanceCriteria` 同樣是 HTML 欄位，適用相同規則。
+→ 請參閱 [references/ado-mcp-pitfalls.md](references/ado-mcp-pitfalls.md)

@@ -2,7 +2,7 @@
 name: azdo-pipeline-monitor
 description: |
   Azure DevOps Pipeline 監控與故障排除助手。監控建置狀態、分析失敗原因、追蹤部署進度。
-  觸發詞: "check build", "pipeline status", "建置失敗", "部署狀態", "CI/CD monitor", "build logs"
+  觸發詞: "check build", "pipeline status", "建置失敗", "CI 失敗", "部署狀態", "CI/CD monitor", "build logs"
 ---
 
 # Azure DevOps Pipeline Monitor
@@ -332,85 +332,11 @@ async def analyze_pipeline_performance(project, definition_id, days=30):
 - 🔧 **資源調整** - 調整 agent pool 配置
 - 📦 **映像優化** - 使用更輕量的容器映像
 
-## 監控儀表板
+## 監控儀表板與告警設定
 
-### 即時狀態面板
+即時狀態面板範本、趨勢分析圖表、告警規則（連續失敗/長時間/低成功率/production 失敗）：
 
-```markdown
-# Pipeline 即時狀態
-
-## 🔴 失敗的建置
-- [Build #12345] main - feat/login-api (失敗於測試階段)
-- [Build #12344] develop - fix/payment-bug (編譯錯誤)
-
-## 🔵 進行中的建置
-- [Build #12346] main - release/v2.1.0 (部署階段 - 3/5)
-- [Build #12347] develop - chore/update-deps (測試階段 - 2/3)
-
-## ✅ 最近成功
-- [Build #12343] main - feat/dashboard (25 分鐘前)
-- [Build #12342] develop - docs/api-update (1 小時前)
-
-## 📊 今日統計
-- 總建置數: 47
-- 成功率: 85% (40/47)
-- 平均時長: 12.5 分鐘
-- 最長建置: 25 分鐘
-```
-
-### 趨勢分析圖表
-
-```markdown
-# 建置趨勢 (最近 7 天)
-
-## 成功率趨勢
-Day 1: ████████░░ 80%
-Day 2: ██████████ 100%
-Day 3: █████████░ 90%
-Day 4: ███████░░░ 70%
-Day 5: █████████░ 90%
-Day 6: ██████████ 100%
-Day 7: ████████░░ 85%
-
-## 每日建置數
-Day 1: ████████████████ 48
-Day 2: ███████████ 35
-Day 3: ██████████████ 42
-Day 4: █████████████████ 52
-Day 5: ████████████ 38
-Day 6: ██████████ 30
-Day 7: ███████████████ 47
-```
-
-## 告警設定
-
-### 告警規則
-
-```python
-# 範例：設定告警規則
-ALERT_RULES = {
-    "build_failure": {
-        "condition": "consecutive_failures >= 3",
-        "action": "notify_team",
-        "severity": "high"
-    },
-    "long_duration": {
-        "condition": "duration > avg_duration * 2",
-        "action": "notify_owner",
-        "severity": "medium"
-    },
-    "low_success_rate": {
-        "condition": "success_rate_24h < 0.7",
-        "action": "notify_leads",
-        "severity": "high"
-    },
-    "deployment_failure": {
-        "condition": "deployment_failed AND environment == 'production'",
-        "action": "notify_oncall",
-        "severity": "critical"
-    }
-}
-```
+→ 請參閱 [references/alert-rules.md](references/alert-rules.md)
 
 ## 最佳實踐
 
@@ -451,69 +377,12 @@ ALERT_RULES = {
 
 | 文件 | 內容 |
 |------|------|
-| [references/alert-rules.md](references/alert-rules.md) | 詳細的告警規則設定 |
+| [references/alert-rules.md](references/alert-rules.md) | 告警規則設定、即時狀態面板與趨勢圖表範本 |
 | [references/log-analysis.md](references/log-analysis.md) | 日誌分析模式和技巧 |
-| [references/optimization-guide.md](references/optimization-guide.md) | Pipeline 優化完整指南 |
-| [references/metrics-definitions.md](references/metrics-definitions.md) | 所有指標的定義和計算方法 |
+| [references/pipeline-examples.md](references/pipeline-examples.md) | 建置監控、失敗診斷、效能報告、部署監控範例 |
 
 ## 使用範例
 
-### 範例 1：檢查最新建置
+檢查最新建置、診斷失敗原因、產生效能報告、監控生產部署的完整執行流程：
 
-```plaintext
-User: 檢查 main 分支的最新建置狀態
-
-Agent 執行流程：
-1. 取得 main 分支的 pipeline
-2. 查詢最新建置
-3. 顯示狀態、時長、結果
-4. 如果失敗，提供失敗原因和日誌連結
-```
-
-### 範例 2：診斷失敗
-
-```plaintext
-User: Build #12345 失敗了，幫我診斷原因
-
-Agent 執行流程：
-1. 取得建置詳細資訊
-2. 下載並分析日誌
-3. 識別錯誤類型
-4. 提供修復建議
-5. 搜尋類似的歷史問題
-```
-
-### 範例 3：效能報告
-
-```plaintext
-User: 產生最近一個月的 pipeline 效能報告
-
-Agent 執行流程：
-1. 收集最近 30 天的建置數據
-2. 計算各項效能指標
-3. 識別趨勢和異常
-4. 生成視覺化報告
-5. 提供優化建議
-```
-
-### 範例 4：部署監控
-
-```plaintext
-User: 生產環境的部署狀態如何？
-
-Agent 執行流程：
-1. 查詢生產環境的部署 pipeline
-2. 顯示最新部署資訊
-3. 檢查是否有進行中的部署
-4. 提供最近的部署歷史
-5. 顯示相關指標（成功率、頻率等）
-```
-
-## 整合建議
-
-- **Slack/Teams 通知** - 建置失敗時自動發送通知
-- **儀表板** - 使用 Azure Dashboard 或 Grafana 視覺化指標
-- **Email 摘要** - 每日或每週發送建置摘要報告
-- **Webhook** - 整合外部監控系統
-- **自動化修復** - 對已知問題實施自動修復腳本
-- **容量規劃** - 根據使用趨勢規劃 agent pool 容量
+→ 請參閱 [references/pipeline-examples.md](references/pipeline-examples.md)

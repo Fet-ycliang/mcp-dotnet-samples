@@ -322,5 +322,6 @@ ADO 的 RTE 看到單一 `<p>` 不會自動換行，所有句子連成一牆文�
 - `outlook-email` 已具備本機開發、認證部署、工具實作，以及 `send_email` local E2E 驗證用的技能入口。
 - `retro` 與 `document-release` 涵蓋週期性覆盤與部署後文件同步。
 - `azure-aigateway`、`mcp-builder`、`azure-mgmt-apimanagement-*`、`azure-identity-py` 為 2026-04-25 從 Aurora 搬入的平台共用 skills。
-- `azdo-sprint-planner` 涵蓋 Sprint 規劃、工作項目創建與 Epic 拆解。
+- `azdo-sprint-planner` 涵蓋 Sprint 規劃、工作項目創建與 Epic 拆解；ADO MCP 踩坑筆記在 `references/ado-mcp-pitfalls.md`。
+- 所有 ADO 系列 skills（sprint-planner、pipeline-monitor、code-review-assistant）已完成 `references/` 拆分：冗長的範例、範本與踩坑內容移至 `references/*.md`，SKILL.md 本文控制在 500 行以內。
 - 適合抽成 skill、避免在 `README.md` / `CLAUDE.md` 重複堆疊的內容：**host/client MCP 設定流程、remote MCP 連線排錯、private endpoint + proxy 注意事項**。

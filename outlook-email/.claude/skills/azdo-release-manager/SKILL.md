@@ -2,7 +2,7 @@
 name: azdo-release-manager
 description: |
   Azure DevOps 發布管理與文件生成助手。自動生成 Release Notes、Sprint 總結、Wiki 文檔。
-  觸發詞: "generate release notes", "發布文檔", "sprint review", "產生變更記錄", "發布總結"
+  觸發詞: "generate release notes", "發布文檔", "sprint review", "ADO release", "產生變更記錄", "發布總結"
 ---
 
 # Azure DevOps Release Manager
