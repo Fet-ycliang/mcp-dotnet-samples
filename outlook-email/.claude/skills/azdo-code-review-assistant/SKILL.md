@@ -254,43 +254,9 @@ async def track_pr_status(project, repo_name, status_filter=None):
 
 ## PR 描述範本
 
-### 標準 PR 範本
+標準 PR 描述範本（📝變更說明、🔗相關WorkItems、🧪測試計畫、📸截圖、🎯影響範圍、✅檢查清單、🔍審查重點）：
 
-```markdown
-## 📝 變更說明
-{簡要描述此 PR 的目的和變更內容}
-
-## 🔗 相關 Work Items
-- Fixes #{work_item_id}
-- Related to #{work_item_id}
-
-## 🧪 測試計畫
-- [ ] 單元測試已新增/更新
-- [ ] 整合測試已執行
-- [ ] 手動測試場景：
-  - {測試場景 1}
-  - {測試場景 2}
-
-## 📸 截圖（如適用）
-{UI 變更的截圖}
-
-## 🎯 影響範圍
-- **影響的功能**: {列出受影響的功能}
-- **破壞性變更**: {是/否，如果有請說明}
-- **資料庫變更**: {是/否，如果有請說明}
-
-## ✅ 檢查清單
-- [ ] 程式碼遵循團隊規範
-- [ ] 已進行自我審查
-- [ ] 已新增必要的註解
-- [ ] 文檔已更新
-- [ ] 無新的警告訊息
-- [ ] 已新增測試且測試通過
-- [ ] 相依更新已檢查
-
-## 🔍 審查重點
-{提示審查者應特別注意的部分}
-```
+→ 請參閱 [references/pr-templates.md](references/pr-templates.md)
 
 ## 最佳實踐
 
@@ -331,64 +297,15 @@ async def track_pr_status(project, repo_name, status_filter=None):
 
 | 文件 | 內容 |
 |------|------|
-| [references/pr-templates.md](references/pr-templates.md) | 各種 PR 範本集合 |
+| [references/pr-templates.md](references/pr-templates.md) | 標準 PR 描述範本與 4 個使用範例 |
 | [references/review-checklist.md](references/review-checklist.md) | 完整的審查檢查清單 |
 | [references/comment-guidelines.md](references/comment-guidelines.md) | 評論撰寫指南 |
 
 ## 使用範例
 
-### 範例 1：創建功能 PR
+創建功能 PR、檢查 PR 合併狀態、批次顯示待審查列表、確認所有評論已處理的完整執行流程：
 
-```plaintext
-User: 我完成了會員登入功能，請幫我創建 PR
-
-Agent 執行流程：
-1. 確認當前分支和目標分支
-2. 搜尋相關的 work items
-3. 生成 PR 標題和描述
-4. 創建 PR 並連結 work items
-5. 指派預設審查者
-6. 提供 PR 連結
-```
-
-### 範例 2：檢查 PR 狀態
-
-```plaintext
-User: 檢查 PR #12345 是否可以合併
-
-Agent 執行流程：
-1. 取得 PR 詳細資訊
-2. 執行檢查清單
-3. 檢查建置狀態
-4. 檢查評論是否解決
-5. 生成檢查報告
-6. 如果準備好，建議合併
-```
-
-### 範例 3：批次審查
-
-```plaintext
-User: 顯示所有等待我審查的 PRs
-
-Agent 執行流程：
-1. 搜尋指派給用戶的 PRs
-2. 按優先級排序（年齡、重要性）
-3. 顯示摘要列表
-4. 提供快速審查連結
-```
-
-### 範例 4：解決評論
-
-```plaintext
-User: PR #12345 的所有評論都已處理，請協助確認
-
-Agent 執行流程：
-1. 取得所有討論串
-2. 檢查每個討論串的狀態
-3. 識別待解決的討論
-4. 提供待處理項目清單
-5. 建議下一步行動
-```
+→ 請參閱 [references/pr-templates.md](references/pr-templates.md)
 
 ## 自動化整合
 
