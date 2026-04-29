@@ -277,6 +277,14 @@ ADO 的 RTE 看到單一 `<p>` 不會自動換行，所有句子連成一牆文�
 
 `Microsoft.VSTS.Common.AcceptanceCriteria` 同樣是 HTML 欄位，適用相同規則。
 
+---
+
+### 坑 5：`wit_get_work_items_batch_by_ids` 容易 timeout
+
+**症狀**：`MCP error -32001: Request timed out`，不論 3 筆或 6 筆批次皆可觸發，重試也無法自動恢復。
+
+**解法**：改用逐筆 `wit_get_work_item`；若先要清單再展開，先跑 `wit_query_by_wiql`（只回 ID），再對需要詳情的 ID 逐筆呼叫。
+
 ## 這次建議用到的 local skills
 
 ### `/plan` + `/init` 建議預設使用
