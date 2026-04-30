@@ -285,6 +285,26 @@ ADO 的 RTE 看到單一 `<p>` 不會自動換行，所有句子連成一牆文�
 
 **解法**：改用逐筆 `wit_get_work_item`；若先要清單再展開，先跑 `wit_query_by_wiql`（只回 ID），再對需要詳情的 ID 逐筆呼叫。
 
+---
+
+### 坑 6：`wit_query_by_wiql` 帶過多欄位也會 timeout
+
+**症狀**：`MCP error -32001: Request timed out`，即使只是一次 WIQL 查詢也可能觸發。
+
+**根因**：SELECT 裡帶了 `[System.AssignedTo]` 等展開欄位，在 ADO MCP 尖峰時段會超時。
+
+**解法**：只選必要欄位（`[System.Id]`、`[System.Title]`、`[System.State]`、`[System.WorkItemType]`）；精簡後通常一次重試即可成功。坑 5 建議的「先 WIQL 取 ID 清單」本身不能保證不 timeout，欄位精簡同樣適用。
+
+---
+
+### 坑 7：臨時診斷腳本容易硬編碼過期 APIM FQDN
+
+**症狀**：除錯期間產生的探索腳本（如 `discover_mcp.py`、`runtime_discovery.py`）把舊的 APIM FQDN（例如 `fet-mcp-apim-bst.azure-api.net`）硬編碼進去；但 live APIM 其實是 `apim-fet-outlook-email.azure-api.net`。
+
+**根因**：快速除錯時把腦中記憶的 URL 直接寫進腳本，沒有對照 CLAUDE.md 確認。
+
+**解法**：(a) 這類臨時腳本加進 `.gitignore`（`*_discovery.py`、`run_discovery.bat`），絕不進版控；(b) 排查 MCP 端點連線請優先用 `README.md` 的 `curl` 範例或 `.vscode/mcp*.json` 模板，而非即興建立新腳本；(c) 若一定要建腳本，用環境變數取 URL，不要寫死。
+
 ## 這次建議用到的 local skills
 
 ### `/plan` + `/init` 建議預設使用

@@ -89,3 +89,15 @@ ADO 的 RTE 看到單一 `<p>` 不會自動換行，所有句子連成一牆文�
 **解法**：改用逐筆 `wit_get_work_item`（單一 ID），雖然來回次數多，但每筆 timeout 機率大幅降低；若要一次取多筆，先用 `wit_query_by_wiql` 撈 ID 清單，再逐筆展開。
 
 **How to apply**：retro 或需要展示工作項目詳情時，**優先** `wit_get_work_item`，不要預設用 batch API。
+
+---
+
+## 坑 6：`wit_query_by_wiql` 帶過多欄位也會 timeout
+
+**症狀**：`MCP error -32001: Request timed out`，即使只是一次 WIQL 查詢也可能觸發。
+
+**根因**：SELECT 子句帶了 `[System.AssignedTo]` 等展開欄位，在 ADO MCP 尖峰時段會超時。
+
+**解法**：只選必要欄位（`[System.Id]`、`[System.Title]`、`[System.State]`、`[System.WorkItemType]`）；精簡後通常一次重試即可成功。坑 5 建議的「先 WIQL 取 ID 清單」本身不能保證不 timeout，欄位精簡同樣適用。
+
+**How to apply**：WIQL 查詢一律只選最少必要欄位，拿到 ID 後再視需要逐筆展開詳情。
