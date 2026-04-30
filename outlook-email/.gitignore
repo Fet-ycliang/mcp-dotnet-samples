@@ -2,3 +2,7 @@
 .azure
 .copilot/
 local.settings.json
+# 臨時診斷腳本（除錯用，不進版控）
+*_discovery.py
+run_discovery.bat
+discover_mcp.py
