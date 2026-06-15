@@ -92,6 +92,7 @@
 - **目前 live APIM resource 名稱**是 `apim-fet-outlook-email`；`AZURE_APIM_NAME` 或 README 內的 `fet-mcp-apim-bst` 只應視為 env / 範例值，不要直接當成已落地資源名稱。
 - **目前 live APIM retained path backend** 是 ACA `fet-outlook-email-ca`；若要讓 azd 直接接手並持續更新這個既有 ACA，請設定 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca`。template 會沿用該 ACA 的 managed environment / 目前 image 當 deploy baseline，再把 azd service 與 APIM backend 一起對準它。這個參數目前假設 ACA 與本次部署在**同一個 resource group**，而且該 ACA 已啟用 ingress 並有可用 FQDN。注意：template **不會**順手替既有 ACA 補完所有 auth / network 鎖定，你仍要自己確認 ACA 不會變成繞過 APIM 的入口。
 - **目前 live frontend 已是 private-only ingress**：Function App 走 **Private Link / private endpoint**，且 `publicNetworkAccess=Disabled`；APIM gateway 走 **Internal VNet + private DNS**。若有人說「frontend 都走 private link」，要先確認他是泛指私網入口，還是嚴格要求 **APIM 也必須是 Azure Private Link**。
+- **Databricks → APIM 走 NCC PE 三層手動架構**：APIM stv1 Developer SKU 不原生支援 Azure Private Link inbound PE，所以同 Tenant 內 Databricks 透過手動建立的 `apim-fet-outlook-email-ncc-lb`（Standard ILB）+ Private Link Service + `apim-fet-outlook-email-ncc-proxy-vm`（reverse proxy）連到 APIM。這三個元件**不在 Bicep**，`azd up` 不會碰它們；新增 workspace 比照辦理時要在 Databricks NCC 加 PE 指向**同一條 PLS resource ID**，再到 PLS（不是 APIM）端 Approve。詳見 `README.md` 的「APIM Internal-VNet 透過 NCC PE 暴露給 Databricks 的架構」章節。
 - **注意這不是 template 預設值**：目前 live retained path 之所以對準 `fet-outlook-email-ca`，是因為這個 azd env 已把 `AZURE_APIM_INTERNAL_VNET=true` 與 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca` 打開；`main.parameters.json` 的預設仍是空字串或 `false`。
 - **APIM subnet**：`apim-subnet`，`172.18.78.0/28`，位於 `apim-bst-vnet`，NSG `172.18.78.0_24_APIM` 與 Route Table `DG-Route-APIM` 已就位，重建 APIM 時 subnet 本身不需異動。
 - Graph 認證模式的優先序是：`EntraId__UseManagedIdentity` 明確值 > 明確提供的 `EntraId__TenantId` / `ClientId` / `ClientSecret` > `AZURE_CLIENT_ID` fallback。不要只看 `AZURE_CLIENT_ID` 來判斷目前是否一定走 managed identity。
@@ -101,9 +102,9 @@
   - `GraphServiceClient`：在 `Program.cs` 註冊
 - `host.json` 與 `mcp-handler\function.json` 代表此 sample 可作為 Azure Functions custom handler，並以 catch-all route 將 HTTP 要求轉送給 app。
 - **天條（公司業務資料必須走 intranet）的 SaaS 例外**：Exchange Online（`Mail.Send`）與 Microsoft Entra ID（`login.microsoftonline.com`）本質上只有 internet 入口，走 internet + TLS 是合規設計，不視為天條違規。天條的保護對象是「公司擁有的業務資料」，OAuth token 本身不屬之。若要審查 data path 合規，重點放在 email content 是否透過私網（NCC / private endpoint）抵達 ACA，而不是 Entra token endpoint 的 routing。
-- **ACA direct path 的 inbound 安全性 = 純網路隔離**：direct ACA 無 `authV2`（platform Easy Auth），也沒有在 ASP.NET Core pipeline 加 `UseAuthentication()`；security 完全依賴 **private ingress（external 值設為 managedContainerAppIngressExternal）+ NCC private link**。`McpAuth__*` env var 系列（`McpAuth__Enabled`、`McpAuth__TrustEasyAuthHeaders`、`McpAuth__TenantId`、`McpAuth__ClientId`、`McpAuth__AllowedCallerAppIds__*`）**已從 `resources.bicep` 移除**，它們只存在 `ModelContextProtocol.AspNetCore.dll` binary 中，從未被 app 讀取，不影響任何行為。
+- **ACA direct path 的 inbound 安全性 = 純網路隔離（fallback only）**：direct ACA 無 `authV2`（platform Easy Auth），也沒有在 ASP.NET Core pipeline 加 `UseAuthentication()`；security 完全依賴 **private ingress（external 值設為 managedContainerAppIngressExternal）**。direct ACA 路徑現在僅作 backend 除錯用途，不是日常入口；日常 caller（含 Databricks）統一走 APIM via NCC PE。`McpAuth__*` env var 系列（`McpAuth__Enabled`、`McpAuth__TrustEasyAuthHeaders`、`McpAuth__TenantId`、`McpAuth__ClientId`、`McpAuth__AllowedCallerAppIds__*`）**已從 `resources.bicep` 移除**，它們只存在 `ModelContextProtocol.AspNetCore.dll` binary 中，從未被 app 讀取，不影響任何行為。
 - **外部 M2M caller 的 role grant 已模組化**：`infra/modules/entra-app-role-assignment.bicep` 可獨立執行或由 `resources.bicep` 迴圈呼叫；`resources.bicep` 新增 `externalCallerAppIdsCsv` 參數（對應 `MCP_EXTERNAL_CALLER_APP_IDS_CSV` azd env）。Grant 清單與時機說明在 `README.md` 的「Grant 作業清單」小節。
-- **Databricks intranet-only 與 `login.microsoftonline.com`**：若 Databricks subnet 的 egress 完全封在 intranet，token 取得（`login.microsoftonline.com`）仍需要 internet 出口；可在 Databricks subnet 加 `Microsoft.AzureActiveDirectory` Service Endpoint 讓流量走 Azure backbone 而不繞出公網，或透過公司 proxy 轉送。NCC M2M path 本身的 MCP traffic（`/mcp`）是走 private link，不受此影響。
+- **Databricks intranet-only 與 `login.microsoftonline.com`**：若 Databricks subnet 的 egress 完全封在 intranet，token 取得（`login.microsoftonline.com`）仍需要 internet 出口；可在 Databricks subnet 加 `Microsoft.AzureActiveDirectory` Service Endpoint 讓流量走 Azure backbone 而不繞出公網，或透過公司 proxy 轉送。NCC PE 走的 MCP traffic（從 Databricks managed VNet 經 PLS → ILB → Proxy VM → APIM）是走 private link，不受此影響。
 
 ## MCP 連線模式
 - `.vscode\mcp.stdio.local.json`：本機 STDIO
@@ -114,7 +115,7 @@
 - `.vscode\mcp.http.remote-apim.json`：遠端 APIM
 - `.mcp.json`：Claude Code 使用的**本地** project-level MCP 設定（不進版控）；若要加 project-level server（例如 `databricks-genie`）請改這裡；這個 repo 的 project code 是 `y94`
 - `.mcp.json` 改完後，既有 Claude Code session 不會熱載入；要看新的 server 清單需重開該 repo 的 project / session（`y94`）
-- `.claude\mcp.json`：APIM remote header 參考範例（目前以 live APIM `https://apim-fet-outlook-email.azure-api.net/mcp` 當預設例子）；不是目前 Claude Code 的 project-level 載入入口
+- `.claude\mcp.json`：APIM remote header 參考範例（目前以 live APIM `https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp` 當預設例子）；不是目前 Claude Code 的 project-level 載入入口
 - `~\.copilot\mcp-config.json`：Copilot CLI 使用的 MCP 設定（不在 repo 內）
 
 ## 修改時的工作原則
@@ -156,12 +157,12 @@
 - `send_email` 目前會把 service 例外轉成 `errorMessage` 放在 tool 結果內，因此 `tools/call` 不一定會用 MCP envelope 的 `isError=true` 呈現；排查時要一起看 `result.content[0].text` 與 server log。
 - private Function App / SCM 在有公司 proxy 的環境下，通常要補 `NO_PROXY`；否則看起來像是 server 壞了，其實是流量被送去公網。
 - 若 APIM remote MCP 使用 `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}`（例如 `.claude\mcp.json` 內的範例），啟動 Claude Code / Copilot CLI 前，先在同一個 shell 刷新 access token。
-- **但更推薦直接走 OAuth auto-discovery**：APIM `/mcp-oauth/*` facade 已完整；Claude Code / Copilot CLI 的 `.mcp.json` 對 outlook-email 只要寫 `{"type":"http","url":"https://apim-fet-outlook-email.azure-api.net/mcp"}`，**不要**再放 `headers.Authorization` 或 env var 的 bearer。原因：client 看到 `headers.Authorization` 時優先用它送 request；就算 OAuth flow 已完成並在 `~/.claude/.credentials.json` 存了 token，UI 顯示 `Auth: ✔ authenticated`，實際 request 仍會套設定檔的靜態 header（env var 展開為空就變 `Bearer `），結果 APIM 回 401 → UI `Status: ✘ failed`。移除 `headers` 後，client 會改用已存的 OAuth token，`/mcp initialize` 回 200 SSE 正常。
+- **但更推薦直接走 OAuth auto-discovery**：APIM `/mcp-oauth/*` facade 已完整；Claude Code / Copilot CLI 的 `.mcp.json` 對 outlook-email 只要寫 `{"type":"http","url":"https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp"}`，**不要**再放 `headers.Authorization` 或 env var 的 bearer。原因：client 看到 `headers.Authorization` 時優先用它送 request；就算 OAuth flow 已完成並在 `~/.claude/.credentials.json` 存了 token，UI 顯示 `Auth: ✔ authenticated`，實際 request 仍會套設定檔的靜態 header（env var 展開為空就變 `Bearer `），結果 APIM 回 401 → UI `Status: ✘ failed`。移除 `headers` 後，client 會改用已存的 OAuth token，`/mcp initialize` 回 200 SSE 正常。
 - 若要重用既有 `MCP_APIM_RESOURCE_CLIENT_ID`，這裡必須填 **Application (client) ID / `appId`**，不是 Entra object ID；這輪 live migration 就曾把 `7dfdd946-...` object ID 誤填進 env，結果 APIM policy / token audience 全部接錯，最後才改回真正的 client ID `ddfcc64c-b3c5-419f-a2c6-c3abed72b64d`。
 - `generate_pptx_attachment` 的建議流程是：先產出 `generatedAttachmentId`，再交給 `send_email.generatedAttachmentIds`；不要在遠端 APIM 路徑搬整份 `.pptx` Base64。
 - `generate_xlsx_attachment` 與 `generate_pptx_attachment` 共用 `send_email.generatedAttachmentIds`；若附件是伺服器端生成，優先傳 `generatedAttachmentId`，不要把整份 `.xlsx` Base64 搬進 remote MCP payload。
 - `generate_xlsx_attachment` 目前是 **chart-first**：`tables[].rows` 每格值都用字串輸入，再依 `columns[].type` 解析；圖表的 `valueColumns` 必須指向 `number` 欄位，且 `pie` 只能指定一個 value column。
-- Databricks external MCP 若要打 internal/private APIM，M2M 欄位就算填對，仍可能因 private DNS / reachability 卡在 `tools/list`；若同一組 caller app 直打 APIM `/mcp initialize` / `/mcp tools/list` 成功，先把問題歸在 Databricks 到 private APIM 的可達性，而不是 tool 定義本身。
+- Databricks external MCP 連 APIM 走 NCC PE → PLS → ILB → Proxy VM → APIM 三層手動架構；若 M2M 欄位填對但 `tools/list` 卡住，依序排查：(a) NCC PE 在 PLS 端是 ESTABLISHED（不是 Pending）；(b) NCC PE 的 Domain names 含 `apim-fet-outlook-email.azure-api.net`；(c) SSH 進 `apim-fet-outlook-email-ncc-proxy-vm` 跑 `curl -v https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp` 對照 LB → proxy → APIM 鏈路；(d) `MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV` 含實際 caller app。**不要直接懷疑 tool 定義或 OAuth scope**。
 - **`McpAuth__*` env var 是 dead code**：`resources.bicep` 曾把 `McpAuth__Enabled`、`McpAuth__TrustEasyAuthHeaders`、`McpAuth__TenantId`、`McpAuth__ClientId`、`McpAuth__AllowedCallerAppIds__*` 注入 ACA env，但 `BuildApp()` 從未呼叫 `UseAuthentication()` / `UseAuthorization()`，這些值永遠不被讀取。已確認移除，不影響任何功能。日後若要在 direct ACA 路徑加 inbound auth，必須同時在 `Program.cs` 加 auth middleware 才會生效。
 - **`directMcpServicePrincipal` 的觸發條件要包含外部 caller grant 需求**：原條件 `deployApimFacade && !empty(effectiveDirectMcpClientId)` 不足——只有外部 M2M caller（`externalCallerAppIdsCsv`）需要 grant 卻不部署 APIM facade 時，SP lookup 會被跳過。正確做法：引入 `needDirectMcpServicePrincipal = !empty(effectiveDirectMcpClientId) && (deployApimFacade || !empty(externalCallerAppIdList))`。
 - 遠端 `/mcp` 目前是 SSE 回應；若用 `curl` / PowerShell 除錯，記得解析 `data:` 行。
@@ -186,6 +187,18 @@
 - 若調整內容框大小或文字上限，記得保留 auto-fit 或同步收緊 validation；不然 deck 雖然能開，但長標題 / 長 bullets 會被裁掉。
 
 ### APIM 維運相關陷阱
+- **stv1 APIM 不能直接被 NCC PE 連線**：APIM Developer / Basic / Standard 都是 stv1 platform，不原生支援 Azure Private Link inbound private endpoint。Databricks NCC 若想連 stv1 APIM，必須中間放 `Microsoft.Network/privateLinkServices`（PLS）+ Standard Internal Load Balancer + reverse proxy VM（處理 SNI / Host header），NCC PE 連的是 PLS resource ID，**不是** APIM resource ID。Approval 也是在 PLS blade（不是 APIM blade）做。新增 workspace 比照辦理時不要漏這一步。長期解法是升 **Standardv2 或 Premium-stv2**（才原生支援 Inbound PE）；Basicv2 **不支援** Inbound PE，不要誤用。
+- **APIM SKU 與 Inbound Private Endpoint 支援對照**（實測確認）：
+  | SKU | VNet Injection | Inbound PE |
+  |-----|---------------|-----------|
+  | Developer / Basic / Standard（stv1）| ✅ Internal/External | ❌ |
+  | **Basicv2** | ❌ | **❌**（`PrivateEndpointNotSupportedInServiceSku`）|
+  | **Standardv2** | ❌ | **✅** |
+  | Premium（stv1/stv2）| ✅ | ✅ |
+  無論換哪個 subnet（PE_Subnet / apim-basicv2-subnet / apim-subnet）都是同樣的 SKU-level 錯誤，與 subnet 選擇無關。
+- **PLS 無法指向 Basicv2**：`Microsoft.Network/privateLinkServices` 需要你控制的 Standard Internal Load Balancer 前端 IP；Basicv2 跑在 Microsoft 管理的 App Service 基礎設施上（DNS 解析會過 `azurewebsites.net`），無法取得底層 ILB 存取權，所以不能用 PLS 繞過 PE 限制。
+- **`publicNetworkAccess: Disabled` 必須先有 approved PE**：若 APIM 尚無任何 PE connection 就設 Disabled，ARM 會直接回 `DisablingPublicNetworkAccessRequiredPrivateEndpoint`。正確順序：(1) 部署 APIM + PE（publicNetworkAccess=Enabled）→ (2) 確認 PE 已 Approved → (3) 再更新為 Disabled。
+- **APIM Basicv2 的 outbound IP 在 `outboundPublicIPAddresses`**：`publicIPAddresses` 對 Basicv2 回傳 null；要鎖 Container App 的 `ipSecurityRestrictions`，需查 `az rest ... --query properties.outboundPublicIPAddresses`，不是 `properties.publicIPAddresses`。
 - **APIM OAuth AS metadata 的 `issuer` 要用 `{{McpOAuthBaseUrl}}`，不是 Entra tenant issuer**：`mcp-oauth-authorization-server.policy.xml` 與 `mcp-oauth-openid-configuration.policy.xml` 的 `issuer` 欄位要填 APIM facade 自己的 URL（`{{McpOAuthBaseUrl}}`）。若誤填成 Entra issuer（例如 `https://login.microsoftonline.com/{tenant}/v2.0`），AS metadata 會宣告一個錯誤的身份；OAuth client 在 discovery 後會對 APIM 發出以 Entra URL 為 `iss` 的驗證請求，或在 issuer binding 時失敗。`<issuers>` 裡接受 Entra issuer 是給下游 `validate-jwt` 驗 JWT token 用的——那是兩個不同層次，不要混淆。
 - **APIM 刪除是長時間操作**（實測約 10 分鐘），不要中途 Ctrl+C；中斷後資源狀態會卡在 Deleting，需在 Portal 確認完成。
 - **`az role assignment list --assignee <managed-identity-resource-id>` 會因 Graph API 限制報錯**；查 managed identity 的角色指派時，需先用 `az identity show --query principalId` 取得 `principalId`，再用 `--assignee-object-id <principalId>` 查詢。
@@ -196,6 +209,16 @@
 - **單行 `if`/`else` 必須加大括號**：APIM policy expression 是 Razor/CSHTML syntax，不接受 `if (cond) return false;` 這種無大括號寫法，PUT 時會回 `ValidationError: Block statements must be enclosed in "{" and "}"`。一律寫成 `if (cond) { return false; }`。
 - **字串裡的 `//` 會被 Razor lexer 誤判為 line comment**：像 `"http://localhost"` 放在 `var x = foo.StartsWith("http://localhost", ...)` 這種 `var =` 右值裡，APIM parser 會從 `//` 開始把剩下的當註解，最後報 `( missing )`。已知 workaround：用 `"http:\u002F\u002Flocalhost"` 或把 `/` 拆開字串拼接；放進 `.Any(lambda => ...)` 的 lambda body 內**不會**踩到這個問題，因為 parser 對 lambda body 有不同 tokenization。若要改 `mcp-oauth-authorize.policy.xml` 這類檔案，優先把含 `//` 的 URL 字串抽成 `var localhostHost = "http:\u002F\u002Flocalhost";` 再組合，不要直接 inline `"http://..."`。
 - **改 policy 時直接用 ARM REST `az rest` / curl + Management API 比 `az apim` CLI 快**：`az apim api operation policy` 這個 subcommand 不存在（2.79 CLI）；改用 `PUT /subscriptions/.../apis/{id}/operations/{id}/policies/policy?api-version=2023-05-01-preview`，body 為 `{"properties":{"format":"rawxml","value":"<policies>..."}}`。Windows bash 下 `curl --data-binary @file` 的 file 路徑要用 Unix 樣式 `/tmp/...`，不要寫 Windows 絕對路徑。
+
+### Bicep / Azure CLI 維運陷阱
+- **`az monitor log-analytics workspace delete --force` 仍會互動提示**：`--force` 只是跳過軟刪除（soft delete）保留期，不跳過確認提示；在非互動環境（CLI pipeline / Copilot）下會因 EOF 錯誤而失敗。解法：用 REST API 直接刪除：
+  ```powershell
+  $token = (az account get-access-token --query accessToken -o tsv)
+  $uri = "https://management.azure.com/subscriptions/<subId>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<name>?api-version=2023-09-01"
+  Invoke-RestMethod -Method Delete -Uri $uri -Headers @{Authorization="Bearer $token"}
+  ```
+- **`az rest --url` 中的 `&` 在 PowerShell 裡需變數化**：直接把含 `&param=value` 的 URL 寫在 backtick 換行指令中，PowerShell 會把 `&` 後面當成另一個 shell 命令。解法：把 URL 存進 `$url = "..."` 變數再帶入 `az rest --url $url`。
+- **Bicep `az bicep build` 產生的 `.json` 是 build artifact，不應進版控**：`az bicep build` 會在同目錄產生同名 `.json`；這些 ARM JSON 應加進 `.gitignore` 或手動刪除，不要 commit。
 
 ## 踩坑筆記（ADO MCP 實戰）
 

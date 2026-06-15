@@ -10,7 +10,7 @@
             </set-header>
             <set-body>@{
                 return JsonConvert.SerializeObject(new {
-                    resource = "{{APIMGatewayURL}}/mcp",
+                    resource = "{{APIMGatewayURL}}/outlook-email/mcp",
                     authorization_servers = new[] {
                         "{{McpOAuthBaseUrl}}"
                     },

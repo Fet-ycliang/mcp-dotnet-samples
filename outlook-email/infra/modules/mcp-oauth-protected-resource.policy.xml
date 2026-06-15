@@ -8,7 +8,7 @@
             </set-header>
             <set-body>@{
                 return JObject.FromObject(new {
-                    resource = "{{APIMGatewayURL}}/mcp",
+                    resource = "{{APIMGatewayURL}}/outlook-email/mcp",
                     authorization_servers = new[] { "{{McpOAuthBaseUrl}}" },
                     scopes_supported = new[] { "{{McpScope}}" },
                     bearer_methods_supported = new[] { "header" }

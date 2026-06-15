@@ -60,6 +60,13 @@ param apimSubnetResourceId string = ''
 @description('Optional user-assigned managed identity resource ID that APIM should use for backend token acquisition.')
 param managedIdentityResourceId string = ''
 
+@description('Whether public network access to the APIM gateway is allowed. Set to Disabled to restrict access to private endpoints only.')
+@allowed([
+  'Enabled'
+  'Disabled'
+])
+param publicNetworkAccess string = 'Enabled'
+
 // ------------------
 //    VARIABLES
 // ------------------
@@ -94,6 +101,7 @@ resource apimService 'Microsoft.ApiManagement/service@2024-06-01-preview' = {
   properties: union({
     publisherEmail: publisherEmail
     publisherName: publisherName
+    publicNetworkAccess: publicNetworkAccess
   }, apimNetworkProperties)
 }
 

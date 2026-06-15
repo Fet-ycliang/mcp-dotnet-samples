@@ -1,11 +1,11 @@
 @description('The name of the API Management service')
 param apimServiceName string
 
-@description('The name of the App Service hosting the MCP endpoints')
-param functionAppName string
+@description('The name of the App Service hosting the MCP endpoints (unused when backendUrl is provided; kept for backwards compatibility).')
+param functionAppName string = ''
 
-@description('Optional explicit backend base URL for the MCP API facade. When provided, APIM forwards to this URL instead of the Function App hostname.')
-param backendUrl string = ''
+@description('Backend base URL for the MCP API facade. APIM forwards requests to this URL.')
+param backendUrl string
 
 @description('The client/application ID of the MCP resource app')
 param mcpAppId string
@@ -37,10 +37,6 @@ param backendManagedIdentityClientId string
 
 resource apimService 'Microsoft.ApiManagement/service@2023-05-01-preview' existing = {
   name: apimServiceName
-}
-
-resource functionApp 'Microsoft.Web/sites@2023-12-01' existing = {
-  name: functionAppName
 }
 
 var effectiveMcpAppIdUri = !empty(mcpAppIdUri) ? mcpAppIdUri : 'api://${mcpAppId}'
@@ -178,14 +174,14 @@ resource mcpApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' = {
   parent: apimService
   name: 'mcp'
   properties: {
-    displayName: 'MCP API'
+    displayName: 'outlook-email MCP API'
     description: 'Model Context Protocol API endpoints'
     subscriptionRequired: false
-    path: '/'
+    path: 'outlook-email'
     protocols: [
       'https'
     ]
-    serviceUrl: empty(backendUrl) ? 'https://${functionApp.properties.defaultHostName}/' : backendUrl
+    serviceUrl: backendUrl
   }
 }
 
@@ -265,7 +261,7 @@ resource mcpOAuthApi 'Microsoft.ApiManagement/service/apis@2023-05-01-preview' =
   parent: apimService
   name: 'mcp-oauth'
   properties: {
-    displayName: 'MCP OAuth API'
+    displayName: 'outlook-email OAuth Authorization Server Metadata'
     description: 'OAuth discovery and token facade for MCP clients'
     subscriptionRequired: false
     path: 'mcp-oauth'
@@ -443,5 +439,5 @@ output mcpAppId string = mcpAppId
 output mcpAppTenantId string = mcpAppTenantId
 output mcpAppIdUri string = effectiveMcpAppIdUri
 output mcpScope string = mcpScope
-output backendUrl string = empty(backendUrl) ? 'https://${functionApp.properties.defaultHostName}/' : backendUrl
+output backendUrl string = backendUrl
 output mcpOAuthBaseUrl string = mcpOauthBaseUrl
