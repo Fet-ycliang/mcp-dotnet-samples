@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "apimServiceName": {
+      "value": "apim-fet-3101-ai-gateway"
+    },
+    "managedIdentityName": {
+      "value": "id-fet-outlook-email-bst-apim"
+    },
+    "backendUrl": {
+      "value": "https://fet-outlook-email-ca.proudpebble-d0c3559f.eastus2.azurecontainerapps.io/"
+    },
+    "mcpAppId": {
+      "value": "ddfcc64c-b3c5-419f-a2c6-c3abed72b64d"
+    },
+    "mcpAppIdUri": {
+      "value": "api://apim-mcp"
+    },
+    "mcpAppTenantId": {
+      "value": "bb5ad653-221f-4b94-9c26-f815e04eef40"
+    },
+    "backendMcpAppId": {
+      "value": "87123f9d-6cf0-4672-9003-c8eba016749d"
+    },
+    "backendMcpAppIdUri": {
+      "value": ""
+    },
+    "mcpClaudeClientId": {
+      "value": "f4d7461b-8929-41b3-8522-4c70fb4e45cb"
+    },
+    "apimAllowedClientApplicationsCsv": {
+      "value": "4c2d441f-e794-43ca-ade6-5fc8c8351363"
+    },
+    "mcpClaudeRedirectUrisCsv": {
+      "value": "http://localhost;https://adb-2654999172504234.14.azuredatabricks.net/login/oauth/http.html"
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceNameStem": {
+      "value": "fet-3101-ai-gateway"
+    },
+    "location": {
+      "value": "eastus2"
+    },
+    "apimSubnetName": {
+      "value": "apim-basicv2-subnet"
+    },
+    "publisherEmail": {
+      "value": "ycliang@fareastone.com.tw"
+    },
+    "publisherName": {
+      "value": "FET AI Plateform"
+    },
+    "apimVirtualNetworkType": {
+      "value": "None"
+    },
+    "deployApimPrivateDns": {
+      "value": true
+    },
+    "deployPrivateEndpoint": {
+      "value": true
+    },
+    "apimPublicNetworkAccess": {
+      "value": "Disabled"
+    },
+    "existingVirtualNetworkLinkName": {
+      "value": "link-fb4fd6ojqoxvq"
+    },
+    "tags": {
+      "value": {
+        "CostCenter": "3101",
+        "Purpose": "ai_lab",
+        "EnvType": "Develop",
+        "Workload": "ai-gateway",
+        "Service": "mcp"
+      }
+    }
+  }
+}

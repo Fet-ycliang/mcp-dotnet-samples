@@ -29,7 +29,7 @@ description: |
 6. localhost / UT 參考改看 `.vscode\mcp.http.local-func.json`、`.vscode\mcp.stdio.local.json`，不是 `.\.mcp.json` 的正式遠端路徑
 7. `.claude\mcp.json` 目前保留作 APIM remote header 參考範例，不是 Claude Code 現在的 project-level 載入入口
 
-> 目前 repo 內的 `.claude\mcp.json` 以 live APIM `https://apim-fet-outlook-email.azure-api.net/mcp` 當預設例子；換環境時請改成對應 `https://<apim-fqdn>/mcp`。若你是在維護 Claude Code project-level server 清單，請改你本地的 `.\.mcp.json`，而且這份檔案不進版控。
+> 目前 repo 內的 `.claude\mcp.json` 以 live APIM `https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp` 當預設例子；換環境時請改成對應 `https://<apim-fqdn>/outlook-email/mcp`。若你是在維護 Claude Code project-level server 清單，請改你本地的 `.\.mcp.json`，而且這份檔案不進版控。
 
 ## APIM remote MCP 連線必要條件
 
@@ -42,7 +42,7 @@ description: |
   "mcpServers": {
     "outlook-email": {
       "type": "http",
-      "url": "https://apim-fet-outlook-email.azure-api.net/mcp"
+      "url": "https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp"
     }
   }
 }
@@ -113,7 +113,7 @@ curl.exe --noproxy '*' -i -sS `
   -H "Content-Type: application/json" `
   -H "Accept: application/json, text/event-stream" `
   --data-binary "@$bodyPath" `
-  https://apim-fet-outlook-email.azure-api.net/mcp
+  https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp
 ```
 
 > 如果 body 含中文，這種 **UTF-8 file + `--data-binary`** 寫法比 `--data-raw` 穩定很多。

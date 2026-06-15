@@ -404,3 +404,9 @@ FodyWeavers.xsd
 .mcpregistry_github_token
 .mcpregistry_registry_token
 .gstack/
+
+# Bicep compiled ARM JSON build artifacts
+/outlook-email/infra/**/*.json
+/outlook-email/infra/*.json
+!/outlook-email/infra/**/*.parameters.json
+!/outlook-email/infra/*.parameters.json

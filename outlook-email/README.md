@@ -1304,13 +1304,15 @@ $env:OUTLOOK_EMAIL_ACA_ACCESS_TOKEN = az account get-access-token `
 
 - 一般筆電若沒有 private DNS / VNet reachability，對 `*.internal.proudpebble-...azurecontainerapps.io` 通常**不能直接做 E2E**；這類驗證改走 APIM retained path，或改在同 VNet / peered network 的 jumpbox、自架 agent、VM 上執行。
 
-##### Databricks / 外部平台直連 Function App（NCC + private endpoint）
+##### (fallback) Direct Function / ACA path — 僅供 backend 除錯
 
-- Databricks direct path 要連的是 **Function App private endpoint FQDN**，不是 APIM gateway。
+> Databricks / 外部平台的 **primary path 是 APIM via NCC PE → PLS → ILB → Proxy VM → APIM**（見上方「不同環境的 MCP 設定對照」與「APIM Internal-VNet 透過 NCC PE 暴露給 Databricks 的架構」章節）。下面這條 direct Function / ACA 路徑只在 **NCC PE 故障或要排查 backend** 時使用，繞過 APIM 的 policy / rate limit / observability，不是日常入口。
+
+- Direct path 要連的是 **Function App / ACA private endpoint FQDN**，不是 APIM gateway。
 - VS Code 遠端 Function 範本請使用 `.vscode\mcp.http.remote-func.json`；它現在走的是 **Bearer token**，不是 `x-functions-key`。
-- split-auth 後，direct Function 與 APIM 不再共用同一顆 resource app：direct path 看 `MCP_DIRECT_*`，APIM retained path 看 `MCP_APIM_RESOURCE_*`；因此 **Host** 與 token audience / scope 都要分開看。
-- 若你有設定 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，只有列在裡面的 direct caller app 可以直打 Function App；APIM backend 使用的 managed identity 會由模板自動加入。
-- 若你還想用 Azure CLI / 手動 shell 直接驗證 direct Function，且同時啟用了 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，請記得把實際拿 token 的 caller app 一起列入 allowlist。
+- split-auth 後，direct Function / ACA 與 APIM 不再共用同一顆 resource app：direct path 看 `MCP_DIRECT_*`，APIM retained path 看 `MCP_APIM_RESOURCE_*`；因此 **Host** 與 token audience / scope 都要分開看。
+- 若你有設定 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，只有列在裡面的 direct caller app 可以直打 Function App / ACA；APIM backend 使用的 managed identity 會由模板自動加入。
+- 若你還想用 Azure CLI / 手動 shell 直接驗證 direct path，且同時啟用了 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，請記得把實際拿 token 的 caller app 一起列入 allowlist。
 
 需要手動刷 direct Function bearer token 時，可在同一個 shell 先設：
 
@@ -1326,44 +1328,48 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 
 | 環境 | 建議路徑 | Host / URL | 認證方式 | 主要設定檔 / 欄位 | 備註 |
 | --- | --- | --- | --- | --- | --- |
-| Databricks external MCP / Genie | **direct Function** | `https://<function-app>.azurewebsites.net/mcp` | OAuth M2M 或 Bearer | Databricks connection UI 的 Host / Port / Client ID / Client secret / scope | 若有 NCC，優先走這條；Host 要填 Function App private endpoint，不是 APIM |
-| Copilot CLI | **APIM retained path** | `https://<apim-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}` | `~\.copilot\mcp-config.json` 的 `mcpServers` | 適合現有人員操作；若 APIM 走 private route，記得補 `NO_PROXY` |
-| Copilot CLI | **direct Function** | `https://<function-app-fqdn>/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN}` | `~\.copilot\mcp-config.json` 的 `mcpServers` | 若有 direct caller allowlist，manual CLI 的 caller app 也要被放行 |
-| Claude Code | **APIM retained path** | `https://<apim-fqdn>/mcp` | 依你本地 `.\.mcp.json` 內各 server 設定而定 | 本地 `.\.mcp.json` 的 `mcpServers`（不進版控） | 這個 repo 的 Claude Code project code 是 `y94`；`.claude\mcp.json` 目前只保留作 APIM remote header 參考範例 |
+| Databricks external MCP / Genie | **APIM via NCC PE** | `https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp` | OAuth M2M（Client Credentials Grant） | Databricks connection UI 的 Host / Port / Client ID / Client secret / scope | 走 NCC PE → Private Link Service → `apim-fet-outlook-email-ncc-lb`（Standard ILB） → `apim-fet-outlook-email-ncc-proxy-vm`（reverse proxy） → Internal-VNet APIM `172.18.78.4`；LB / PLS / Proxy VM **不在 Bicep**，由人工維運 |
+| Copilot CLI | **APIM retained path** | `https://<apim-fqdn>/outlook-email/mcp` | `Authorization: Bearer ${OUTLOOK_EMAIL_APIM_ACCESS_TOKEN}` | `~\.copilot\mcp-config.json` 的 `mcpServers` | 適合現有人員操作；若 APIM 走 private route，記得補 `NO_PROXY` |
+| Claude Code | **APIM retained path** | `https://<apim-fqdn>/outlook-email/mcp` | 依你本地 `.\.mcp.json` 內各 server 設定而定 | 本地 `.\.mcp.json` 的 `mcpServers`（不進版控） | 這個 repo 的 Claude Code project code 是 `y94`；`.claude\mcp.json` 目前只保留作 APIM remote header 參考範例 |
 | VS Code Agent Mode | 本機或遠端範本皆可 | 依 `.vscode/mcp.*.json` | 依範本 | `.vscode/mcp.http.remote-apim.json`、`.vscode/mcp.http.remote-func.json`、`.vscode/mcp.http.remote.json` | `.vscode/mcp.http.remote.json` 僅限 direct ACA 除錯，不是標準日常入口 |
+| (fallback) Direct ACA / Function | 僅供 backend 除錯 | direct ACA / Function private FQDN | OAuth M2M 或手動 Bearer | `.vscode/mcp.http.remote-func.json` / `.vscode/mcp.http.remote.json` | 只在 NCC PE 故障或要排查 backend 時使用；繞過 APIM policy / rate limit / observability，不是日常路徑 |
 
-> **原則**：Databricks 優先看 **Function App direct path**；Copilot CLI / Claude Code 優先看 **APIM retained path**。split-auth 後，Databricks / direct caller 看 `MCP_DIRECT_*`，Claude retained path 看 `MCP_APIM_RESOURCE_*` + `MCP_CLAUDE_CLIENT_ID`。
+> **原則**：所有遠端 caller（Databricks / Copilot CLI / Claude Code / VS Code）的 primary path 都是 **APIM retained path**。Databricks 透過 NCC PE → PLS → LB → Proxy VM → APIM 進入；Claude Code / Copilot CLI 透過公司 intranet → APIM 進入。`MCP_DIRECT_*` 系列保留作 direct ACA / Function backend 除錯用，不是日常入口。
 
 #### 外部平台 OAuth Machine to Machine 表單欄位對照
 
-若你看到的 UI 欄位是 **Host / Port / Client ID / Client secret / OAuth scope**，可依路徑分成下面兩種填法：
+若你看到的 UI 欄位是 **Host / Port / Client ID / Client secret / OAuth scope**，依下面填法：
 
-##### Databricks direct Function 路徑
-
-| UI 欄位 | 要填什麼 | 這次環境應填值 / 說明 |
-| --- | --- | --- |
-| Host | **Function App private endpoint 對外呈現的 hostname**，不要填 Entra token endpoint | `https://<function-app>.azurewebsites.net` |
-| Port | HTTPS port | `443` |
-| Client ID | **呼叫端 client app** 的 Application (client) ID。這裡填的是 caller，不是 resource app | 請填 Databricks / 外部平台專用 client app ID |
-| Client secret | 上面同一顆 **呼叫端 client app** 的 secret | 請填該 client app 對應的 secret |
-| OAuth scope | **resource app** 的 `.default` scope；不要填 delegated `user_impersonation`，也不要填 caller 自己的 app ID | `api://<MCP_DIRECT_CLIENT_ID>/.default` |
-
-##### APIM 保留路徑
+##### APIM 保留路徑（Databricks / Copilot CLI / 所有外部 M2M 平台共用）
 
 | UI 欄位 | 要填什麼 | 這次環境應填值 / 說明 |
 | --- | --- | --- |
-| Host | **APIM gateway base URL**，不要填 Entra token endpoint；這欄通常也**不要先帶 `/mcp`**，除非該 UI 完全沒有 path 欄位 | `https://<apim-fqdn>`（目前 live 例子：`https://apim-fet-outlook-email.azure-api.net`） |
+| Host | **APIM gateway base URL**，不要填 Entra token endpoint；這欄通常也**不要先帶 `/mcp`**，除非該 UI 完全沒有 path 欄位 | `https://<apim-fqdn>`（目前 live：`https://apim-fet-outlook-email.azure-api.net`） |
 | Port | HTTPS port | `443` |
 | Client ID | **呼叫端 client app** 的 Application (client) ID。這裡填的是 caller，不是 resource app | 請填你的 Databricks / 外部平台專用 client app ID |
 | Client secret | 上面同一顆 **呼叫端 client app** 的 secret | 請填該 client app 對應的 secret |
 | OAuth scope | **resource app** 的 `.default` scope；不要填 delegated `mcp.access`，也不要填 caller 自己的 app ID | `api://<MCP_APIM_RESOURCE_CLIENT_ID>/.default` |
 
+> Databricks 在這條路徑上實際的網路路徑是 NCC PE → PLS → ILB → Proxy VM → APIM；UI 欄位只看 caller 端，**不需要**特別填 LB / PLS 任何資源資訊。網路路徑詳見「**APIM Internal-VNet 透過 NCC PE 暴露給 Databricks 的架構**」章節。
+
+##### (fallback) Direct ACA / Function path — 僅供 backend 除錯
+
+> 此路徑**繞過 APIM**，不是日常入口；只在 NCC PE 故障或要直接驗證 backend 時使用。日常 caller 請改用上面的 APIM 保留路徑。
+
+| UI 欄位 | 要填什麼 | 這次環境應填值 / 說明 |
+| --- | --- | --- |
+| Host | direct ACA / Function App private FQDN | `https://<function-app>.azurewebsites.net` 或 ACA private FQDN |
+| Port | HTTPS port | `443` |
+| Client ID | **呼叫端 client app** 的 Application (client) ID | 請填該 client app ID（必須在 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 內） |
+| Client secret | 上面同一顆 **呼叫端 client app** 的 secret | 請填該 client app 對應的 secret |
+| OAuth scope | **direct path resource app** 的 `.default` scope | `api://<MCP_DIRECT_CLIENT_ID>/.default` |
+
 補充：
 
 - 若 UI 另外有 **Token endpoint / Issuer** 欄位，請填：`https://login.microsoftonline.com/bb5ad653-221f-4b94-9c26-f815e04eef40/oauth2/v2.0/token`
 - 若 UI 另外有 **Is mcp connection** 這類 checkbox，請 **勾選**
-- 若 UI 另外有 **Path / Base path** 欄位，請填：`/mcp`
-- 若你前一頁的 Host 已經誤填成 `https://apim-fet-outlook-email.azure-api.net/mcp`，那這一頁的 Base path 請改回 `/`，避免重複變成 `/mcp/mcp`
+- 若 UI 另外有 **Path / Base path** 欄位，請填：`/outlook-email/mcp`
+- 若你前一頁的 Host 已經誤填成 `https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp`，那這一頁的 Base path 請改回 `/`，避免重複變成 `/outlook-email/mcp/outlook-email/mcp`
 - direct Function 或 APIM retained path 都一樣：caller client app **必須先被指派**到 resource app 的 `access_as_application` app role；不然 token 可能拿得到，但 resource app / APIM 仍會回 `403`
 - **建議為 Databricks / 外部平台建立 dedicated client app**，只給它 `access_as_application`；不要直接重用 Function App 出站打 Graph 的 `MCP_ENTRA_*` app，避免把外部 caller 與 Graph `Mail.Send` 權限綁在同一顆 app 上
 
@@ -1380,8 +1386,9 @@ $env:OUTLOOK_EMAIL_FUNC_ACCESS_TOKEN = az account get-access-token `
 適合當 Databricks external MCP caller app 的最低要求：
 
 1. 這顆 app 必須是 **confidential client**，也就是至少要有 client secret 或 certificate。
-2. 這顆 app 必須先被指派到 MCP resource app（目前是 `mcpEntraApp`）的 `access_as_application` app role。
-3. 若有啟用 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`，還要把這顆 caller app 的 client ID 一起放進 allowlist。
+2. 這顆 app 必須先被指派到 MCP resource app（過渡期目前仍是 `mcpEntraApp`）的 `access_as_application` app role。
+3. APIM retained path 預設只放行 `MCP_CLAUDE_CLIENT_ID`；外部 M2M caller（包括 Databricks）必須補進 `MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV`，否則 `validate-jwt` 後仍會被 caller-app allowlist 擋下回 403。
+4. （fallback only）若同時要支援 direct ACA / Function 路徑除錯，再把同一顆 caller app 補進 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV`。
 
 因此，**目前這個環境建議 Databricks external MCP 先使用 `DatabricksAgent` 當 caller app**；`mcpEntraApp` 繼續作為 resource app；`dw_fabric_ap` 除非先補齊 `access_as_application` 指派，否則不要直接拿去填 Databricks 連線表單。
 
@@ -1451,29 +1458,39 @@ $combined = (($existing -split ',') + $extra | Where-Object { $_ } | Select-Obje
 
 Databricks 使用 **Client Credentials Grant（RFC 6749 §4.4，即 Machine-to-Machine / M2M）**，無需使用者互動。呼叫端以 service principal 的 client ID + client secret 直接向 Microsoft Entra ID token endpoint 換取 application access token（app-only access token），再以 Bearer scheme 呼叫 MCP server。MCP spec 在此路徑下不需要 OAuth Authorization Server Metadata 自動發現（RFC 8414），token 由 Databricks 外部自行取得後夾帶進 HTTP 請求。
 
-**目前 live 路徑：Databricks → ACA direct path（走 intranet / NCC private link）**
+**目前 live 路徑：Databricks → NCC private endpoint → PLS → ILB → Proxy VM → APIM Internal VNet（intranet 全程私網）**
 
-> APIM 部署模式為 VNet internal injection（Developer SKU），閘道 IP `172.18.78.4` 屬於公司內部私有 IP，透過 Azure Private DNS 解析；Databricks managed proxy 無法到達這條 intranet APIM 路徑，因此改走 ACA direct path。Databricks 透過 NCC（Serverless Network Connectivity）建立 private link 到 ACA，整條流量**不經過公開 internet**。
+> APIM 部署模式為 VNet internal injection（Developer SKU / stv1），閘道 IP `172.18.78.4` 屬於公司內部私有 IP；stv1 SKU **不原生支援** Azure Private Link inbound private endpoint。為讓 Databricks managed VNet 透過 NCC 建立 private link 連到 APIM，必須中間放一層 Standard Internal Load Balancer（`apim-fet-outlook-email-ncc-lb`）+ Private Link Service + reverse proxy VM（`apim-fet-outlook-email-ncc-proxy-vm`）。整條流量**不經過公開 internet**。
+>
+> 詳細的 NCC PE 設定步驟請見「**APIM Internal-VNet 透過 NCC PE 暴露給 Databricks 的架構**」章節。
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant DB as Databricks Genie<br/>(DatabricksAgent e11ff460)
     participant Entra as Entra ID<br/>tenant bb5ad653
-    participant ACA as ACA direct path<br/>fet-outlook-email-ca<br/>Easy Auth (mcpEntraApp 87123f9d)
+    participant PLS as Private Link Service<br/>(掛在 apim-fet-outlook-email-ncc-lb<br/>Standard ILB frontend)
+    participant Proxy as apim-fet-outlook-email-<br/>ncc-proxy-vm<br/>(reverse proxy)
+    participant APIM as APIM Internal VNet<br/>apim-fet-outlook-email<br/>172.18.78.4 (Developer / stv1)
+    participant ACA as ACA backend<br/>fet-outlook-email-ca
     participant Graph as Microsoft Graph<br/>Mail.Send
 
     DB->>Entra: POST /oauth2/v2.0/token (internet → Microsoft Entra ID)<br/>grant_type=client_credentials<br/>scope=api://87123f9d-.../.default<br/>client_id=e11ff460 / client_secret=***
     Note over Entra: 驗 DatabricksAgent 已在<br/>mcpEntraApp 完成 access_as_application<br/>application role assignment
     Entra-->>DB: application access token（app-only）<br/>aud=api://87123f9d-...<br/>iss=https://sts.windows.net/&lt;tenant&gt;/ (v1.0 token)<br/>roles=[access_as_application]
 
-    DB->>ACA: POST /mcp（intranet：NCC private link → ACA private endpoint）<br/>Authorization: Bearer &lt;token&gt;<br/>MCP-Protocol-Version: 2025-03-26
+    DB->>PLS: POST /outlook-email/mcp（intranet：NCC PE → PLS）<br/>Host: apim-fet-outlook-email.azure-api.net<br/>Authorization: Bearer &lt;token&gt;<br/>MCP-Protocol-Version: 2025-03-26
+    PLS->>Proxy: 經 ILB 轉送至 reverse proxy
+    Note over Proxy: Nginx / HAProxy 處理 SNI / Host header<br/>對 apim-fet-outlook-email.azure-api.net<br/>VNet 內 DNS 解析到 172.18.78.4
+    Proxy->>APIM: HTTPS to 172.18.78.4
 
-    Note over ACA: Microsoft Entra ID-based authentication（Easy Auth）<br/>驗 audience=api://87123f9d-...<br/>驗 issuer=sts.windows.net<br/>MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV<br/>caller allowlist 放行 e11ff460
+    Note over APIM: validate-jwt 策略<br/>aud 接受 apim-mcp 與 mcpEntraApp（過渡期相容）<br/>iss 接受 v2.0 與 v1.0（過渡期相容）<br/>caller allowlist 放行 e11ff460
 
-    ACA-->>DB: initialize / tools/list
+    APIM->>ACA: forward /mcp（intranet）<br/>APIM 以 user-assigned managed identity 換 ACA Bearer token
+    ACA-->>DB: initialize / tools/list（沿原路返回）
 
-    DB->>ACA: tools/call send_email
+    DB->>APIM: tools/call send_email（同樣經 PLS / Proxy / APIM）
+    APIM->>ACA: forward
     ACA->>Graph: Mail.Send（internet — Exchange Online 是 SaaS，TLS 加密；合規）
     Graph-->>ACA: 202 Accepted
     ACA-->>DB: MCP tool result
@@ -1483,15 +1500,245 @@ sequenceDiagram
 
 | 欄位 | 填什麼 | 說明 |
 | --- | --- | --- |
-| Host | ACA private FQDN（intranet，走 NCC private link） | 不是 APIM gateway（private/internal，Databricks managed proxy 不可達）；不是 Microsoft Entra token endpoint |
-| Port | 443 | HTTPS over TLS |
+| Host | `https://apim-fet-outlook-email.azure-api.net` | APIM gateway FQDN；在 Databricks managed VNet 內透過 NCC PE 自帶的 DNS override 解析到 PE 的私有 IP |
+| Port | `443` | HTTPS over TLS |
 | Client ID | `e11ff460-a5c8-47a8-8d10-9e0a04233a4e`（DatabricksAgent） | Caller application 的 Application (client) ID，不是 resource application 的 ID |
 | Client secret | DatabricksAgent 的 client secret（password credential） | 對應 Client Credentials Grant 的 `client_secret` 參數 |
-| OAuth scope | `api://87123f9d-6cf0-4672-9003-c8eba016749d/.default` | Resource application 的 `.default` scope；Microsoft Entra ID 會自動帶入所有已 consent 的 application permissions（含 `access_as_application` role） |
-| Token endpoint | `https://login.microsoftonline.com/bb5ad653-221f-4b94-9c26-f815e04eef40/oauth2/v2.0/token` | Microsoft Entra ID v2.0 token endpoint（Microsoft identity platform） |
-| Base path | `/mcp` | MCP Streamable HTTP transport 的入口路徑 |
+| OAuth scope | `api://87123f9d-6cf0-4672-9003-c8eba016749d/.default` | 過渡期：仍用 `mcpEntraApp` resource app；TD-2 / TD-3 解除後改成 `api://apim-mcp/.default` |
+| Token endpoint | `https://login.microsoftonline.com/bb5ad653-221f-4b94-9c26-f815e04eef40/oauth2/v2.0/token` | Microsoft Entra ID v2.0 token endpoint |
+| Base path | `/outlook-email/mcp` | APIM 上的 MCP API 路徑（**不是** `/mcp`，那是 direct path 才用的） |
 
 ---
+
+#### APIM Internal-VNet 透過 NCC PE 暴露給 Databricks 的架構
+
+##### 為什麼需要 LB + Proxy VM
+
+APIM `apim-fet-outlook-email` 是 **stv1 Developer SKU** + Internal VNet injection（private IP `172.18.78.4`）。stv1 SKU 在 Azure 上**不支援** native Private Link inbound private endpoint，所以 Databricks NCC 沒辦法直接建立一條 PE 指向 APIM resource ID。
+
+解法：在 APIM 旁邊另建一條由我們自己掌控的 Private Link 暴露路徑：
+
+```
+Databricks managed VNet
+        │
+        ▼  (NCC private endpoint，target = PLS resource ID)
+[Private Link Service]   ← 在 Azure 端 Approve PE 連線（PLS blade，不是 APIM blade）
+        │
+        ▼
+[apim-fet-outlook-email-ncc-lb]   (Standard ILB；frontend 掛 PLS，backend pool 指 proxy VM)
+        │
+        ▼
+[apim-fet-outlook-email-ncc-proxy-vm]   (reverse proxy：Nginx / HAProxy；
+                                          負責 TLS / SNI / Host header
+                                          對 apim-fet-outlook-email.azure-api.net 上游)
+        │
+        ▼  (APIM VNet 內 DNS 解析到 172.18.78.4)
+APIM Internal VNet gateway (172.18.78.4)
+```
+
+##### 各元件確切角色
+
+| 元件 | Resource | 角色 | 由誰維運 |
+| --- | --- | --- | --- |
+| Standard ILB | `apim-fet-outlook-email-ncc-lb` | Frontend 掛 PLS；backend pool 指向 proxy VM；SKU 必須是 Standard（PLS 只能掛 Standard SLB） | **手動建立**，不在 Bicep |
+| Private Link Service | （掛在 ILB frontend，PLS 名稱請手動到 Portal 確認） | 對外暴露給 Databricks NCC；NCC PE 連的是這條 PLS 的 resource ID，不是 APIM resource ID | **手動建立**，不在 Bicep |
+| Reverse Proxy VM | `apim-fet-outlook-email-ncc-proxy-vm` | 接 LB 流量，用 Nginx / HAProxy proxy 到 `https://apim-fet-outlook-email.azure-api.net`；APIM Internal VNet DNS 在 VM 內解析到 `172.18.78.4` | **手動建立**，不在 Bicep |
+| APIM | `apim-fet-outlook-email` | Internal VNet 模式，private IP `172.18.78.4`；只在 VNet 內被 proxy VM 觸達 | Bicep 管理（`infra/modules/apim.bicep` + `apim-private-dns.bicep`） |
+
+> **重要**：LB / PLS / Proxy VM 是 **手動建立** 的共用基礎設施，**不在 `infra/modules/*.bicep`**。`azd up` 不會建立或更新它們；要動到這層只能 Portal / az CLI 手動操作。Bicep 只負責 APIM 本身（Internal VNet）+ APIM 的 5 個 `azure-api.net` 私有 DNS zone（VNet 內解析用）。
+
+##### 新增 Databricks workspace（同 Tenant）比照辦理 Checklist
+
+前提：新 workspace 與既有 LB / PLS / VM / APIM 在**同一個 Microsoft Entra Tenant** 與 Azure subscription（或 PLS visibility 已涵蓋）。
+
+**Phase 1：取得 PLS resource ID（一次性查證）**
+
+```bash
+# 找 LB 的 RG（推測在 apim-app-bst-rg，請確認）
+az network lb show \
+  --name apim-fet-outlook-email-ncc-lb \
+  --resource-group apim-app-bst-rg \
+  --query "frontendIpConfigurations[].{name:name, privateLink:privateLinkConfiguration.id}" \
+  -o table
+
+# 列出該 RG 下的 PLS
+az network private-link-service list \
+  --resource-group apim-app-bst-rg \
+  --query "[].{name:name, id:id, alias:alias}" \
+  -o table
+```
+
+把回傳的 PLS `id`（形如 `/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/privateLinkServices/<plsName>`）記下來。
+
+**Phase 2：Databricks 新 workspace 建立 NCC PE**
+
+到新 workspace 的 **Databricks Account Console → Cloud resources → Network connectivity** 設定：
+
+1. 建立（或選用）這個 workspace 對應的 NCC（Network Connectivity Configuration）
+2. 把 NCC bind 到目標 workspace
+3. 在該 NCC 上 Add private endpoint rule：
+   - **Resource type**: `Microsoft.Network/privateLinkServices`（**不是** `Microsoft.ApiManagement/service`，因為 stv1 APIM 不原生支援）
+   - **Resource ID**: 上一步記下的 PLS id
+   - **Domain names**：手動填 `apim-fet-outlook-email.azure-api.net`（NCC PE 設定裡需要手動填的 FQDN，會在 Databricks managed VNet 內解析到 PE 的私有 IP）
+
+**Phase 3：Azure 端 Approve PE 連線**
+
+NCC 端送出 PE 後，到 Azure Portal 找到 **PLS**（不是 APIM！）：
+
+1. PLS resource → **Private endpoint connections** blade
+2. 應該會看到一條來自新 Databricks workspace 的 **Pending** 連線
+3. 選取 → **Approve** → 加註明（例如 `Databricks workspace <name> NCC PE`）
+4. 等 1–3 分鐘狀態變 **Approved**；Databricks 端 NCC 介面就會顯示 **ESTABLISHED**
+
+> 已知坑（從 Key Vault PE 經驗推論）：Approved 不等於可用。Approved 後若 Databricks 端 `tools/list` 還是不通，去 PLS 的 NIC 確認分配到的 private IP 與 NCC 的 DNS override 是否同步；必要時 SSH 到 `apim-fet-outlook-email-ncc-proxy-vm` 內 `curl -v` 一下，逐段確認。
+
+**Phase 4：caller app + token**
+
+新 workspace 沿用既有 APIM caller app（`DatabricksAgent` `e11ff460-...`），或為它新開一顆 dedicated SP（least privilege）。caller app 必須先在 `mcpEntraApp` 完成 `access_as_application` application role assignment（過渡期）。詳細欄位填法見上方「填表對照（Databricks external MCP 連線 UI）」。
+
+**Phase 5：端對端驗證**
+
+1. **Databricks 端**：在新 workspace 跑 `MCP initialize` / `tools/list`，看是否回 200 SSE
+2. **Proxy VM 端**（可選）：SSH 進 `apim-fet-outlook-email-ncc-proxy-vm`，`curl -v https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp` 對照 LB → proxy → APIM 整條鏈是否仍通
+3. **PLS 端**：`az network private-link-service show ... --query "privateEndpointConnections[].{wsName:privateEndpoint.id, state:privateLinkServiceConnectionState.status}"` 確認新連線是 Approved
+
+---
+
+#### 跨 Tenant 接新 Databricks workspace（不動既有架構）
+
+> **情境**：APIM、LB、PLS、Proxy VM 都在 **Tenant A**（既有 outlook-email 環境）；新 Databricks workspace 在 **Tenant B**。Tenant A 內所有資源不動，只在兩端補跨 Tenant 設定。
+>
+> 既有的 LB / PLS / Proxy VM 是手動建立的共用基礎設施，本章節**不會**因為加新 Tenant 而需要重建這三個元件。
+
+##### 跨 Tenant 影響面
+
+| 面向 | 同 Tenant（既有） | 跨 Tenant（這條新路徑） |
+|---|---|---|
+| PLS visibility | 預設可見 | **PLS 必須允許 Tenant B 的 subscription 連線**：`az network private-link-service update --visibility-subscriptions "*"`（或具體 subscription ID 列表） |
+| NCC PE 發起 | NCC 寫 PLS resource ID 即可 | NCC 寫**完整跨 Tenant 的 PLS resource ID**（`/subscriptions/<TenantA-sub>/...`）；Databricks 介面接受跨 Tenant 連線 |
+| PE Approval | Tenant A 操作 | 仍由 **Tenant A 操作**（PLS 所在 Tenant 才能 Approve）；操作者本身要有 Tenant A 的權限或 guest 帳號 |
+| OAuth caller app | 用 Tenant A 內的 SP | **Caller app 必須在 Tenant A**：APIM `validate-jwt` 只認 Tenant A 的 JWT；Tenant B 自己的 SP issue 的 token 過不了 |
+| Token endpoint | Tenant A 的 token endpoint | 仍是 **Tenant A 的 token endpoint**（`https://login.microsoftonline.com/<TenantA-id>/oauth2/v2.0/token`），不是 Tenant B 的 |
+| Conditional Access / MFA | Tenant A policy | **同時受 Tenant A 與 Tenant B policy 影響**（B2B / cross-tenant settings） |
+
+##### 最小阻力路徑
+
+在 **Tenant A** 內為新 Tenant B workspace 開一顆專用 caller SP（例如 `DatabricksAgent-<workspaceName>`），它的 client ID + secret 給 Tenant B 的 Databricks workspace 使用。這樣 OAuth token 在 Tenant A issue，APIM 無痛驗證；Tenant B 端只是「呼叫一個外部 IdP」，沒有跨 Tenant 信任的複雜度。
+
+##### 跨 Tenant Checklist
+
+**Tenant A 端（一次性設定）**：
+
+1. **PLS visibility 開放**到 Tenant B 的 subscription：
+
+   ```bash
+   az network private-link-service update \
+     --name <pls-name> --resource-group apim-app-bst-rg \
+     --visibility "*"
+   # 或精確列出：--visibility "<TenantB-sub-id-1>" "<TenantB-sub-id-2>"
+   ```
+
+2. **在 Tenant A 內為新 workspace 開一顆 dedicated caller SP**（confidential client，至少有 client secret）
+
+3. **把這顆 SP 指派到 `mcpEntraApp` 的 `access_as_application` app role**（或在 TD-2 完成後改指派到 `apim-mcp`）。可重用 `infra/modules/entra-app-role-assignment.bicep`：
+
+   ```bash
+   az deployment group create \
+     --resource-group <rg-name> \
+     --template-file infra/modules/entra-app-role-assignment.bicep \
+     --parameters callerAppId="<NewSP-client-id>" \
+                  resourceAppId="87123f9d-6cf0-4672-9003-c8eba016749d"
+   ```
+
+4. **把這顆 SP 的 client ID 加進 `MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV`**（azd env），重 deploy APIM policy 讓 caller-app allowlist 生效
+
+**Tenant B 端（新 workspace 設定）**：
+
+5. 在 Tenant B 的 Databricks Account Console 建獨立 NCC、bind 到目標 workspace
+6. 在該 NCC 加 PE rule：
+   - Resource type：`Microsoft.Network/privateLinkServices`
+   - Resource ID：Tenant A 的 **完整跨 Tenant PLS resource ID**
+   - Domain names：`apim-fet-outlook-email.azure-api.net`
+7. 在 Databricks 的 OAuth M2M 連線設定填：
+   - Token endpoint：**Tenant A** 的 `https://login.microsoftonline.com/<TenantA-id>/oauth2/v2.0/token`（**不是 Tenant B**）
+   - Client ID / secret：步驟 2 在 Tenant A 內新開的 dedicated SP
+
+**Tenant A 端（NCC PE 發起後）**：
+
+8. 在 PLS 的 **Private endpoint connections** blade 找到 Tenant B workspace 送來的 Pending 連線
+9. **Approve**，等狀態變 ESTABLISHED
+10. 端對端驗證：Tenant B workspace 跑 `MCP initialize` / `tools/list` 應回 200 SSE
+
+##### 跨 Tenant 已知坑
+
+- **PLS visibility 沒開**：Tenant B NCC 發起 PE 連線時可能直接卡在「找不到目標 PLS」，連 Pending 都進不去；先檢查 Tenant A 的 PLS `visibility.subscriptions`
+- **誤用 Tenant B 的 token endpoint**：Tenant B Databricks 介面預設可能填 Tenant B 的 token endpoint；token 可以拿到，但 APIM `validate-jwt` 會回 401（issuer mismatch）。Token endpoint 一定要填 Tenant A 的
+- **Tenant B 端沒有 PLS Approve 權限**：Approval 必須由 Tenant A 操作；如果 Tenant A admin 不知情，PE 會一直 Pending
+
+---
+
+#### Basicv2 / stv2 migration 評估（**僅評估，本 plan 不執行**）
+
+> 目前 APIM 是 **Developer SKU（stv1 platform）**，這是用 LB + PLS + Proxy VM 三層手動架構的根因。stv2 v2 SKU（`Basicv2` / `Standardv2` / `Premium-stv2`）原生支援 Azure Private Link inbound private endpoint，可讓 NCC 直接連 APIM resource，移除 LB / PLS / Proxy VM 三個共用元件。
+>
+> 本章節純做可行性與成本評估，**這次不執行**；若日後決定動，再開獨立 migration plan 處理。
+
+##### 簡化幅度
+
+| 元件 | 現況：stv1 Developer + LB + PLS + Proxy VM | 改為：stv2 Basicv2 + Native PE |
+| --- | --- | --- |
+| `apim-fet-outlook-email-ncc-lb`（Standard ILB） | 必要 | **可移除** |
+| Private Link Service | 必要 | **可移除**（APIM 原生 PE 取代） |
+| `apim-fet-outlook-email-ncc-proxy-vm` | 必要（接 LB → APIM） | **可移除** |
+| APIM Internal VNet injection | 是（private IP `172.18.78.4`） | **不能用**（stv2 沒有 VNet injection 模式，改成 outbound VNet integration + inbound Private Link） |
+| 新 workspace NCC PE 目標 | PLS resource ID（手動填 Domain names） | **APIM resource ID + sub-resource `Gateway`**（NCC 自動處理 DNS） |
+| 跨 Tenant Approval | PLS visibility + 跨 Tenant 設定 | APIM 端 PE Approval（標準 Azure Private Link 跨 Tenant 流程，比 PLS 更直接） |
+| `apim-private-dns.bicep` 5 個 `azure-api.net` zone | 必要（VNet 內解析到 `172.18.78.4`） | **要改**：改用 NCC 端自動 manage 的 `privatelink.azure-api.net`（NCC 自帶） |
+| 維運外部資源數 | 4 個（APIM + LB + PLS + VM） | 1 個（APIM） |
+
+##### 跨 Tenant 場景下的額外簡化
+
+跨 Tenant 場景下 Basicv2 的優勢比同 Tenant 更突出：
+
+| 跨 Tenant 痛點 | Developer + LB + PLS + Proxy VM | Basicv2 + Native PE |
+| --- | --- | --- |
+| Domain names 手填 | 必填，填錯就 DNS 失敗 | NCC 自動 manage `privatelink.azure-api.net` |
+| PLS visibility 跨 sub/tenant 設定 | 必設（多一個冷門欄位） | 不需要 PLS，直接用 APIM 端的 PE Approval blade |
+| Resource type 選擇 | `Microsoft.Network/privateLinkServices`（NCC UI 進階選項） | `Microsoft.ApiManagement/service` + sub-resource `Gateway`（NCC UI 標準清單） |
+| Proxy VM SNI/Host 處理 | 必要（stv1 不認 PE 帶來的 Host header） | 不需要，APIM 直接收 Native PE |
+
+##### 隱含成本（不能忽視）
+
+1. **APIM 不能 in-place 升級 Developer → Basicv2**（不同 platform stack），必須**重建**：
+   - Export 全部 APIs / policies / products / subscriptions / named values
+   - 建新 APIM
+   - Import 設定，重新對 ACA / Function backend 做 link
+   - 重新驗 split-auth OAuth facade（`/mcp-oauth/*` 全部 policy）
+2. **既有 Internal-VNet → ACA backend 的 intranet 路徑要重新設計**：stv2 沒有「APIM 跑在你的 subnet 內」這種模式；APIM 對 ACA 的 outbound 改走 outbound VNet integration（subnet delegation `Microsoft.Web/serverFarms` 之類），需要 reconfig
+3. **Claude Code / Copilot CLI 的 OAuth 自動發現要重驗**：APIM gateway 從 `172.18.78.4`（Internal-VNet private IP）改成 Native PE 的私有 IP；VNet 內 `apim-private-dns.bicep` 的 5 個 zone 改成 `privatelink.azure-api.net`，所有 caller 的 DNS 路徑要重驗
+4. **policy `<audiences>` / `<issuers>` 中暫時保留的 legacy v1 token 支援可能要重新評估**（APIM 重建後 binding 會重新設）
+5. **時間成本**：規畫 + 執行 + 驗證 1–2 週，跨團隊（Claude Code 使用者 + Databricks 使用者 + 任何其他 caller）都要被通知 / 重驗
+
+##### 決策矩陣
+
+| 情境 | 建議 |
+| --- | --- |
+| 短期內只多這一個 workspace（含跨 Tenant 那條） | **沿用現架構**，跑「跨 Tenant Checklist」即可，不需要動 APIM SKU |
+| 預期未來 3+ 個 workspace 陸續接入（含多 Tenant） | **規畫升 Basicv2**，每多一個 caller 省一輪手填 Domain names + PLS visibility |
+| 想立刻簡化但不重建 APIM | **把現有手動資源 IaC 化**（新增 `infra/modules/apim-ncc-pe-frontend.bicep`），Migration 留待 future；這次也不做 |
+| 想擺脫 stv1 platform 限制（per region quota / scale-out） | 不論 workspace 數量，都建議升 Basicv2 |
+
+##### 結論
+
+**這次不執行 Basicv2 migration**。短期工作項目只有：
+1. 文件對齊現況（本次完成）
+2. 跨 Tenant Checklist 跑通（操作層面，不在文件範圍）
+
+若日後決定要升，建議的執行順序：
+1. 先把 LB / PLS / Proxy VM 收進 Bicep（確保現況可重建）
+2. 規畫 APIM stv1 → stv2 的 migration window（含 backend re-link 與 OAuth facade 驗證）
+3. Migration 完成後，把 LB / PLS / Proxy VM 從 Bicep 與 Azure 上一起拆除
+4. 更新本章節，把現況改成 stv2 + Native PE
 
 ### 路徑 B：Claude Code / Copilot CLI — Authorization Code Grant with PKCE (RFC 7636)
 
@@ -1559,9 +1806,9 @@ sequenceDiagram
 | Resource application | `mcpEntraApp` (`87123f9d`)，v1.0 token | `apim-mcp` (`ddfcc64c`)，v2.0 token |
 | Token issuer | `https://sts.windows.net/<tenant>/`（Azure AD v1.0 endpoint） | `https://login.microsoftonline.com/<tenant>/v2.0`（Microsoft identity platform） |
 | Refresh token | 無（Client Credentials Grant 每次重新取 token） | 有；Claude Code 以 Refresh Token Grant（RFC 6749 §6）自動續期，存於 `~/.claude/.credentials.json` |
-| MCP server 進站端點 | ACA direct path（`/mcp`，intranet via NCC private link） | APIM retained path（`/mcp`，intranet via Private DNS + VNet injection） |
+| MCP server 進站端點 | APIM retained path（`/outlook-email/mcp`，intranet via NCC PE → PLS → ILB → Proxy VM → APIM `172.18.78.4`） | APIM retained path（`/outlook-email/mcp`，intranet via Private DNS + VNet injection 直接解析到 `172.18.78.4`） |
 | OAuth server metadata 自動發現 | 無（token endpoint 需手動設定） | 支援：透過 Protected Resource Metadata（RFC 9728）自動發現授權伺服器，再執行 DCR（RFC 7591）與 PKCE flow |
-| 主要限制 | caller application 必須先完成 `access_as_application` application role assignment；ACA private endpoint 需透過 NCC 可達 | APIM internal VNet gateway 僅私網可達（需要 Azure Private DNS 解析 `172.18.78.4`）；OAuth `/authorize` redirect 仍需從開發機存取 internet（`login.microsoftonline.com`） |
+| 主要限制 | caller application 必須先完成 `access_as_application` application role assignment；NCC PE 必須先 Approve；新增 workspace 要在 PLS 端再 Approve 一次（PE 是 per-workspace） | APIM internal VNet gateway 僅私網可達（需要 Azure Private DNS 解析 `172.18.78.4`）；OAuth `/authorize` redirect 仍需從開發機存取 internet（`login.microsoftonline.com`） |
 
 ---
 
@@ -1648,7 +1895,9 @@ az deployment group create \
 
 **長期（架構強化）**
 
-6. **Databricks 走 APIM retained path**：目前 Databricks 因 private APIM 可達性問題改走 direct path，繞過了 APIM 的 policy / rate limit / observability。長期應補齊 Databricks workspace 到 private APIM 的網路路徑（NCC Serverless 或 private endpoint），或考慮在 Databricks 可達網段架設 public/restricted APIM facade。
+6. **Databricks 走 APIM retained path** ✅ **已完成**：透過手動建立的 `apim-fet-outlook-email-ncc-lb`（Standard ILB）+ Private Link Service + `apim-fet-outlook-email-ncc-proxy-vm` reverse proxy，Databricks 已能透過 NCC PE 走 APIM retained path（2026-04-12 ESTABLISHED）。剩餘改善方向：
+   - **把 LB / PLS / Proxy VM 收進 Bicep**：目前 3 個元件純手動維運，新增 workspace 仍須手動到 Portal Approve。中期可建立 `infra/modules/apim-ncc-pe-frontend.bicep` 自動化（仍保留 Approval 為手動，因為跨 caller 範圍）。
+   - **評估升 Basicv2（stv2）SKU**：stv2 原生支援 Azure Private Link inbound PE，可讓 NCC 直接連 APIM resource，移除 LB / PLS / Proxy VM 三個共用元件；trade-off 詳見「**Basicv2 / stv2 migration 評估**」章節。
 7. **統一到 MCP v2 + PKCE**：M2M 路徑目前走 MCP v1（沒有 `/.well-known` discovery）。若 Databricks 支援 MCP v2 的 client credentials 流程，可考慮統一走 APIM `/mcp-oauth/` facade，讓所有 caller 都透過同一個 entry point 進入，簡化 policy 維護。
 
 <a id="common-troubleshooting"></a>
@@ -1664,7 +1913,7 @@ az deployment group create \
 | local / Azure 設定看起來正確，但認證模式不如預期 | 誤以為程式一定會跟著 `AZURE_CLIENT_ID` 或一定會跟著 client secret 走 | 先看 `EntraId__UseManagedIdentity`；若未明確設定，程式會優先採用已提供的 tenant / client / secret，只有在這些都不存在時才回退到 `AZURE_CLIENT_ID` |
 | Copilot CLI / Claude Code 一直顯示 `Connecting` | 遠端 MCP server 遲遲連不上 | 先確認 `OUTLOOK_EMAIL_APIM_ACCESS_TOKEN` 已在當前 shell 刷新，再確認 `NO_PROXY` 是否包含 `apim-fet-outlook-email.azure-api.net` 或 `.azure-api.net` |
 | Claude Code 已經改了 `.\.mcp.json`，但 session 內還是看不到新 server | project-level MCP server 清單看起來像沒更新 | `.\.mcp.json` 不會在既有 session 內熱載入；請重開該 repo 的 Claude Code project / session（project code `y94`）再重新讀取 |
-| Databricks external MCP 欄位看起來都對，但 `tools/list` 還是失敗 | connection overview 已顯示 token expiration，卻仍回 `Failed to list tools` / generic `400` | 先用 **Function App private FQDN** 驗證 direct path 的 `/mcp initialize` / `/mcp tools/list`；若 direct path 正常，再回頭檢查 Databricks NCC workspace binding、private DNS 與 `MCP_DIRECT_ALLOWED_CLIENT_APPLICATIONS_CSV` 是否包含實際 caller app |
+| Databricks external MCP 欄位看起來都對，但 `tools/list` 還是失敗 | connection overview 已顯示 token expiration，卻仍回 `Failed to list tools` / generic `400` | 依序檢查：(a) NCC PE 在 PLS 端是 **ESTABLISHED**（不是 Pending）；(b) NCC PE 的 **Domain names** 有 `apim-fet-outlook-email.azure-api.net`；(c) SSH 進 `apim-fet-outlook-email-ncc-proxy-vm` 跑 `curl -v https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp` 確認 LB → proxy → APIM 整條鏈仍通；(d) `MCP_APIM_ALLOWED_CLIENT_APPLICATIONS_CSV` 是否包含 caller app ID |
 | private endpoint 明明存在，但 `curl` / CLI 還是連不上 | 看到 proxy 相關錯誤、`403 Ip Forbidden` 或 schannel revocation 錯誤 | 先檢查 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`；診斷時可用 `curl --noproxy '*' ...` 直接驗證私網路徑 |
 | Windows PowerShell 送中文 payload 後，email / PPTX 文字變亂碼 | 主旨、內文或 slide text 出現 mojibake | 不要直接用 `curl.exe --data-raw`；先把 request body 寫成 **UTF-8** 檔案，再改用 `curl.exe --data-binary @body.json` |
 | direct `/mcp` 的 `tools/call` 一直不穩 | `curl.exe` 卡住、回應形狀怪異、或本機 HTTP 明明活著卻叫不動 tool | 先補上 `MCP-Protocol-Version: 2025-03-26`，並確認 `Accept` 同時包含 `application/json, text/event-stream` |
@@ -1703,33 +1952,42 @@ az deployment group create \
 | `remove-apim.bicep` deploymentScript 權限 | 用沒有足夠 RBAC 的 identity 跑清除腳本 | deploymentScript 靜默失敗、卡住，或資源沒真的被清乾淨 | 先確認該 managed identity 至少有 Contributor 以上權限，再執行 `az deployment group create` |
 | APIM subnet lifecycle | 以為刪掉 APIM 會連 `apim-subnet` 一起清掉 | 重建時誤重建 subnet、prefix 對不上，或把既有 NSG / route table 關聯弄亂 | APIM 刪除後保留既有 subnet；重建前先確認 prefix、NSG 與 route table 仍正確 |
 
-#### APIM retained + direct Function 實際落地架構（2026-04）
+#### APIM retained + Databricks NCC PE 實際落地架構（2026-04）
 
-> 本圖對應這次已核對的開發環境：Function App `func-fet-outlook-email-bst` 透過 **Private Link / private endpoint** 進站，且 `publicNetworkAccess=Disabled`；APIM `apim-fet-outlook-email` 透過 **Internal VNet + private DNS** 提供私網入口，而且 retained path 目前是**前轉到 ACA `fet-outlook-email-ca`**。若把「frontend 都走 private link」當成泛稱私網入口，這套架構已符合；若嚴格要求 **APIM 也必須是 Azure Private Link / private endpoint**，那是另一條尚未在這份 template 落地的路徑。
+> 本圖對應目前 live 環境：Claude Code / Copilot CLI 走公司 intranet → APIM Internal VNet；Databricks 走 NCC PE → PLS → ILB → Proxy VM → APIM；Function App `func-fet-outlook-email-bst` 透過 Private Link 進站作為 fallback / debug 入口。LB / PLS / Proxy VM 是手動建立的共用基礎設施，**不在 Bicep**。
 >
 > **注意**：這是目前 live azd env 的結果，不是 repo 預設值；能成立是因為環境已把 `AZURE_DEPLOY_FUNCTIONAPP_PRIVATE_ENDPOINT=true`、`AZURE_APIM_INTERNAL_VNET=true` 與 `AZURE_APIM_BACKEND_CONTAINER_APP_NAME=fet-outlook-email-ca` 打開，而 `infra\main.parameters.json` 的預設仍是空字串或 `false`。
 
 ```mermaid
 flowchart LR
-    Client["Copilot CLI / Claude Code<br/>APIM retained path"]
-    Databricks["Databricks Genie / external MCP<br/>NCC direct Function path"]
+    Client["Copilot CLI / Claude Code<br/>(intranet 開發機)"]
+    Databricks["Databricks Genie / external MCP<br/>(managed VNet)"]
+    NccPE["NCC Private Endpoint<br/>(Databricks managed VNet)"]
+    PLS["Private Link Service<br/>(掛在 ncc-lb frontend)"]
+    LB["apim-fet-outlook-email-ncc-lb<br/>Standard ILB"]
+    Proxy["apim-fet-outlook-email-ncc-proxy-vm<br/>Nginx / HAProxy reverse proxy"]
     DNS["Private DNS zones<br/>aibde-common-rg<br/>azure-api.net family"]
     APIM["APIM Developer (Internal)<br/>apim-fet-outlook-email<br/>private IP: 172.18.78.4"]
     Net["apim-bst-vnet / apim-subnet<br/>NSG + DG-Route-APIM"]
     InboundAuth["APIM MCP resource app<br/>Expose an API + mcp.access + access_as_application"]
     ACA["Azure Container App backend<br/>fet-outlook-email-ca"]
-    Func["Azure Function App direct path<br/>func-fet-outlook-email-bst<br/>Private Endpoint: 172.18.79.118"]
+    Func["Azure Function App fallback path<br/>func-fet-outlook-email-bst<br/>Private Endpoint: 172.18.79.118"]
     OutboundAuth["Outbound Graph identity<br/>ACA / Function 可各自採 managed identity 或 service principal"]
     Graph["Microsoft Graph<br/>Mail.Send"]
 
     Client -->|"resolve APIM default hostnames"| DNS
-    Client -->|"HTTPS /mcp + Bearer token"| APIM
+    Client -->|"HTTPS /outlook-email/mcp + Bearer token"| APIM
+    Databricks --> NccPE
+    NccPE -->|"private link"| PLS
+    PLS --> LB
+    LB --> Proxy
+    Proxy -->|"HTTPS to 172.18.78.4"| APIM
     APIM --- Net
-    APIM -->|"validate-azure-ad-token"| InboundAuth
-    Databricks -->|"HTTPS /mcp + Bearer token"| Func
+    APIM -->|"validate-jwt"| InboundAuth
     APIM -->|"managed identity token for MCP audience"| ACA
+    Databricks -.->|"fallback only: direct path debug"| Func
     ACA -->|"get Graph token"| OutboundAuth
-    Func -->|"get Graph token"| OutboundAuth
+    Func -.->|"get Graph token (fallback)"| OutboundAuth
     OutboundAuth -->|"sendMail"| Graph
 ```
 
@@ -1783,7 +2041,7 @@ sequenceDiagram
 | M2M 欄位語意 | 外部平台 UI 最容易把 **Host / Client ID / scope** 填反：常誤把 Entra token endpoint 當 Host，或把 resource app ID 填進 Client ID | Host 填 **Function App private FQDN** 或 **APIM gateway**；Client ID / secret 填 **caller app**，scope 才填 resource app 的 `.default` |
 | M2M claim gate | 能成功拿到 `client_credentials` token，不代表 APIM 一定會放行；若 token 沒有 `roles=access_as_application`，就應被擋下 | 先看 token claim，再測 `/mcp initialize` / `tools/list`；**role-less app token 預期應回 403** |
 | Caller app 分離 | 若把外部平台 caller app 與 Function App 出站打 Graph 的 app 混用，權限邊界會變模糊 | 為 Databricks / 外部平台建立專用 client app，只指派 `access_as_application`，不要順手把 `Mail.Send` 也綁進去 |
-| Databricks managed proxy | Databricks external MCP 若走 retained APIM path，就算 M2M 欄位填對，仍可能因 APIM host 是 private/intranet IP 而 `Failed to list tools` | 若 Databricks 有 NCC，優先改走 **direct Function path**；只有在 Databricks 確實可達 APIM 時，才繼續排 APIM / private DNS reachability |
+| Databricks NCC PE | Databricks external MCP 若 NCC PE 沒設好，就算 M2M token 拿到也會 `Failed to list tools` | 依序檢查：(a) NCC PE 在 PLS 端是 ESTABLISHED；(b) NCC PE Domain names 含 `apim-fet-outlook-email.azure-api.net`；(c) SSH 進 ncc-proxy-vm 跑 `curl -v https://apim-fet-outlook-email.azure-api.net/outlook-email/mcp` 排查 LB → proxy → APIM 整條鏈；(d) APIM caller allowlist 含實際 caller app |
 | Path probing | Databricks generic `400` 很容易讓人一直懷疑 path 組錯，但其實 `/mcp` 形狀可能早就正確 | 先做最小 probing：目前這個 sample 實測是 **`POST /mcp` 可用、`POST /` = `404`、`GET /mcp` = `405`**；若這組結果已成立，就把排查重心轉回 reachability / auth 邊界 |
 | azd / ARM TLS | 這台機器上的 `azd provision` / `azd provision --preview` 曾被 ARM TLS 問題卡住（`x509: negative serial number`），即使 source template 本身無誤 | 若再遇到同類問題，先換一台乾淨環境或改用 ARM / Graph REST 套 live patch，之後再回頭用 IaC 重放 |
 | 驗證順序 | 一上來就直接測 `send_email`，很容易把網路、OAuth、Function、Graph 權限問題混在一起 | 建議依序驗證：**NCC / private DNS** -> **Function 或 APIM 的 `/.well-known/oauth-protected-resource`** -> **`initialize` / `tools/list`** -> **`send_email`** |
@@ -1803,20 +2061,21 @@ sequenceDiagram
 | 手動正向 E2E | `generate_xlsx_attachment` + `send_email.generatedAttachmentIds` | 成功寄送含 `.xlsx` 圖表報表的郵件 | 受控信箱手動測 |
 | 手動網路驗證 | retained APIM `/.well-known` / `initialize` / `tools/list` | `200` | 僅在 APIM control-plane / DNS / proxy 路徑已健康時執行 |
 
-#### Databricks external MCP 對 internal/private APIM 的目前判讀（2026-04）
+#### Databricks external MCP 對 APIM 的目前判讀（2026-04）
 
-> 若你可以使用 NCC 直連 Function App private endpoint，請優先走 **direct Function path**。這段保留是為了說明：為什麼 Databricks 不再優先走 internal/private APIM。
+> 同 Tenant 內 Databricks → APIM 已透過 **NCC PE → PLS → ILB → Proxy VM** 打通（2026-04-12 ESTABLISHED）。這段保留是給後續排查與「為什麼當初不直接走 NCC → APIM」的脈絡。
 
 這輪實測後，Databricks 這段可以先收斂成下面幾點：
 
 1. **OAuth Machine to Machine 的欄位語意沒有問題**：Host / Port / Client ID / Client secret / scope / token endpoint / base path 這套填法本身是對的。
-2. **Dedicated caller app 直打 APIM 已驗證成功**：使用同一組 caller app 做 client credentials，`/mcp initialize` 與 `/mcp tools/list` 都可回 `200`，而且回應中看得到 `send_email`。
-3. **目前環境的 APIM host 解析到 private IP**：`apim-fet-outlook-email.azure-api.net` 在這輪環境解析到 `172.18.78.4`，屬於 private / intranet 路徑。
-4. **因此 Databricks external MCP 若仍失敗，最可疑的是 reachability**：若 Databricks connection overview 已經顯示 token expiration，卻仍在 `tools/list` 卡住，先懷疑 **Databricks managed proxy 到 private APIM / private DNS 的可達性**，而不是 `send_email` tool 名稱或 `/mcp` path 形狀。
-5. **這類問題通常不能靠反覆重填表單解掉**：更可能需要
-   - 給 Databricks 一個可達的 public/restricted APIM facade
-   - 在 Databricks 可達網路內放一層 proxy / custom MCP
-   - 或真的補齊 Databricks 到該 private DNS / VNet 的網路路徑
+2. **Dedicated caller app 直打 APIM 已驗證成功**：使用同一組 caller app 做 client credentials，`/outlook-email/mcp initialize` 與 `tools/list` 都可回 `200`，而且回應中看得到 `send_email`。
+3. **目前環境的 APIM host 解析到 private IP**：`apim-fet-outlook-email.azure-api.net` 在 APIM 自身 VNet 內解析到 `172.18.78.4`（Internal VNet injection）；在 Databricks managed VNet 內則由 NCC PE 的 DNS override 解析到 PE 的私有 IP。
+4. **stv1 SKU 不能直接被 NCC 連**：APIM Developer SKU 是 stv1 platform，不原生支援 Azure Private Link inbound PE。因此採用「ncc-lb (Standard ILB) + Private Link Service + ncc-proxy-vm reverse proxy」三層手動架構，把 Internal VNet APIM 暴露成可被 NCC PE 連線的 PLS endpoint。
+5. **若 Databricks 端仍失敗，排查重點是 NCC PE 鏈路完整性**：
+   - PLS 端是否 ESTABLISHED（不是 Pending）
+   - NCC PE 的 Domain names 是否含 `apim-fet-outlook-email.azure-api.net`
+   - 從 ncc-proxy-vm 內 `curl -v` 是否能打通整條鏈
+   - APIM caller allowlist 是否含實際 caller app
 
-> 短句版結論：**Databricks 這段目前比較像是 private APIM 可達性問題，不是 OAuth scope / app role / tool 定義問題。**
+> 短句版結論：**Databricks → APIM 走的不是 native Private Link，而是 PLS + 反向代理；排查時要把每一層分開驗證。**
 
