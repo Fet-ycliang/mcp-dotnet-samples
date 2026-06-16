@@ -310,6 +310,69 @@ ADO 的 RTE 看到單一 `<p>` 不會自動換行，所有句子連成一牆文�
 
 ---
 
+## 踩坑筆記（Entra ID / Azure AD 群組管理）
+
+### 坑 A：FET email alias ≠ Entra ID UPN
+
+**症狀**：`az ad user show --id dennyhsiao@fareastone.com.tw` 回 `Resource does not exist`，但這個人確實存在。
+
+**根因**：FET 的員工有兩種 email：
+- **電子郵件**（alias）：人們日常寄信用，例如 `dennyhsiao@fareastone.com.tw`
+- **聊天 / Teams UPN**：真正的 Entra ID 登入帳號，例如 `dyhsiao74@fareastone.com.tw`
+
+Entra ID 認 UPN，不一定認 alias；`az ad user show` 與 Graph API 查 user 時要用 UPN。
+
+**查正確 UPN 的方法**：
+1. 開 M365 個人檔案 → 看「**聊天**」欄的 email（不是「電子郵件」欄）
+2. 或用 Graph API 從 alias 反查（有時 alias 也能解析，看 tenant 設定）：
+   ```
+   GET https://graph.microsoft.com/v1.0/users/{alias}?$select=userPrincipalName,displayName,onPremisesSamAccountName
+   ```
+
+---
+
+### 坑 B：`az ad group member add` 對已是成員回 FAILED（不是靜默成功）
+
+**症狀**：`az ad group member add` 對已在群組的成員回傳非零 exit code，輸出看起來像失敗。
+
+**根因**：CLI 把「already a member」當成錯誤，不是靜默忽略。
+
+**解法**：先用 `az ad group member check --group <id> --member-id <userId> --query value` 確認，或用 Graph API POST `$ref` 並 catch `Request_BadRequest` + message 含 `already exist` 視為成功。
+
+---
+
+### 坑 C：PowerShell 下 `az ad user list --filter "startsWith(...)"` 語法錯誤
+
+**症狀**：`--filter` 或 `--query` 含單引號時，PowerShell 解析失敗，回 `unexpected at this time`。
+
+**根因**：PowerShell 對引號與括號有特殊處理，`az` CLI 的 `--filter startsWith(userPrincipalName,'ariel')` 在 PowerShell 中會被截斷。
+
+**解法**：改用 Graph API REST + `Invoke-RestMethod`，繞過 CLI 引號問題：
+```powershell
+$token = az account get-access-token --resource "https://graph.microsoft.com" --query accessToken -o tsv
+$r = Invoke-RestMethod -Uri "https://graph.microsoft.com/v1.0/users?`$filter=startsWith(userPrincipalName,'ariel')&`$select=userPrincipalName,displayName" `
+     -Headers @{Authorization="Bearer $token"}
+$r.value
+```
+
+---
+
+### 坑 D：`az ad group member add` 加群組要用 Object ID，不能直接用 email
+
+**解法**：先 `az ad user show --id <upn> --query id -o tsv` 取得 Object ID，再帶入 `--member-id`。或用 Graph API POST `$ref` 直接帶 `directoryObjects/{objectId}`。
+
+---
+
+### 技巧：用 `onPremisesSamAccountName` 查 NT 帳號
+
+Graph API 的 `onPremisesSamAccountName` 欄位回傳 on-premises AD sync 的 NT 帳號（SAM account name）：
+```
+GET https://graph.microsoft.com/v1.0/users/{upn}?$select=userPrincipalName,displayName,onPremisesSamAccountName
+```
+適合用來對照 NT 帳號與 UPN 的對應關係。
+
+---
+
 ### 坑 6：`wit_query_by_wiql` 帶過多欄位也會 timeout
 
 **症狀**：`MCP error -32001: Request timed out`，即使只是一次 WIQL 查詢也可能觸發。
