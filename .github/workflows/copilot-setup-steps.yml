@@ -1,0 +1,47 @@
+name: "Copilot 環境設定步驟"
+
+# 當此檔案有任何變更時自動執行，方便驗證設定是否正確。
+# 也可以透過存放庫的「Actions」頁籤手動觸發執行。
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+jobs:
+  # 此 Job 的名稱必須為 `copilot-setup-steps`，否則 Copilot 無法識別。
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+
+    # 僅授予執行所需的最低權限。
+    # Copilot 會使用自己的 token 進行後續操作。
+    permissions:
+      # 需要 contents: read 才能簽出存放庫以還原相依套件。
+      contents: read
+
+    steps:
+      # 簽出存放庫原始碼，供後續步驟使用。
+      - name: 簽出存放庫
+        uses: actions/checkout@v4
+
+      # 安裝 .NET 10 SDK，與 global.json 及 Directory.Build.props 中指定的版本一致。
+      - name: 設定 .NET 10 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      # 還原所有範例專案的 NuGet 相依套件，加快 Copilot 後續的建置速度。
+      - name: 還原 awesome-copilot 相依套件
+        run: dotnet restore awesome-copilot/McpAwesomeCopilot.sln
+
+      - name: 還原 markdown-to-html 相依套件
+        run: dotnet restore markdown-to-html/McpMarkdownToHtml.sln
+
+      - name: 還原 todo-list 相依套件
+        run: dotnet restore todo-list/McpTodoList.sln
+
+      - name: 還原 outlook-email 相依套件
+        run: dotnet restore outlook-email/McpOutlookEmail.sln
